@@ -2,6 +2,7 @@ package io.github.yok.flexdblink;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -95,7 +96,7 @@ class MainTest {
             verify(app).setAddCommandLineProperties(false);
 
             // run(String...) が呼ばれたこと
-            verify(app).run(any(String[].class));
+            verify(app).run(eq("--load"), eq("myscenario"));
         }
     }
 
@@ -107,10 +108,13 @@ class MainTest {
                 mock(DbUnitConfigFactory.class));
 
         try (MockedStatic<ErrorHandler> mocked = mockStatic(ErrorHandler.class)) {
-            mocked.when(() -> ErrorHandler.errorAndExit(anyString())).thenAnswer(inv -> null);
+            mocked.when(() -> ErrorHandler.errorAndExit(anyString()))
+                    .thenAnswer(inv -> {
+                        throw new IllegalStateException("exit");
+                    });
 
             // dumpモードでシナリオ省略 → 1引数版が呼ばれる
-            sut.run("--dump");
+            assertThrows(IllegalStateException.class, () -> sut.run("--dump"));
 
             mocked.verify(
                     () -> ErrorHandler.errorAndExit(eq("Scenario name is required in dump mode.")));

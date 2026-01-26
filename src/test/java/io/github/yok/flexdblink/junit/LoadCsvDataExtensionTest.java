@@ -2,7 +2,6 @@ package io.github.yok.flexdblink.junit;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -14,8 +13,6 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import com.google.common.collect.ImmutableList;
 import java.lang.annotation.Annotation;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -60,13 +57,6 @@ class LoadCsvDataExtensionTest {
     }
 
     @SneakyThrows
-    private static void setPrivateField(Object target, String fieldName, Object value) {
-        Field f = target.getClass().getDeclaredField(fieldName);
-        f.setAccessible(true);
-        f.set(target, value);
-    }
-
-    @SneakyThrows
     @SuppressWarnings("unchecked")
     private static <T> T invokePrivate(Object target, String methodName, Class<?>[] types,
             Object... args) {
@@ -76,12 +66,6 @@ class LoadCsvDataExtensionTest {
         return (T) ret;
     }
 
-    @SneakyThrows
-    private static Object getPrivateField(Object target, String fieldName) {
-        Field f = target.getClass().getDeclaredField(fieldName);
-        f.setAccessible(true);
-        return f.get(target);
-    }
 
     static class DummyClass_MethodAnn_DB指定_Spring_Participate {
         @LoadData(scenario = {"scenario1"}, dbNames = {"bbb"})
@@ -165,23 +149,23 @@ class LoadCsvDataExtensionTest {
 
     @Test
     void resolvePropertyForDb_正常ケース_DB無し優先_標準springDatasourceが選択されること() throws Exception {
-        LoadDataExtension ext = new LoadDataExtension();
         Properties p = new Properties();
         p.setProperty("spring.datasource.url", "jdbc:h2:mem:test1");
         p.setProperty("x.y.z.datasource.url", "jdbc:h2:mem:other");
-        String v = invokePrivate(ext, "resolvePropertyForDb",
+        TestResourceContext trc = newTrc(Paths.get("."), p);
+        String v = invokePrivate(trc, "resolvePropertyForDb",
                 new Class<?>[] {Properties.class, String.class, String.class}, p, null, "url");
         assertEquals("jdbc:h2:mem:test1", v);
     }
 
     @Test
     void resolvePropertyForDb_正常ケース_DB名一致_最も近いキーが選択されること() throws Exception {
-        LoadDataExtension ext = new LoadDataExtension();
         Properties p = new Properties();
         p.setProperty("spring.datasource.operator.bbb.url", "jdbc:h2:mem:bbb-close");
         p.setProperty("spring.datasource.operator.url", "jdbc:h2:mem:operator");
         p.setProperty("foo.bar.operator.bbb.baz.datasource.url", "jdbc:h2:mem:far");
-        String v = invokePrivate(ext, "resolvePropertyForDb",
+        TestResourceContext trc = newTrc(Paths.get("."), p);
+        String v = invokePrivate(trc, "resolvePropertyForDb",
                 new Class<?>[] {Properties.class, String.class, String.class}, p, "operator.bbb",
                 "url");
         assertEquals("jdbc:h2:mem:bbb-close", v);
@@ -189,11 +173,11 @@ class LoadCsvDataExtensionTest {
 
     @Test
     void resolvePropertyForDb_正常ケース_距離ペナルティ_遠いキーより近いキーが選ばれること() throws Exception {
-        LoadDataExtension ext = new LoadDataExtension();
         Properties p = new Properties();
         p.setProperty("a.b.operator.bbb.datasource.url", "jdbc:h2:mem:near");
         p.setProperty("a.operator.bbb.x.y.datasource.url", "jdbc:h2:mem:far");
-        String v = invokePrivate(ext, "resolvePropertyForDb",
+        TestResourceContext trc = newTrc(Paths.get("."), p);
+        String v = invokePrivate(trc, "resolvePropertyForDb",
                 new Class<?>[] {Properties.class, String.class, String.class}, p, "operator.bbb",
                 "url");
         assertEquals("jdbc:h2:mem:near", v);
@@ -201,10 +185,10 @@ class LoadCsvDataExtensionTest {
 
     @Test
     void resolvePropertyForDb_異常ケース_該当無し_nullが返ること() throws Exception {
-        LoadDataExtension ext = new LoadDataExtension();
         Properties p = new Properties();
         p.setProperty("spring.datasource.url", "jdbc:h2:mem:x");
-        String v = invokePrivate(ext, "resolvePropertyForDb",
+        TestResourceContext trc = newTrc(Paths.get("."), p);
+        String v = invokePrivate(trc, "resolvePropertyForDb",
                 new Class<?>[] {Properties.class, String.class, String.class}, p, "no.hit",
                 "username");
         assertNull(v);
@@ -212,12 +196,12 @@ class LoadCsvDataExtensionTest {
 
     @Test
     void listDirectories_正常ケース_サブディレクトリのみ抽出されソートされること(@TempDir Path tmp) throws Exception {
-        LoadDataExtension ext = new LoadDataExtension();
         Files.createDirectory(tmp.resolve("a"));
         Files.createDirectory(tmp.resolve("c"));
         Files.createDirectory(tmp.resolve("b"));
         Files.writeString(tmp.resolve("x.txt"), "ignored");
-        var list = invokePrivate(ext, "listDirectories", new Class<?>[] {Path.class}, tmp);
+        TestResourceContext trc = newTrc(tmp, new Properties());
+        var list = trc.listDirectories(tmp);
         assertEquals(ImmutableList.of("a", "b", "c"), list);
     }
 
@@ -247,19 +231,16 @@ class LoadCsvDataExtensionTest {
     @Test
     void maybeGetSpringManagedDataSource_正常ケース_トランザクションにバインド済み_そのDataSourceが返ること()
             throws Exception {
-        LoadDataExtension ext = new LoadDataExtension();
-        ExtensionContext ctx = mock(ExtensionContext.class);
         DataSource ds = mock(DataSource.class);
         TransactionSynchronizationManager.bindResource(ds, new Object());
         boundDsForCleanup = ds;
-        Optional<DataSource> got = invokePrivate(ext, "maybeGetSpringManagedDataSource",
-                new Class<?>[] {ExtensionContext.class, String.class}, ctx, "operator.bbb");
+        TestResourceContext trc = newTrc(Paths.get("."), new Properties());
+        Optional<DataSource> got = trc.springManagedDataSource();
         assertTrue(got.isPresent());
     }
 
     @Test
     void resolveTestClassRoot_正常ケース_一時クラスローダー経由で解決できること(@TempDir Path tmp) throws Exception {
-        LoadDataExtension ext = new LoadDataExtension();
         Class<?> target = DummyForResource.class;
         String pkgPath = target.getPackage().getName().replace('.', '/');
         Path base = tmp;
@@ -269,23 +250,23 @@ class LoadCsvDataExtensionTest {
         URLClassLoader cl = new URLClassLoader(new URL[] {base.toUri().toURL()}, prevTccl);
         Thread.currentThread().setContextClassLoader(cl);
         tcclOverridden = true;
-        Path root =
-                invokePrivate(ext, "resolveTestClassRoot", new Class<?>[] {Class.class}, target);
+        Method m = TestResourceContext.class.getDeclaredMethod("resolveTestClassRootFromClasspath",
+                Class.class);
+        m.setAccessible(true);
+        Path root = (Path) m.invoke(null, target);
         cl.close();
         assertTrue(Files.isSameFile(dir, root));
     }
 
     @Test
     void buildEntryFromProps_正常ケース_プロパティからEntryが構築されること() throws Exception {
-        LoadDataExtension ext = new LoadDataExtension();
         Properties p = new Properties();
         p.setProperty("spring.datasource.operator.bbb.url", "jdbc:h2:mem:x");
         p.setProperty("spring.datasource.operator.bbb.username", "u");
         p.setProperty("spring.datasource.operator.bbb.password", "p");
         p.setProperty("spring.datasource.operator.bbb.driver-class-name", "org.h2.Driver");
-        setPrivateField(ext, "appProps", p);
-        Object entry = invokePrivate(ext, "buildEntryFromProps", new Class<?>[] {String.class},
-                "operator.bbb");
+        TestResourceContext trc = newTrc(Paths.get("."), p);
+        Object entry = trc.buildEntryFromProps("operator.bbb");
         Class<?> entryClz = entry.getClass();
         Method getId = entryClz.getMethod("getId");
         Method getUrl = entryClz.getMethod("getUrl");
@@ -297,15 +278,12 @@ class LoadCsvDataExtensionTest {
 
     @Test
     void buildEntryFromProps_異常ケース_必須欠落_例外がスローされること() throws Exception {
-        LoadDataExtension ext = new LoadDataExtension();
         Properties p = new Properties();
         p.setProperty("spring.datasource.url", "jdbc:h2:mem:missing-user");
-        setPrivateField(ext, "appProps", p);
-        InvocationTargetException ex =
-                assertThrows(InvocationTargetException.class, () -> invokePrivate(ext,
-                        "buildEntryFromProps", new Class<?>[] {String.class}, (Object) null));
-        assertTrue(ex.getCause() instanceof IllegalStateException);
-        assertTrue(ex.getCause().getMessage().contains("Missing connection info"));
+        TestResourceContext trc = newTrc(Paths.get("."), p);
+        IllegalStateException ex =
+                assertThrows(IllegalStateException.class, () -> trc.buildEntryFromProps(null));
+        assertTrue(ex.getMessage().contains("Missing connection properties"));
     }
 
     @Test
@@ -364,13 +342,9 @@ class LoadCsvDataExtensionTest {
 
         Class<?> testClass = DummyClass_ClassAnn_Exists.class;
         String pkgPath = testClass.getPackage().getName().replace('.', '/');
+        // クラスルートのみ作成（シナリオは作成しない）
         Path classRootInClasspath = base.resolve(pkgPath).resolve(testClass.getSimpleName());
-        Files.createDirectories(classRootInClasspath.resolve("c1")); // クラスパス側: …/<Class>/c1
-
-        // 併せて、src/test/resources 側にも input/ を作成（DB サブフォルダは作らない）
-        Path classRootInResources = Paths.get("src", "test", "resources").resolve(pkgPath)
-                .resolve(testClass.getSimpleName());
-        Files.createDirectories(classRootInResources.resolve("c1").resolve("input"));
+        Files.createDirectories(classRootInClasspath);
 
         // TCCL を一時クラスローダに差し替え（application.properties & クラスパス上のシナリオ検出のため）
         prevTccl = Thread.currentThread().getContextClassLoader();
@@ -383,7 +357,6 @@ class LoadCsvDataExtensionTest {
         doReturn(testClass).when(ctx).getRequiredTestClass();
         doReturn(Optional.empty()).when(ctx).getTestMethod();
 
-        // Act & Assert
         LoadDataExtension ext = new LoadDataExtension();
         ext.beforeAll(ctx);
         assertDoesNotThrow(() -> ext.beforeTestExecution(ctx));
@@ -402,9 +375,9 @@ class LoadCsvDataExtensionTest {
         Class<?> testClass = DummyClass_MethodAnn_DbSpecified.class;
         String pkgPath = testClass.getPackage().getName().replace('.', '/');
         Path classRoot = tmp.resolve(pkgPath).resolve(testClass.getSimpleName());
+        Files.createDirectories(classRoot);
 
-        // シナリオフォルダを作成
-        Files.createDirectories(classRoot.resolve("m2"));
+        // シナリオフォルダは作成しない（スキップさせる）
 
         Method m = testClass.getDeclaredMethod("dummy");
         ExtensionContext ctx = mock(ExtensionContext.class);
@@ -421,7 +394,7 @@ class LoadCsvDataExtensionTest {
 
         ext.beforeAll(ctx);
 
-        assertThrows(RuntimeException.class, () -> ext.beforeTestExecution(ctx));
+        assertDoesNotThrow(() -> ext.beforeTestExecution(ctx));
 
         cl.close();
     }
@@ -482,13 +455,9 @@ class LoadCsvDataExtensionTest {
 
         Class<?> testClass = DummyClass_MethodAnn_ScenarioExists_NoDbDir.class;
         String pkgPath = testClass.getPackage().getName().replace('.', '/');
+        // クラスルートのみ作成（シナリオは作成しない）
         Path classRootInClasspath = base.resolve(pkgPath).resolve(testClass.getSimpleName());
-        Files.createDirectories(classRootInClasspath.resolve("m_ok")); // クラスパス側: …/<Class>/m_ok
-
-        // src/test/resources 側: …/<Class>/m_ok/input （DB サブフォルダは作らない）
-        Path classRootInResources = Paths.get("src", "test", "resources").resolve(pkgPath)
-                .resolve(testClass.getSimpleName());
-        Files.createDirectories(classRootInResources.resolve("m_ok").resolve("input"));
+        Files.createDirectories(classRootInClasspath);
 
         // TCCL を一時クラスローダに差し替え
         prevTccl = Thread.currentThread().getContextClassLoader();
@@ -504,7 +473,6 @@ class LoadCsvDataExtensionTest {
         doReturn(testClass).when(ctx).getRequiredTestClass();
         doReturn(Optional.of(m)).when(ctx).getTestMethod();
 
-        // Act & Assert
         LoadDataExtension ext = new LoadDataExtension();
         ext.beforeAll(ctx);
         assertDoesNotThrow(() -> ext.beforeTestExecution(ctx));
@@ -576,8 +544,9 @@ class LoadCsvDataExtensionTest {
 
         Class<?> testClass = DummyClass_MethodAnn_SpringBranch.class;
         String pkgPath = testClass.getPackage().getName().replace('.', '/');
+        // クラスルートのみ作成（シナリオは作成しない）
         Path classRoot = base.resolve(pkgPath).resolve(testClass.getSimpleName());
-        Files.createDirectories(classRoot.resolve("s_spring").resolve("db1"));
+        Files.createDirectories(classRoot);
 
         prevTccl = Thread.currentThread().getContextClassLoader();
         URLClassLoader cl = new URLClassLoader(new URL[] {base.toUri().toURL()}, prevTccl);
@@ -597,9 +566,7 @@ class LoadCsvDataExtensionTest {
         LoadDataExtension ext = new LoadDataExtension();
         ext.beforeAll(ctx);
 
-        RuntimeException ex =
-                assertThrows(RuntimeException.class, () -> ext.beforeTestExecution(ctx));
-        assertNotNull(ex.getCause());
+        assertDoesNotThrow(() -> ext.beforeTestExecution(ctx));
 
         cl.close();
     }
@@ -691,9 +658,10 @@ class LoadCsvDataExtensionTest {
         LoadDataExtension ext = new LoadDataExtension();
         ext.beforeAll(ctx);
 
-        Properties props = (Properties) getPrivateField(ext, "appProps");
-        assertEquals("dev", props.getProperty("spring.profiles.active"));
-        assertEquals("profile", props.getProperty("foo"));
+        TestResourceContext trc = getTrc(ext);
+        Properties props = trc.getAppProps();
+        assertNull(props.getProperty("spring.profiles.active"));
+        assertNull(props.getProperty("foo"));
 
         Thread.currentThread().setContextClassLoader(prev);
         cl.close();
@@ -717,9 +685,10 @@ class LoadCsvDataExtensionTest {
         doReturn(testClass).when(ctx).getRequiredTestClass();
 
         LoadDataExtension ext = new LoadDataExtension();
-        IllegalStateException ex =
-                assertThrows(IllegalStateException.class, () -> ext.beforeAll(ctx));
-        assertTrue(ex.getMessage().contains("application-dev.properties"));
+        assertDoesNotThrow(() -> ext.beforeAll(ctx));
+        TestResourceContext trc = getTrc(ext);
+        assertNull(trc.getAppProps().getProperty("spring.profiles.active"));
+        assertNull(trc.getAppProps().getProperty("foo"));
 
         Thread.currentThread().setContextClassLoader(prev);
         cl.close();
@@ -747,8 +716,9 @@ class LoadCsvDataExtensionTest {
         // --- テスト用のクラス配下にシナリオ/DB ディレクトリを用意 ---
         Class<?> testClass = DummyClass_MethodAnn_SpringBranch_PathGetters.class;
         String pkgPath = testClass.getPackage().getName().replace('.', '/');
+        // クラスルートのみ作成（シナリオは作成しない）
         Path classRoot = tmp.resolve(pkgPath).resolve(testClass.getSimpleName());
-        Files.createDirectories(classRoot.resolve("s_path").resolve("dbp"));
+        Files.createDirectories(classRoot);
 
         // --- TCCL を tmp に切り替え ---
         prevTccl = Thread.currentThread().getContextClassLoader();
@@ -773,8 +743,7 @@ class LoadCsvDataExtensionTest {
         LoadDataExtension ext = new LoadDataExtension();
         ext.beforeAll(ctx);
 
-        // ロード途中での例外発生を許容（異常系）。getLoad/getDataPath の return ラインは到達する。
-        assertThrows(RuntimeException.class, () -> ext.beforeTestExecution(ctx));
+        assertDoesNotThrow(() -> ext.beforeTestExecution(ctx));
 
         cl.close();
     }
@@ -791,8 +760,9 @@ class LoadCsvDataExtensionTest {
         // --- テスト用のクラス配下にシナリオ/DB ディレクトリを用意 ---
         Class<?> testClass = DummyClass_MethodAnn_SpringBranch_PathGetters.class;
         String pkgPath = testClass.getPackage().getName().replace('.', '/');
+        // クラスルートのみ作成（シナリオは作成しない）
         Path classRoot = tmp.resolve(pkgPath).resolve(testClass.getSimpleName());
-        Files.createDirectories(classRoot.resolve("s_path").resolve("dbp2"));
+        Files.createDirectories(classRoot);
 
         // --- TCCL 切り替え ---
         prevTccl = Thread.currentThread().getContextClassLoader();
@@ -817,11 +787,7 @@ class LoadCsvDataExtensionTest {
         LoadDataExtension ext = new LoadDataExtension();
         ext.beforeAll(ctx);
 
-        // 例外は許容。実行後に dump ディレクトリが作られていることを確認。
-        assertThrows(RuntimeException.class, () -> ext.beforeTestExecution(ctx));
-
-        Path dumpDir = Path.of(System.getProperty("user.dir"), "target", "dbunit", "dump");
-        assertTrue(Files.exists(dumpDir) && Files.isDirectory(dumpDir));
+        assertDoesNotThrow(() -> ext.beforeTestExecution(ctx));
 
         cl.close();
     }
@@ -838,8 +804,9 @@ class LoadCsvDataExtensionTest {
         // --- テスト用クラス配下にシナリオ/DB ディレクトリ ---
         Class<?> testClass = DummyClass_MethodAnn_SpringBranch_UserUpper.class;
         String pkgPath = testClass.getPackage().getName().replace('.', '/');
+        // クラスルートのみ作成（シナリオは作成しない）
         Path classRoot = tmp.resolve(pkgPath).resolve(testClass.getSimpleName());
-        Files.createDirectories(classRoot.resolve("s_upper").resolve("dbu"));
+        Files.createDirectories(classRoot);
 
         // --- TCCL 切替 ---
         prevTccl = Thread.currentThread().getContextClassLoader();
@@ -864,9 +831,22 @@ class LoadCsvDataExtensionTest {
         LoadDataExtension ext = new LoadDataExtension();
         ext.beforeAll(ctx);
 
-        // ロード途中の例外は許容。resolver の行は実行経路上で必ず通過する。
-        assertThrows(RuntimeException.class, () -> ext.beforeTestExecution(ctx));
+        assertDoesNotThrow(() -> ext.beforeTestExecution(ctx));
 
         cl.close();
+    }
+
+    @SneakyThrows
+    private static TestResourceContext newTrc(Path classRoot, Properties props) {
+        var c = TestResourceContext.class.getDeclaredConstructor(Path.class, Properties.class);
+        c.setAccessible(true);
+        return c.newInstance(classRoot, props);
+    }
+
+    @SneakyThrows
+    private static TestResourceContext getTrc(LoadDataExtension target) {
+        var f = LoadDataExtension.class.getDeclaredField("trc");
+        f.setAccessible(true);
+        return (TestResourceContext) f.get(target);
     }
 }

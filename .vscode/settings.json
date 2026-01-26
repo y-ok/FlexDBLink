@@ -4,15 +4,12 @@
   "java.completion.importOrder": [
     ""
   ],
-  "java.project.sourcePaths": [
-    "src/main/java"
-  ],
   "java.compile.nullAnalysis.mode": "disabled",
-  "java.jdt.ls.java.home": "/usr/local/Cellar/openjdk@11/11.0.27/libexec/openjdk.jdk/Contents/Home",
+  "java.jdt.ls.java.home": "/usr/local/Cellar/openjdk@11/11.0.29/libexec/openjdk.jdk/Contents/Home",
   "java.configuration.runtimes": [
     {
       "name": "JavaSE-11",
-      "path": "/usr/local/Cellar/openjdk@11/11.0.27/libexec/openjdk.jdk/Contents/Home",
+      "path": "/usr/local/Cellar/openjdk@11/11.0.29/libexec/openjdk.jdk/Contents/Home",
       "default": true
     }
   ],

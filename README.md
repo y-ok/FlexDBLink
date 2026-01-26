@@ -23,7 +23,8 @@ Most importantly, its greatest strength lies in the fact that **you no longer ne
 ## 特長
 
 * **Load & Dump**: CSV / JSON / YAML / XML ファイルから DB へデータロードします。また、DB から CSV/JSON/YAML/XML ファイルとしてデータ取得できます。LOBデータをファイルとして管理し、データロードおよびデータ取得できます。
-* **LOB は外部ファイルで**: データセルに `file:...` と書けば、`files/` ディレクトリの実体とリンクします。
+* **LOB は外部ファイルで**: データセルに `file:...` と書けば、`files/` ディレクトリの実体とリンクします
+  （JUnit 5 拡張の配置規約は後述）。
 * **2 段階ロード**（初期投入 `pre` とシナリオ追加入力）＋ シナリオ時は **既存重複の削除＋新規 INSERT のみ**を実施します。
 * **テーブル順序自動化**: `DBUnit` 用の `table-ordering.txt` が無ければ データセット群から自動生成します。
 * **JUnit 5 拡張**: `@LoadData` でテストケースごとに データファイルを投入。SpringTestのトランザクション制御に従います。
@@ -32,7 +33,8 @@ Most importantly, its greatest strength lies in the fact that **you no longer ne
 ## Features
 
 * **Load & Dump**: Load data from CSV / JSON / YAML / XML files into the DB, and export data from the DB as CSV/JSON/YAML/XML files. LOB data is managed as external files and can be both loaded and exported.
-* **External LOB files**: If a dataset cell contains `file:...`, it links to the actual file under the `files/` directory.
+* **External LOB files**: If a dataset cell contains `file:...`, it links to the actual file under the `files/` directory
+  (JUnit 5 extension layout is described below).
 * **Two-phase loading**: Initial `pre` load plus scenario-specific additions; during scenarios, **remove existing duplicates and perform INSERT-only**.
 * **Automated table ordering**: If `table-ordering.txt` for DBUnit is missing, it’s auto-generated from the dataset set.
 * **JUnit 5 extension**: Use `@LoadData` to load datasets per test case; adheres to Spring Test transaction management.
@@ -431,6 +433,7 @@ dump:
 
 `@LoadData` アノテーションを付与すると、テスト実行前に **CSV / JSON / YAML / XML** などのデータファイルを自動投入し、テスト終了時に自動的にロールバックされます。
 Spring のテストトランザクション（`@Transactional`）に参加するため、各テストメソッドの終了時点で確実にデータベースの状態が元に戻ります。
+**本機能は Spring Test の実行コンテキストが必須**です（`@SpringBootTest` / `@MybatisTest` / `@ExtendWith(SpringExtension.class)` など）。
 
 `@LoadData` は **クラスレベル** と **メソッドレベル** の両方に付与できます。
 
@@ -444,6 +447,7 @@ Spring のテストトランザクション（`@Transactional`）に参加する
 
 With the `@LoadData` annotation, **datasets (CSV / JSON / YAML / XML)** are automatically loaded before test execution and rolled back afterward.
 Because it integrates with Spring’s test transaction (`@Transactional`), the database state is reliably restored at the end of each test method.
+**A Spring Test execution context is required** (e.g., `@SpringBootTest`, `@MybatisTest`, or `@ExtendWith(SpringExtension.class)`).
 
 The `@LoadData` annotation can be placed on both the **class level** and the **method level**:
 
@@ -484,12 +488,19 @@ class LeapSecondFileMapperTest {
 }
 ```
 
-**リソース配置規約**
+**リソース配置規約（JUnit 5 拡張の規約）**
 
 ```
-src/test/resources/<パッケージ階層>/<テストクラス名>/<シナリオ>/<DB名>/*.csv
-src/test/resources/<パッケージ階層>/<テストクラス名>/files/*   # LOB 実体
+# 複数DB
+src/test/resources/<パッケージ階層>/<テストクラス名>/<シナリオ>/input/<DB名>/*.csv
+src/test/resources/<パッケージ階層>/<テストクラス名>/<シナリオ>/input/<DB名>/files/*   # LOB 実体
+
+# 単一DB
+src/test/resources/<パッケージ階層>/<テストクラス名>/<シナリオ>/input/*.csv
+src/test/resources/<パッケージ階層>/<テストクラス名>/<シナリオ>/input/files/*        # LOB 実体
 ```
+
+> **この規約以外の場所はエラー**とします。
 
 * `@LoadData(scenario = "...", dbNames = "...")`
 
@@ -498,12 +509,19 @@ src/test/resources/<パッケージ階層>/<テストクラス名>/files/*   # L
 
 --- 
 
-**Resource layout conventions**
+**Resource layout conventions (JUnit 5 extension)**
 
 ```
-src/test/resources/<package path>/<TestClassName>/<scenario>/<dbName>/*.csv
-src/test/resources/<package path>/<TestClassName>/files/*   # LOB payloads
+# Multiple DBs
+src/test/resources/<package path>/<TestClassName>/<scenario>/input/<dbName>/*.csv
+src/test/resources/<package path>/<TestClassName>/<scenario>/input/<dbName>/files/*   # LOB payloads
+
+# Single DB
+src/test/resources/<package path>/<TestClassName>/<scenario>/input/*.csv
+src/test/resources/<package path>/<TestClassName>/<scenario>/input/files/*            # LOB payloads
 ```
+
+> **Any other location is treated as an error.**
 
 * `@LoadData(scenario = "...", dbNames = "...")`
 

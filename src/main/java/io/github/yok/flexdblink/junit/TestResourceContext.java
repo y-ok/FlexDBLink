@@ -33,6 +33,8 @@ import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.extension.ExtensionContext;
+import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
+import org.springframework.core.io.UrlResource;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -56,9 +58,10 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  *
  * <h3>Properties loading and merge order (UTF-8, last-write-wins)</h3>
  * <ol>
- * <li>Load <em>all</em> {@code application.properties} found on the classpath (sorted by URL string
- * ascending).</li>
- * <li>Scan the classpath for <em>all</em> {@code application-*.properties} at any location.</li>
+ * <li>Load <em>all</em> {@code application.properties} and {@code application.yml/.yaml} found on
+ * the classpath (sorted by URL string ascending).</li>
+ * <li>Scan the classpath for <em>all</em> {@code application-*.properties} and
+ * {@code application-*.yml/.yaml} at any location.</li>
  * <li>Determine active profiles from {@code spring.profiles.active} in the merged properties,
  * overridden by the JVM system property if set (comma/semicolon separated).</li>
  * <li>Load <em>non-active</em> {@code application-*.properties} in ascending resource-name
@@ -361,35 +364,39 @@ class TestResourceContext {
     }
 
     /**
-     * Load and merge <em>all</em> {@code application*.properties} from the classpath using the
-     * documented order. Files are read as UTF-8; later loads overwrite earlier keys.
+     * Load and merge <em>all</em> {@code application*.properties} and
+     * {@code application*.yml/.yaml} from the classpath using the documented order. Files are read
+     * as UTF-8; later loads overwrite earlier keys.
      *
      * @param cl class loader to use
      * @return merged {@link Properties}
      * @throws Exception if resource discovery or reading fails
      */
     private static Properties loadAllApplicationProperties(ClassLoader cl) throws Exception {
-        Properties result = new Properties();
-
-        // Load all application.properties (sorted by URL string)
-        List<URL> baseUrls = enumToList(cl.getResources("application.properties"));
+        // Load all application.properties / application.yml / application.yaml (sorted by URL)
+        List<URL> baseUrls = new ArrayList<>();
+        baseUrls.addAll(enumToList(cl.getResources("application.properties")));
+        baseUrls.addAll(enumToList(cl.getResources("application.yml")));
+        baseUrls.addAll(enumToList(cl.getResources("application.yaml")));
         baseUrls.sort(Comparator.comparing(URL::toString));
+        Properties result = new Properties();
         for (URL u : baseUrls) {
-            loadPropsUtf8(result, u);
+            loadResourceToProps(result, u);
             log.info("Loaded properties: {}", u);
         }
 
-        // Discover all application-*.properties on the classpath
+        // Discover all application-*.properties / application-*.yml/.yaml on the classpath
         Set<ClassPath.ResourceInfo> all = ClassPath.from(cl).getResources();
         Map<String, List<URL>> profileToUrls = new LinkedHashMap<>();
         for (ClassPath.ResourceInfo ri : all) {
             String name = ri.getResourceName();
-            if (!name.endsWith(".properties")) {
+            if (!(name.endsWith(".properties") || name.endsWith(".yml")
+                    || name.endsWith(".yaml"))) {
                 continue;
             }
 
             String simple = name.contains("/") ? name.substring(name.lastIndexOf('/') + 1) : name;
-            if (!simple.startsWith("application-") || !simple.endsWith(".properties")) {
+            if (!simple.startsWith("application-")) {
                 continue;
             }
 
@@ -418,7 +425,7 @@ class TestResourceContext {
             }
             nonActive.sort(Comparator.comparing(r -> r.url.toString()));
             for (Res r : nonActive) {
-                loadPropsUtf8(result, r.url);
+                loadResourceToProps(result, r.url);
                 log.info("Loaded properties (non-active profile={}): {}", r.profile, r.url);
             }
         }
@@ -429,7 +436,7 @@ class TestResourceContext {
             List<URL> sorted = new ArrayList<>(urls);
             sorted.sort(Comparator.comparing(URL::toString));
             for (URL u : sorted) {
-                loadPropsUtf8(result, u);
+                loadResourceToProps(result, u);
                 log.info("Loaded properties (active profile={}): {}", ap, u);
             }
         }
@@ -437,14 +444,27 @@ class TestResourceContext {
     }
 
     /**
-     * Extract the profile token from a file name like {@code application-<profile>.properties}.
+     * Extract the profile token from a file name like
+     * {@code application-<profile>.properties} / {@code .yml} / {@code .yaml}.
      *
      * @param simpleName simple resource name (no path)
      * @return extracted profile or empty string when not applicable
      */
     private static String extractProfile(String simpleName) {
-        String mid = StringUtils.substringBetween(simpleName, "application-", ".properties");
-        return mid == null ? "" : mid.trim();
+        String lower = simpleName.toLowerCase(Locale.ROOT);
+        if (!lower.startsWith("application-")) {
+            return "";
+        }
+        if (lower.endsWith(".properties")) {
+            return StringUtils.substringBetween(simpleName, "application-", ".properties");
+        }
+        if (lower.endsWith(".yml")) {
+            return StringUtils.substringBetween(simpleName, "application-", ".yml");
+        }
+        if (lower.endsWith(".yaml")) {
+            return StringUtils.substringBetween(simpleName, "application-", ".yaml");
+        }
+        return "";
     }
 
     /**
@@ -487,6 +507,42 @@ class TestResourceContext {
             for (Map.Entry<Object, Object> e : p.entrySet()) {
                 target.put(e.getKey(), e.getValue());
             }
+        }
+    }
+
+    /**
+     * Load a resource into {@link Properties}, supporting .properties and .yml/.yaml.
+     *
+     * @param target target properties to mutate
+     * @param url resource URL
+     * @throws Exception if reading fails
+     */
+    private static void loadResourceToProps(Properties target, URL url) throws Exception {
+        String path = url.getPath().toLowerCase(Locale.ROOT);
+        if (path.endsWith(".properties")) {
+            loadPropsUtf8(target, url);
+            return;
+        }
+        if (path.endsWith(".yml") || path.endsWith(".yaml")) {
+            loadYamlToProps(target, url);
+        }
+    }
+
+    /**
+     * Load a YAML resource into {@link Properties} using Spring's YAML parser.
+     *
+     * @param target target properties to mutate
+     * @param url resource URL
+     */
+    private static void loadYamlToProps(Properties target, URL url) {
+        YamlPropertiesFactoryBean factory = new YamlPropertiesFactoryBean();
+        factory.setResources(new UrlResource(url));
+        Properties p = factory.getObject();
+        if (p == null) {
+            return;
+        }
+        for (Map.Entry<Object, Object> e : p.entrySet()) {
+            target.put(e.getKey(), e.getValue());
         }
     }
 
