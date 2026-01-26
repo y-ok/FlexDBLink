@@ -2,14 +2,6 @@
   "java.format.settings.profile": "GoogleStyle",
   "java.format.settings.url": "config/formatter/eclipse-java-google-style.xml",
   "java.completion.importOrder": [
-    "com",
-    "io",
-    "java",
-    "javax",
-    "lombok",
-    "net",
-    "oracle",
-    "org",
     ""
   ],
   "java.project.sourcePaths": [

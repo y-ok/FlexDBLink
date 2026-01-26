@@ -9,6 +9,7 @@ import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.core.DataLoader;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
+import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.LogPathUtil;
 import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
 import java.lang.reflect.Proxy;
@@ -112,54 +113,62 @@ public class LoadDataExtension
      */
     @Override
     public void beforeTestExecution(ExtensionContext context) throws Exception {
-        if (trc == null) {
-            beforeAll(context);
-        }
-
-        Class<?> testClass = context.getRequiredTestClass();
-        log.info("Extension is active. testClass={}", testClass.getName());
-
-        // Class-level @LoadData
-        LoadData classAnn = testClass.getAnnotation(LoadData.class);
-        if (classAnn != null) {
-            for (String scenario : resolveScenarios(classAnn)) {
-                Path base = StringUtils.isBlank(scenario) ? trc.getClassRoot()
-                        : trc.getClassRoot().resolve(scenario);
-                if (Files.isDirectory(base)) {
-                    log.info("Found class-level @LoadData. scenario={}, dir={}", scenario, base);
-                    loadScenarioParticipating(context, scenario, classAnn.dbNames());
-                } else {
-                    log.warn("Class-level scenario directory not found. scenario={}, dir={}",
-                            scenario, base);
-                }
+        ErrorHandler.disableExitForCurrentThread();
+        try {
+            if (trc == null) {
+                beforeAll(context);
             }
-        }
 
-        // Method-level @LoadData
-        context.getTestMethod().ifPresent(m -> {
-            LoadData methodAnn = m.getAnnotation(LoadData.class);
-            if (methodAnn == null) {
-                return;
-            }
-            try {
-                for (String scenario : resolveScenarios(methodAnn)) {
+            Class<?> testClass = context.getRequiredTestClass();
+            log.info("Extension is active. testClass={}", testClass.getName());
+
+            // Class-level @LoadData
+            LoadData classAnn = testClass.getAnnotation(LoadData.class);
+            if (classAnn != null) {
+                for (String scenario : resolveScenarios(classAnn)) {
                     Path base = StringUtils.isBlank(scenario) ? trc.getClassRoot()
                             : trc.getClassRoot().resolve(scenario);
                     if (Files.isDirectory(base)) {
-                        log.info("Found method-level @LoadData. method={}, scenario={}, dir={}",
-                                m.getName(), scenario, LogPathUtil.renderDirForLog(base.toFile()));
-                        loadScenarioParticipating(context, scenario, methodAnn.dbNames());
+                        log.info("Found class-level @LoadData. scenario={}, dir={}", scenario,
+                                base);
+                        loadScenarioParticipating(context, scenario, classAnn.dbNames());
                     } else {
-                        log.info(
-                                "Method-level scenario directory not found."
-                                        + "method={}, scenario={}, dir={}",
-                                m.getName(), scenario, LogPathUtil.renderDirForLog(base.toFile()));
+                        log.warn("Class-level scenario directory not found. scenario={}, dir={}",
+                                scenario, base);
                     }
                 }
-            } catch (Exception e) {
-                throw new RuntimeException(e);
             }
-        });
+
+            // Method-level @LoadData
+            context.getTestMethod().ifPresent(m -> {
+                LoadData methodAnn = m.getAnnotation(LoadData.class);
+                if (methodAnn == null) {
+                    return;
+                }
+                try {
+                    for (String scenario : resolveScenarios(methodAnn)) {
+                        Path base = StringUtils.isBlank(scenario) ? trc.getClassRoot()
+                                : trc.getClassRoot().resolve(scenario);
+                        if (Files.isDirectory(base)) {
+                            log.info("Found method-level @LoadData. method={}, scenario={}, dir={}",
+                                    m.getName(), scenario,
+                                    LogPathUtil.renderDirForLog(base.toFile()));
+                            loadScenarioParticipating(context, scenario, methodAnn.dbNames());
+                        } else {
+                            log.info(
+                                    "Method-level scenario directory not found."
+                                            + "method={}, scenario={}, dir={}",
+                                    m.getName(), scenario,
+                                    LogPathUtil.renderDirForLog(base.toFile()));
+                        }
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+        } finally {
+            ErrorHandler.restoreExitForCurrentThread();
+        }
     }
 
     /**

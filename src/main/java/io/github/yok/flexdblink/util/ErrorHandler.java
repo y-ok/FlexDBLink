@@ -25,6 +25,23 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 @Slf4j
 public class ErrorHandler {
 
+    private static final ThreadLocal<Boolean> EXIT_DISABLED =
+            ThreadLocal.withInitial(() -> Boolean.FALSE);
+
+    /**
+     * Disable System.exit for the current thread (useful for tests).
+     */
+    public static void disableExitForCurrentThread() {
+        EXIT_DISABLED.set(Boolean.TRUE);
+    }
+
+    /**
+     * Restore System.exit behavior for the current thread.
+     */
+    public static void restoreExitForCurrentThread() {
+        EXIT_DISABLED.remove();
+    }
+
     /**
      * Logs the given message and root cause at error level, prints a concise message to
      * {@code System.err}, and terminates the JVM with exit code {@code 1}.
@@ -39,6 +56,9 @@ public class ErrorHandler {
      */
     public static void errorAndExit(String message, Throwable t) {
         log.error("{}\n{}", message, ExceptionUtils.getStackTrace(t));
+        if (Boolean.TRUE.equals(EXIT_DISABLED.get())) {
+            throw new IllegalStateException(message, t);
+        }
         System.err.println("ERROR: " + message + "\n" + t.getMessage());
         System.exit(1);
     }
@@ -54,6 +74,9 @@ public class ErrorHandler {
      */
     public static void errorAndExit(String message) {
         log.error(message);
+        if (Boolean.TRUE.equals(EXIT_DISABLED.get())) {
+            throw new IllegalStateException(message);
+        }
         System.exit(1);
     }
 }
