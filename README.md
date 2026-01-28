@@ -505,7 +505,7 @@ src/test/resources/<パッケージ階層>/<テストクラス名>/<シナリオ
 * `@LoadData(scenario = "...", dbNames = "...")`
 
   * `scenario`: シナリオ（ディレクトリ）名
-  * `dbNames`: 1 つまたは複数の DB 名（サブディレクトリ）。省略時は直下の全 DB フォルダを自動検出
+  * `dbNames`: 1 つまたは複数の DB 名（サブディレクトリ）。省略すると `input/` 直下の単一DBデータが使われる（マルチDB配置の場合は対象DB名を明示的に列挙してください）
 
 --- 
 
@@ -526,7 +526,7 @@ src/test/resources/<package path>/<TestClassName>/<scenario>/input/files/*      
 * `@LoadData(scenario = "...", dbNames = "...")`
 
   * `scenario`: Scenario (directory) name.
-  * `dbNames`: One or more DB names (subdirectories). If omitted, all DB folders directly under the scenario are auto-detected.
+  * `dbNames`: One or more DB names (subdirectories). Omitting this runs in single-DB mode using the files directly under `input/`; list the DB folders explicitly when you want to load multiple targets.
 
 ---
 
