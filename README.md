@@ -1,4 +1,6 @@
 # FlexDBLink
+[![GitHub release](https://img.shields.io/github/v/release/y-ok/FlexDBLink)](https://github.com/y-ok/FlexDBLink/releases)
+[![CI](https://github.com/y-ok/FlexDBLink/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/y-ok/FlexDBLink/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/y-ok/FlexDBLink/branch/main/graph/badge.svg)](https://codecov.io/gh/y-ok/FlexDBLink)
 
 **FlexDBLink** は、開発・テスト工程における「DBデータの用意と検証」を圧倒的に効率化するデータ管理ツールです。
