@@ -1,4 +1,5 @@
 # FlexDBLink
+[![Coverage](https://codecov.io/gh/y-ok/FlexDBLink/branch/main/graph/badge.svg)](https://codecov.io/gh/y-ok/FlexDBLink)
 
 **FlexDBLink** は、開発・テスト工程における「DBデータの用意と検証」を圧倒的に効率化するデータ管理ツールです。
 CSV/JSON/YAML/XML などのシンプルなテキストファイルを使って、データベースへの **一括ロード／ダンプ** を誰でも簡単に実行できます。
