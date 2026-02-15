@@ -78,11 +78,12 @@ class OracleIntegrationTest {
                     "SELECT ID, VC_COL, NCHAR_COL, BF_COL, BD_COL, IV_YM_COL, IV_DS_COL, RAW_COL, CLOB_COL, NCLOB_COL, BLOB_COL, LOB_KIND "
                             + "FROM IT_TYPED_MAIN WHERE ID = 101")) {
 
-                assertTrue(rs.next(), () -> "IT_TYPED_MAIN に ID=101 が存在しません。\n" + dumpMainRows(conn));
+                assertTrue(rs.next(),
+                        () -> "IT_TYPED_MAIN に ID=101 が存在しません。\n" + dumpMainRows(conn));
                 assertEquals("load-xml", rs.getString("VC_COL"));
                 assertEquals("na-xml", rs.getString("NCHAR_COL").trim());
-                assertEquals(0,
-                        BigDecimal.valueOf(rs.getFloat("BF_COL")).compareTo(new BigDecimal("1.25")));
+                assertEquals(0, BigDecimal.valueOf(rs.getFloat("BF_COL"))
+                        .compareTo(new BigDecimal("1.25")));
                 assertEquals(0, BigDecimal.valueOf(rs.getDouble("BD_COL"))
                         .compareTo(new BigDecimal("10.125")));
                 assertEquals("+01-02",
@@ -106,8 +107,8 @@ class OracleIntegrationTest {
 
             try (ResultSet rs =
                     st.executeQuery("SELECT BLOB_COL FROM IT_TYPED_MAIN WHERE LOB_KIND='zip'")) {
-                assertTrue(rs.next(), () -> "IT_TYPED_MAIN に LOB_KIND='zip' 行が存在しません。\n"
-                        + dumpMainRows(conn));
+                assertTrue(rs.next(),
+                        () -> "IT_TYPED_MAIN に LOB_KIND='zip' 行が存在しません。\n" + dumpMainRows(conn));
                 byte[] actual = rs.getBytes(1);
                 assertFalse(rs.next(), "IT_TYPED_MAIN の LOB_KIND='zip' が複数行です。");
 
@@ -118,8 +119,8 @@ class OracleIntegrationTest {
 
             try (ResultSet rs =
                     st.executeQuery("SELECT BLOB_COL FROM IT_TYPED_MAIN WHERE LOB_KIND='bin'")) {
-                assertTrue(rs.next(), () -> "IT_TYPED_MAIN に LOB_KIND='bin' 行が存在しません。\n"
-                        + dumpMainRows(conn));
+                assertTrue(rs.next(),
+                        () -> "IT_TYPED_MAIN に LOB_KIND='bin' 行が存在しません。\n" + dumpMainRows(conn));
                 byte[] actual = rs.getBytes(1);
                 assertFalse(rs.next(), "IT_TYPED_MAIN の LOB_KIND='bin' が複数行です。");
 
@@ -141,8 +142,7 @@ class OracleIntegrationTest {
 
             try (ResultSet rs = st.executeQuery(
                     "SELECT PAYLOAD_BLOB FROM IT_TYPED_AUX WHERE PAYLOAD_BLOB IS NOT NULL")) {
-                assertTrue(rs.next(),
-                        "IT_TYPED_AUX に PAYLOAD_BLOB が存在しません。\n" + dumpAuxRows(conn));
+                assertTrue(rs.next(), "IT_TYPED_AUX に PAYLOAD_BLOB が存在しません。\n" + dumpAuxRows(conn));
 
                 byte[] actual = rs.getBytes(1);
                 assertFalse(rs.next(), "IT_TYPED_AUX の PAYLOAD_BLOB が複数行です。");
@@ -199,7 +199,8 @@ class OracleIntegrationTest {
         assertTrue(Files.exists(dbDir.resolve("IT_TYPED_MAIN.csv")));
         assertTrue(Files.exists(dbDir.resolve("IT_TYPED_AUX.csv")));
 
-        String csvText = Files.readString(dbDir.resolve("IT_TYPED_MAIN.csv"), StandardCharsets.UTF_8);
+        String csvText =
+                Files.readString(dbDir.resolve("IT_TYPED_MAIN.csv"), StandardCharsets.UTF_8);
         assertTrue(csvText.contains("NCHAR_COL"));
         assertTrue(csvText.contains("BF_COL"));
         assertTrue(csvText.contains("BD_COL"));
@@ -228,8 +229,8 @@ class OracleIntegrationTest {
             try (ResultSet rs = st.executeQuery("SELECT CLOB_COL FROM IT_TYPED_MAIN WHERE ID=1")) {
                 rs.next();
                 String expected = rs.getString(1);
-                String actual =
-                        Files.readString(filesDir.resolve("main_xml_1.txt"), StandardCharsets.UTF_8);
+                String actual = Files.readString(filesDir.resolve("main_xml_1.txt"),
+                        StandardCharsets.UTF_8);
                 assertEquals(expected, actual);
             }
         }
@@ -242,7 +243,8 @@ class OracleIntegrationTest {
                 OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, false);
 
         Path dbDir = OracleIntegrationSupport.executeDump(runtime, "it_dump_interval_case");
-        String csvText = Files.readString(dbDir.resolve("IT_TYPED_MAIN.csv"), StandardCharsets.UTF_8);
+        String csvText =
+                Files.readString(dbDir.resolve("IT_TYPED_MAIN.csv"), StandardCharsets.UTF_8);
         assertTrue(csvText.contains("+01-02") || csvText.contains("1-2"));
         assertTrue(csvText.contains("+01 02:03:04") || csvText.contains("1 2:3:4"));
         assertTrue(csvText.contains("+06-07") || csvText.contains("6-7"));
@@ -250,8 +252,7 @@ class OracleIntegrationTest {
     }
 
     @Test
-    void execute_正常ケース_nullと空LOBを含むデータをダンプする_CSV表現とLOBファイル内容が期待どおりであること()
-            throws Exception {
+    void execute_正常ケース_nullと空LOBを含むデータをダンプする_CSV表現とLOBファイル内容が期待どおりであること() throws Exception {
         Path dataPath = tempDir.resolve("dump_null_empty_data");
         OracleIntegrationSupport.Runtime runtime =
                 OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, false);
@@ -326,8 +327,7 @@ class OracleIntegrationTest {
                 OracleIntegrationSupport.readCsvById(outputCsv, idColumn);
 
         assertEquals(inputRows.size(), outputRows.size(),
-                table + " 件数が一致しません: input=" + inputRows.size() + " output="
-                        + outputRows.size());
+                table + " 件数が一致しません: input=" + inputRows.size() + " output=" + outputRows.size());
 
         for (Map.Entry<String, Map<String, String>> entry : inputRows.entrySet()) {
             String id = entry.getKey();
@@ -368,9 +368,10 @@ class OracleIntegrationTest {
         }
 
         if ("RAW_COL".equalsIgnoreCase(column)) {
-            byte[] inRaw = OracleIntegrationSupport.decodeHex(OracleIntegrationSupport.trimToEmpty(inVal));
-            byte[] outRaw =
-                    OracleIntegrationSupport.decodeHex(OracleIntegrationSupport.trimToEmpty(outVal));
+            byte[] inRaw =
+                    OracleIntegrationSupport.decodeHex(OracleIntegrationSupport.trimToEmpty(inVal));
+            byte[] outRaw = OracleIntegrationSupport
+                    .decodeHex(OracleIntegrationSupport.trimToEmpty(outVal));
             assertArrayEquals(inRaw, outRaw, diffPrefix(table, id, column) + "RAW値が一致しません");
             return;
         }
@@ -397,8 +398,8 @@ class OracleIntegrationTest {
         }
 
         if ("TSTZ_COL".equalsIgnoreCase(column) || "TSLTZ_COL".equalsIgnoreCase(column)) {
-            assertEquals(OracleIntegrationSupport.normalizeOffsetDateTime(inVal),
-                    OracleIntegrationSupport.normalizeOffsetDateTime(outVal),
+            assertEquals(OracleIntegrationSupport.normalizeOffsetDateTimeToInstant(inVal),
+                    OracleIntegrationSupport.normalizeOffsetDateTimeToInstant(outVal),
                     diffPrefix(table, id, column) + "日時オフセット値が一致しません");
             return;
         }
@@ -460,8 +461,8 @@ class OracleIntegrationTest {
     private static String dumpMainRows(Connection conn) {
         StringBuilder sb = new StringBuilder();
         try (Statement st = conn.createStatement();
-                ResultSet rs =
-                        st.executeQuery("SELECT ID, VC_COL, LOB_KIND FROM IT_TYPED_MAIN ORDER BY ID")) {
+                ResultSet rs = st.executeQuery(
+                        "SELECT ID, VC_COL, LOB_KIND FROM IT_TYPED_MAIN ORDER BY ID")) {
             while (rs.next()) {
                 sb.append("ID=").append(rs.getLong("ID")).append(" VC_COL=")
                         .append(rs.getString("VC_COL")).append(" LOB_KIND=")

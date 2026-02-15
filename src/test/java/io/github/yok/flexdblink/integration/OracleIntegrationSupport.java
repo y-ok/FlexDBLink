@@ -20,6 +20,16 @@ import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.time.DateTimeException;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoField;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -43,8 +53,8 @@ final class OracleIntegrationSupport {
         migrate(container);
     }
 
-    static Runtime prepareRuntime(OracleContainer container, Path dataPath, boolean copyLoadFixtures)
-            throws IOException {
+    static Runtime prepareRuntime(OracleContainer container, Path dataPath,
+            boolean copyLoadFixtures) throws IOException {
         Files.createDirectories(dataPath);
         if (copyLoadFixtures) {
             copyLoadFixtures(dataPath);
@@ -110,6 +120,18 @@ final class OracleIntegrationSupport {
         String v = trimToEmpty(value);
         v = v.replaceAll("\\s+([+-]\\d{2}:?\\d{2})$", "$1");
         return v.replaceAll("([+-]\\d{2}):(\\d{2})$", "$1$2");
+    }
+
+    static String normalizeOffsetDateTimeToInstant(String value) {
+        String normalized = normalizeOffsetDateTime(value);
+        if (normalized.isEmpty()) {
+            return normalized;
+        }
+        Instant instant = parseToInstant(normalized);
+        if (instant != null) {
+            return instant.toString();
+        }
+        return normalized;
     }
 
     static String normalizeDateOnly(String value) {
@@ -186,6 +208,74 @@ final class OracleIntegrationSupport {
             return "";
         }
         return value.trim();
+    }
+
+    private static Instant parseToInstant(String value) {
+        OffsetDateTime odt = parseOffsetDateTime(value);
+        if (odt != null) {
+            return odt.toInstant();
+        }
+
+        Matcher utcMatcher =
+                Pattern.compile("^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?) UTC$")
+                        .matcher(value);
+        if (utcMatcher.matches()) {
+            LocalDateTime ldt = parseLocalDateTime(utcMatcher.group(1));
+            if (ldt != null) {
+                return ldt.toInstant(ZoneOffset.UTC);
+            }
+        }
+
+        Matcher zoneMatcher = Pattern.compile(
+                "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?) ([A-Za-z0-9_./+-]+)$")
+                .matcher(value);
+        if (zoneMatcher.matches()) {
+            LocalDateTime ldt = parseLocalDateTime(zoneMatcher.group(1));
+            if (ldt != null) {
+                try {
+                    return ldt.atZone(ZoneId.of(zoneMatcher.group(2))).toInstant();
+                } catch (DateTimeException e) {
+                    return null;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static OffsetDateTime parseOffsetDateTime(String value) {
+        String isoLike = value;
+        Matcher compactMatcher = Pattern
+                .compile("^(\\d{4}-\\d{2}-\\d{2}) (\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?)([+-]\\d{4})$")
+                .matcher(value);
+        if (compactMatcher.matches()) {
+            String offset = compactMatcher.group(3);
+            isoLike = compactMatcher.group(1) + "T" + compactMatcher.group(2)
+                    + offset.substring(0, 3) + ":" + offset.substring(3);
+        } else {
+            Matcher colonMatcher = Pattern.compile(
+                    "^(\\d{4}-\\d{2}-\\d{2}) (\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?)([+-]\\d{2}:\\d{2})$")
+                    .matcher(value);
+            if (colonMatcher.matches()) {
+                isoLike =
+                        colonMatcher.group(1) + "T" + colonMatcher.group(2) + colonMatcher.group(3);
+            }
+        }
+        try {
+            return OffsetDateTime.parse(isoLike);
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    private static LocalDateTime parseLocalDateTime(String value) {
+        DateTimeFormatter formatter = new DateTimeFormatterBuilder()
+                .appendPattern("yyyy-MM-dd HH:mm:ss").optionalStart()
+                .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd().toFormatter();
+        try {
+            return LocalDateTime.parse(value, formatter);
+        } catch (DateTimeParseException e) {
+            return null;
+        }
     }
 
     static void migrate(OracleContainer container) {
