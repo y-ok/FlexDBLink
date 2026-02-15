@@ -60,7 +60,6 @@ public class ErrorHandler {
             throw new IllegalStateException(message, t);
         }
         System.err.println("ERROR: " + message + "\n" + t.getMessage());
-        System.exit(1);
     }
 
     /**
@@ -77,6 +76,5 @@ public class ErrorHandler {
         if (Boolean.TRUE.equals(EXIT_DISABLED.get())) {
             throw new IllegalStateException(message);
         }
-        System.exit(1);
     }
 }

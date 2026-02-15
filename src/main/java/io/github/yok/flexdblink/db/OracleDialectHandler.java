@@ -46,6 +46,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import oracle.sql.INTERVALDS;
+import oracle.sql.INTERVALYM;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
@@ -82,6 +84,8 @@ public class OracleDialectHandler implements DbDialectHandler {
     private final OracleDateTimeFormatUtil dateTimeFormatter;
     // Per-table metadata cache
     private final Map<String, org.dbunit.dataset.ITableMetaData> tableMetaMap = new HashMap<>();
+    // Per-table JDBC metadata cache used as fallback when DBUnit metadata is insufficient
+    private final Map<String, Map<String, JdbcColumnSpec>> jdbcColumnSpecMap = new HashMap<>();
     // Factory that applies common DBUnit settings
     private final DbUnitConfigFactory configFactory;
 
@@ -124,12 +128,20 @@ public class OracleDialectHandler implements DbDialectHandler {
                     .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd()
                     .appendOffset("+HH:MM", "Z").toFormatter();
 
-    private static final DateTimeFormatter FLEXIBLE_OFFSET_DATETIME_PARSER_NO_COLON =
-            new DateTimeFormatterBuilder().appendPattern("yyyyMMdd").optionalStart()
-                    .appendLiteral('T').optionalEnd().optionalStart().appendLiteral(' ')
-                    .optionalEnd().appendPattern("HHmmss").optionalStart()
+    // OffsetTime 用（コロン形式）: HH:mm[:ss][.fraction]±HH:MM
+    private static final DateTimeFormatter FLEXIBLE_OFFSET_TIME_PARSER_COLON =
+            new DateTimeFormatterBuilder().appendPattern("HH:mm").optionalStart()
+                    .appendPattern(":ss").optionalEnd().optionalStart()
                     .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd()
-                    .appendOffset("+HHmm", "Z").toFormatter();
+                    // ここは "+HH:mm"（大文字MMはNG）
+                    .appendOffset("+HH:mm", "Z").toFormatter(Locale.ENGLISH);
+
+    // OffsetTime 用（非コロン形式）: HHmm[ss][.fraction]±HHmm
+    private static final DateTimeFormatter FLEXIBLE_OFFSET_TIME_PARSER_NO_COLON =
+            new DateTimeFormatterBuilder().appendPattern("HHmm").optionalStart().appendPattern("ss")
+                    .optionalEnd().optionalStart()
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd()
+                    .appendOffset("+HHmm", "Z").toFormatter(Locale.ENGLISH);
 
     private static final DateTimeFormatter DATE_LITERAL_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -138,6 +150,34 @@ public class OracleDialectHandler implements DbDialectHandler {
             {DateTimeFormatter.ISO_LOCAL_DATE, DateTimeFormatter.ofPattern("yyyy/MM/dd"),
                     DateTimeFormatter.BASIC_ISO_DATE, DateTimeFormatter.ofPattern("yyyy.MM.dd"),
                     DateTimeFormatter.ofPattern("yyyy年M月d日", Locale.JAPANESE)};
+
+    /**
+     * JDBC metadata snapshot for one column.
+     */
+    private static final class JdbcColumnSpec {
+        private final int sqlType;
+        private final String sqlTypeName;
+
+        private JdbcColumnSpec(int sqlType, String sqlTypeName) {
+            this.sqlType = sqlType;
+            this.sqlTypeName = sqlTypeName;
+        }
+    }
+
+    /**
+     * Resolved column type information used during CSV-to-DB conversion.
+     */
+    private static final class ResolvedColumnSpec {
+        private final int sqlType;
+        private final String sqlTypeName;
+        private final DataType dbUnitDataType;
+
+        private ResolvedColumnSpec(int sqlType, String sqlTypeName, DataType dbUnitDataType) {
+            this.sqlType = sqlType;
+            this.sqlTypeName = sqlTypeName;
+            this.dbUnitDataType = dbUnitDataType;
+        }
+    }
 
     /**
      * Returns the SQL type name for a given schema/table/column.
@@ -242,6 +282,7 @@ public class OracleDialectHandler implements DbDialectHandler {
         for (String tbl : targetTables) {
             tableMetaMap.put(tbl.toUpperCase(), ds.getTableMetaData(tbl));
         }
+        cacheJdbcColumnSpecs(jdbcConn, schema, targetTables);
     }
 
     /**
@@ -256,12 +297,16 @@ public class OracleDialectHandler implements DbDialectHandler {
     private List<String> fetchTargetTables(Connection conn, String schema,
             List<String> excludeTables) throws SQLException {
         List<String> tables = new ArrayList<>();
+        List<String> effectiveExcludeTables = excludeTables;
+        if (effectiveExcludeTables == null) {
+            effectiveExcludeTables = new ArrayList<>();
+        }
         DatabaseMetaData meta = conn.getMetaData();
         try (ResultSet rs = meta.getTables(null, schema, "%", new String[] {"TABLE"})) {
             while (rs.next()) {
                 String tableName = rs.getString("TABLE_NAME");
-                boolean excluded =
-                        excludeTables.stream().anyMatch(ex -> ex.equalsIgnoreCase(tableName));
+                boolean excluded = effectiveExcludeTables.stream()
+                        .anyMatch(ex -> ex.equalsIgnoreCase(tableName));
                 if (excluded) {
                     log.info("Table [{}] is in the exclude list → skip", tableName);
                 } else {
@@ -270,6 +315,32 @@ public class OracleDialectHandler implements DbDialectHandler {
             }
         }
         return tables;
+    }
+
+    /**
+     * Caches JDBC column metadata per table for conversion fallback.
+     *
+     * @param conn JDBC connection
+     * @param schema schema name
+     * @param targetTables table names to cache
+     * @throws SQLException if metadata retrieval fails
+     */
+    private void cacheJdbcColumnSpecs(Connection conn, String schema, List<String> targetTables)
+            throws SQLException {
+        DatabaseMetaData meta = conn.getMetaData();
+        for (String table : targetTables) {
+            Map<String, JdbcColumnSpec> columnMap = new HashMap<>();
+            try (ResultSet rs = meta.getColumns(null, schema, table, "%")) {
+                while (rs.next()) {
+                    String columnName = rs.getString("COLUMN_NAME");
+                    int sqlType = rs.getInt("DATA_TYPE");
+                    String typeName = rs.getString("TYPE_NAME");
+                    columnMap.put(columnName.toUpperCase(Locale.ROOT),
+                            new JdbcColumnSpec(sqlType, typeName));
+                }
+            }
+            jdbcColumnSpecMap.put(table.toUpperCase(Locale.ROOT), columnMap);
+        }
     }
 
     /**
@@ -315,32 +386,19 @@ public class OracleDialectHandler implements DbDialectHandler {
         if (str == null || str.isEmpty()) {
             return null;
         }
-        org.dbunit.dataset.ITableMetaData md = tableMetaMap.get(table.toUpperCase());
-        if (md == null) {
-            throw new DataSetException("Table metadata not found: " + table);
-        }
-        Column target = null;
-        for (Column col : md.getColumns()) {
-            if (col.getColumnName().equalsIgnoreCase(column)) {
-                target = col;
-                break;
-            }
-        }
-        if (target == null) {
-            throw new DataSetException(
-                    String.format("Column metadata not found: table=%s, column=%s", table, column));
-        }
-        int sqlType = target.getDataType().getSqlType();
+        ResolvedColumnSpec resolved = resolveColumnSpec(table, column);
+        int sqlType = resolved.sqlType;
         try {
             switch (sqlType) {
                 case java.sql.Types.DECIMAL:
                 case java.sql.Types.NUMERIC:
                     return new BigDecimal(str);
                 case java.sql.Types.TINYINT:
-                case java.sql.Types.BIGINT:
                 case java.sql.Types.INTEGER:
                 case java.sql.Types.SMALLINT:
                     return Integer.valueOf(str);
+                case java.sql.Types.BIGINT:
+                    return Long.valueOf(str);
                 case java.sql.Types.REAL:
                 case java.sql.Types.FLOAT:
                 case java.sql.Types.DOUBLE:
@@ -353,10 +411,13 @@ public class OracleDialectHandler implements DbDialectHandler {
                     return parseOffsetTime(str, column);
                 case java.sql.Types.TIMESTAMP:
                 case java.sql.Types.TIMESTAMP_WITH_TIMEZONE:
+                    // Oracle JDBC proprietary codes for timestamp with time zone / local time zone.
+                case -101:
+                case -102:
                     return parseTimestamp(str, column);
                 case java.sql.Types.OTHER:
                 case java.sql.Types.JAVA_OBJECT:
-                    return parseInterval(sqlType, target.getDataType().getSqlTypeName(), str);
+                    return parseInterval(sqlType, resolved.sqlTypeName, str);
                 default:
                     break;
             }
@@ -367,7 +428,8 @@ public class OracleDialectHandler implements DbDialectHandler {
         }
         // LOB file reference
         if (str.startsWith("file:")) {
-            return loadLobFromFile(str.substring(5), table, column, target.getDataType());
+            return loadLobFromFile(str.substring(5), table, column, sqlType,
+                    resolved.dbUnitDataType);
         }
         // RAW HEX string
         if ((sqlType == Types.BINARY || sqlType == Types.VARBINARY
@@ -491,12 +553,11 @@ public class OracleDialectHandler implements DbDialectHandler {
         if (!lobFile.exists()) {
             throw new DataSetException("LOB file not found: " + lobFile.getAbsolutePath());
         }
-        Column meta = findColumnMeta(table, column);
-        DataType dt = meta.getDataType();
-        if (DataType.BLOB.equals(dt) || dt.getSqlType() == java.sql.Types.BLOB) {
+        ResolvedColumnSpec resolved = resolveColumnSpec(table, column);
+        if (isBlobSqlType(resolved.sqlType, resolved.dbUnitDataType)) {
             return Files.readAllBytes(lobFile.toPath());
         }
-        if (DataType.CLOB.equals(dt) || dt.getSqlType() == java.sql.Types.CLOB) {
+        if (isClobSqlType(resolved.sqlType, resolved.dbUnitDataType)) {
             return Files.readString(lobFile.toPath(), StandardCharsets.UTF_8);
         }
         throw new DataSetException("file: only supported for BLOB/CLOB: " + table + "." + column);
@@ -551,10 +612,10 @@ public class OracleDialectHandler implements DbDialectHandler {
             return null;
         }
         if (str.matches("\\d+-\\d+")) {
-            return new oracle.sql.INTERVALYM(str);
+            return new INTERVALYM(str);
         }
         if (str.matches("\\d+ \\d{2}:\\d{2}:\\d{2}(\\.\\d+)?")) {
-            return new oracle.sql.INTERVALDS(str);
+            return new INTERVALDS(str);
         }
         try {
             OffsetDateTime odt = OffsetDateTime.parse(str, FLEXIBLE_OFFSET_DATETIME_PARSER);
@@ -797,7 +858,8 @@ public class OracleDialectHandler implements DbDialectHandler {
     public boolean hasNotNullLobColumn(Connection conn, String schema, String table,
             Column[] lobCols) throws SQLException {
         DatabaseMetaData meta = conn.getMetaData();
-        try (ResultSet rs = meta.getColumns(null, schema, table, null)) {
+        ResultSet rs = meta.getColumns(null, schema, table, null);
+        try {
             while (rs.next()) {
                 String colName = rs.getString("COLUMN_NAME");
                 int nullable = rs.getInt("NULLABLE");
@@ -808,6 +870,8 @@ public class OracleDialectHandler implements DbDialectHandler {
                     }
                 }
             }
+        } finally {
+            rs.close();
         }
         return false;
     }
@@ -842,13 +906,10 @@ public class OracleDialectHandler implements DbDialectHandler {
     public Column[] getLobColumns(Path csvDirPath, String tableName)
             throws IOException, DataSetException {
 
-        log.info("CSVParser class={}", org.apache.commons.csv.CSVParser.class.getName());
-        log.info("CSVParser from={}",
-                org.apache.commons.csv.CSVParser.class.getResource("CSVParser.class"));
-        String implVer = (org.apache.commons.csv.CSVParser.class.getPackage() != null
-                ? org.apache.commons.csv.CSVParser.class.getPackage().getImplementationVersion()
-                : null);
-        log.info("CSV implVersion={}", implVer != null ? implVer : "N/A");
+        log.info("CSVParser class={}", CSVParser.class.getName());
+        log.info("CSVParser from={}", CSVParser.class.getResource("CSVParser.class"));
+        String implVer = CSVParser.class.getPackage().getImplementationVersion();
+        log.info("CSV implVersion={}", implVer);
 
         // Full path to CSV file
         Path csv = csvDirPath.resolve(tableName + ".csv");
@@ -894,9 +955,8 @@ public class OracleDialectHandler implements DbDialectHandler {
             Integer idx = headerIndex.get(col.getColumnName());
             if (idx != null && lobFlags[idx]) {
                 int sqlType = col.getDataType().getSqlType();
-                if (DataType.BLOB.equals(col.getDataType()) || sqlType == java.sql.Types.BLOB
-                        || DataType.CLOB.equals(col.getDataType())
-                        || sqlType == java.sql.Types.CLOB) {
+                if (DataType.BLOB.equals(col.getDataType()) || sqlType == Types.BLOB
+                        || DataType.CLOB.equals(col.getDataType()) || sqlType == Types.CLOB) {
                     result.add(col);
                 }
             }
@@ -1007,10 +1067,10 @@ public class OracleDialectHandler implements DbDialectHandler {
      */
     private OffsetTime parseOffsetTime(String str, String column) throws DataSetException {
         try {
-            return OffsetTime.parse(str, FLEXIBLE_OFFSET_DATETIME_PARSER_COLON);
+            return OffsetTime.parse(str, FLEXIBLE_OFFSET_TIME_PARSER_COLON);
         } catch (Exception ex1) {
             try {
-                return OffsetTime.parse(str, FLEXIBLE_OFFSET_DATETIME_PARSER_NO_COLON);
+                return OffsetTime.parse(str, FLEXIBLE_OFFSET_TIME_PARSER_NO_COLON);
             } catch (Exception ex2) {
                 log.debug("TIME_WITH_TIMEZONE conversion failed: column={} value={}", column, str,
                         ex2);
@@ -1085,9 +1145,8 @@ public class OracleDialectHandler implements DbDialectHandler {
      * Interprets INTERVAL strings as Oracle {@code INTERVALYM} or {@code INTERVALDS} objects.
      *
      * <p>
-     * Uses {@code sqlType} and {@code sqlTypeName} to decide: returns {@link oracle.sql.INTERVALYM}
-     * for YEAR TO MONTH and {@link oracle.sql.INTERVALDS} for DAY TO SECOND; otherwise returns the
-     * original string.
+     * Uses {@code sqlType} and {@code sqlTypeName} to decide: returns {@link INTERVALYM} for YEAR
+     * TO MONTH and {@link INTERVALDS} for DAY TO SECOND; otherwise returns the original string.
      * </p>
      *
      * @param sqlType JDBC SQL type code
@@ -1096,11 +1155,20 @@ public class OracleDialectHandler implements DbDialectHandler {
      * @return Oracle INTERVAL object or the original string
      */
     private Object parseInterval(int sqlType, String sqlTypeName, String str) {
+        if (sqlTypeName == null) {
+            if (sqlType == -103) {
+                return new INTERVALYM(str);
+            }
+            if (sqlType == -104) {
+                return new INTERVALDS(str);
+            }
+            return str;
+        }
         if (sqlType == -103 || sqlTypeName.startsWith("INTERVAL YEAR")) {
-            return new oracle.sql.INTERVALYM(str);
+            return new INTERVALYM(str);
         }
         if (sqlType == -104 || sqlTypeName.startsWith("INTERVAL DAY")) {
-            return new oracle.sql.INTERVALDS(str);
+            return new INTERVALDS(str);
         }
         return str;
     }
@@ -1109,29 +1177,25 @@ public class OracleDialectHandler implements DbDialectHandler {
      * Loads a LOB from disk under the preconfigured base directory, returning a JDBC-bindable
      * value.
      *
-     * <p>
-     * For BLOB columns, returns {@code byte[]}. For CLOB columns, returns {@link String}. The file
-     * is expected to exist beneath {@code baseLobDir}.
-     * </p>
-     *
      * @param fileName file name relative to {@code baseLobDir}
      * @param table table name (for error messages)
      * @param column column name (for error messages)
+     * @param sqlType JDBC SQL type of the target column
      * @param dataType DBUnit data type of the target column
-     * @return {@code byte[]} for BLOB or {@link String} for CLOB
+     * @return {@code byte[]} for BLOB or {@link String} for CLOB/NCLOB
      * @throws DataSetException if the file is missing, unreadable, or the type is unsupported
      */
-    private Object loadLobFromFile(String fileName, String table, String column, DataType dataType)
-            throws DataSetException {
+    private Object loadLobFromFile(String fileName, String table, String column, int sqlType,
+            DataType dataType) throws DataSetException {
         File lobFile = new File(baseLobDir.toFile(), fileName);
         if (!lobFile.exists()) {
             throw new DataSetException("LOB file does not exist: " + lobFile.getAbsolutePath());
         }
         try {
-            if (DataType.BLOB.equals(dataType) || dataType.getSqlType() == java.sql.Types.BLOB) {
+            if (isBlobSqlType(sqlType, dataType)) {
                 return Files.readAllBytes(lobFile.toPath());
             }
-            if (DataType.CLOB.equals(dataType) || dataType.getSqlType() == java.sql.Types.CLOB) {
+            if (isClobSqlType(sqlType, dataType)) {
                 return Files.readString(lobFile.toPath(), StandardCharsets.UTF_8);
             }
         } catch (IOException e) {
@@ -1140,6 +1204,136 @@ public class OracleDialectHandler implements DbDialectHandler {
         throw new DataSetException(
                 String.format("file: reference is supported only for BLOB/CLOB: column=%s, type=%s",
                         column, dataType));
+    }
+
+    /**
+     * Resolves column type information by preferring DBUnit metadata and falling back to JDBC
+     * metadata.
+     *
+     * @param table table name
+     * @param column column name
+     * @return resolved type information
+     * @throws DataSetException if table/column metadata cannot be resolved
+     */
+    private ResolvedColumnSpec resolveColumnSpec(String table, String column)
+            throws DataSetException {
+        String tableKey = table.toUpperCase(Locale.ROOT);
+        Column dbUnitColumn = findColumnInDbUnitMeta(tableKey, column);
+        JdbcColumnSpec jdbcSpec = findJdbcColumnSpec(tableKey, column);
+        if (dbUnitColumn != null) {
+            DataType dataType = dbUnitColumn.getDataType();
+            if (jdbcSpec != null && isUnknownDbUnitType(dataType)) {
+                return new ResolvedColumnSpec(jdbcSpec.sqlType, jdbcSpec.sqlTypeName, dataType);
+            }
+            return new ResolvedColumnSpec(dataType.getSqlType(), dataType.getSqlTypeName(),
+                    dataType);
+        }
+
+        if (jdbcSpec != null) {
+            return new ResolvedColumnSpec(jdbcSpec.sqlType, jdbcSpec.sqlTypeName, null);
+        }
+        throw new DataSetException(
+                String.format("Column metadata not found: table=%s, column=%s", table, column));
+    }
+
+    /**
+     * Finds a column in cached DBUnit metadata.
+     *
+     * @param tableKey upper-cased table key
+     * @param column column name
+     * @return matching column metadata or {@code null}
+     * @throws DataSetException if table metadata is missing
+     */
+    private Column findColumnInDbUnitMeta(String tableKey, String column) throws DataSetException {
+        org.dbunit.dataset.ITableMetaData md = tableMetaMap.get(tableKey);
+        if (md == null) {
+            throw new DataSetException("Table metadata not found: " + tableKey);
+        }
+        for (Column col : md.getColumns()) {
+            if (col.getColumnName().equalsIgnoreCase(column)) {
+                return col;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Finds a column in cached JDBC metadata.
+     *
+     * @param tableKey upper-cased table key
+     * @param column column name
+     * @return JDBC column spec or {@code null}
+     */
+    private JdbcColumnSpec findJdbcColumnSpec(String tableKey, String column) {
+        Map<String, JdbcColumnSpec> columnMap = jdbcColumnSpecMap.get(tableKey);
+        if (columnMap == null) {
+            return null;
+        }
+        return columnMap.get(column.toUpperCase(Locale.ROOT));
+    }
+
+    /**
+     * Determines whether the given type represents a BLOB.
+     *
+     * @param sqlType JDBC SQL type
+     * @param dataType DBUnit data type
+     * @return {@code true} if BLOB
+     */
+    private boolean isBlobSqlType(int sqlType, DataType dataType) {
+        if (sqlType == Types.BLOB) {
+            return true;
+        }
+        if (dataType == null) {
+            return false;
+        }
+        if (DataType.BLOB.equals(dataType)) {
+            return true;
+        }
+        return dataType.getSqlType() == Types.BLOB;
+    }
+
+    /**
+     * Determines whether the given type represents a CLOB/NCLOB.
+     *
+     * @param sqlType JDBC SQL type
+     * @param dataType DBUnit data type
+     * @return {@code true} if CLOB/NCLOB
+     */
+    private boolean isClobSqlType(int sqlType, DataType dataType) {
+        if (sqlType == Types.CLOB || sqlType == Types.NCLOB) {
+            return true;
+        }
+        if (dataType == null) {
+            return false;
+        }
+        if (DataType.CLOB.equals(dataType)) {
+            return true;
+        }
+        int dbUnitSqlType = dataType.getSqlType();
+        return dbUnitSqlType == Types.CLOB || dbUnitSqlType == Types.NCLOB;
+    }
+
+    /**
+     * Determines whether DBUnit type information is unresolved.
+     *
+     * @param dataType DBUnit data type
+     * @return {@code true} if unresolved/unknown
+     */
+    private boolean isUnknownDbUnitType(DataType dataType) {
+        if (dataType == null) {
+            return true;
+        }
+        if (DataType.UNKNOWN.equals(dataType)) {
+            return true;
+        }
+        if (dataType.getSqlType() == Types.OTHER) {
+            return true;
+        }
+        String typeName = dataType.getSqlTypeName();
+        if (typeName == null) {
+            return false;
+        }
+        return "UNKNOWN".equalsIgnoreCase(typeName);
     }
 
     /**
@@ -1157,34 +1351,6 @@ public class OracleDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Looks up column metadata from the in-memory cache.
-     *
-     * <p>
-     * Fetches the cached {@link org.dbunit.dataset.ITableMetaData} by table name
-     * (case-insensitive), then finds the {@link Column}. Throws a {@link DataSetException} if
-     * either the table or the column is not present in the cache.
-     * </p>
-     *
-     * @param table table name
-     * @param column column name
-     * @return the {@link Column} metadata
-     * @throws DataSetException if the table or column cannot be found
-     */
-    private Column findColumnMeta(String table, String column) throws DataSetException {
-        org.dbunit.dataset.ITableMetaData md = tableMetaMap.get(table.toUpperCase());
-        if (md == null) {
-            throw new DataSetException("Table not found: " + table);
-        }
-        for (Column col : md.getColumns()) {
-            if (col.getColumnName().equalsIgnoreCase(column)) {
-                return col;
-            }
-        }
-        throw new DataSetException(
-                String.format("Column not found: table=%s, column=%s", table, column));
-    }
-
-    /**
      * Returns the total row count for a table.
      *
      * @param conn database connection
@@ -1195,15 +1361,22 @@ public class OracleDialectHandler implements DbDialectHandler {
     @Override
     public int countRows(Connection conn, String table) throws SQLException {
         String sql = String.format("SELECT COUNT(*) FROM %s", quoteIdentifier(table));
-        // Use try-with-resources to ensure Statement and ResultSet are closed
-        try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
-            // Read a single row and return the count
-            if (rs.next()) {
-                return rs.getInt(1);
-            } else {
-                // If the result set is unexpectedly empty, return 0
-                return 0;
+        Statement stmt = conn.createStatement();
+        try {
+            ResultSet rs = stmt.executeQuery(sql);
+            try {
+                // Read a single row and return the count
+                if (rs.next()) {
+                    return rs.getInt(1);
+                } else {
+                    // If the result set is unexpectedly empty, return 0
+                    return 0;
+                }
+            } finally {
+                rs.close();
             }
+        } finally {
+            stmt.close();
         }
     }
 

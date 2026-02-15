@@ -5,7 +5,6 @@ import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
-import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.db.LobResolvingTableWrapper;
 import io.github.yok.flexdblink.parser.DataFormat;
 import io.github.yok.flexdblink.parser.DataLoaderFactory;
@@ -35,12 +34,10 @@ import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.StringUtils;
-import org.dbunit.database.DatabaseConfig;
 import org.dbunit.database.DatabaseConnection;
 import org.dbunit.database.IDatabaseConnection;
 import org.dbunit.dataset.Column;
@@ -83,8 +80,40 @@ import org.dbunit.operation.DatabaseOperation;
  * @author Yasuharu.Okawauchi
  */
 @Slf4j
-@RequiredArgsConstructor
 public class DataLoader {
+
+    /**
+     * Abstraction for DBUnit write operations used by this loader.
+     */
+    interface OperationExecutor {
+
+        /**
+         * Executes DBUnit CLEAN_INSERT.
+         *
+         * @param connection DBUnit connection
+         * @param dataSet dataset to write
+         * @throws Exception execution failure
+         */
+        void cleanInsert(IDatabaseConnection connection, IDataSet dataSet) throws Exception;
+
+        /**
+         * Executes DBUnit UPDATE.
+         *
+         * @param connection DBUnit connection
+         * @param dataSet dataset to write
+         * @throws Exception execution failure
+         */
+        void update(IDatabaseConnection connection, IDataSet dataSet) throws Exception;
+
+        /**
+         * Executes DBUnit INSERT.
+         *
+         * @param connection DBUnit connection
+         * @param dataSet dataset to write
+         * @throws Exception execution failure
+         */
+        void insert(IDatabaseConnection connection, IDataSet dataSet) throws Exception;
+    }
 
     // Base directory settings for CSV/LOB files
     private final PathsConfig pathsConfig;
@@ -101,14 +130,92 @@ public class DataLoader {
     // Configuration class holding dbunit.* settings from application.yml
     private final DbUnitConfig dbUnitConfig;
 
-    // Factory to apply common DBUnit settings
-    private final DbUnitConfigFactory configFactory;
-
     // Exclude-table settings for dump/load (dump.exclude-tables)
     private final DumpConfig dumpConfig;
 
+    // DBUnit operation executor (replaceable in tests)
+    private OperationExecutor operationExecutor;
+
     // Insert summary: dbId → (table → total inserted count)
     private final Map<String, Map<String, Integer>> insertSummary = new LinkedHashMap<>();
+
+    /**
+     * Creates a loader with default DBUnit operations.
+     *
+     * @param pathsConfig path settings
+     * @param connectionConfig connection settings
+     * @param schemaNameResolver schema resolver
+     * @param dialectFactory dialect resolver
+     * @param dbUnitConfig DBUnit settings
+     * @param dumpConfig dump settings
+     */
+    public DataLoader(PathsConfig pathsConfig, ConnectionConfig connectionConfig,
+            Function<ConnectionConfig.Entry, String> schemaNameResolver,
+            Function<ConnectionConfig.Entry, DbDialectHandler> dialectFactory,
+            DbUnitConfig dbUnitConfig, DumpConfig dumpConfig) {
+        this(pathsConfig, connectionConfig, schemaNameResolver, dialectFactory, dbUnitConfig,
+                dumpConfig, new OperationExecutor() {
+                    @Override
+                    public void cleanInsert(IDatabaseConnection connection, IDataSet dataSet)
+                            throws Exception {
+                        DatabaseOperation.CLEAN_INSERT.execute(connection, dataSet);
+                    }
+
+                    @Override
+                    public void update(IDatabaseConnection connection, IDataSet dataSet)
+                            throws Exception {
+                        DatabaseOperation.UPDATE.execute(connection, dataSet);
+                    }
+
+                    @Override
+                    public void insert(IDatabaseConnection connection, IDataSet dataSet)
+                            throws Exception {
+                        DatabaseOperation.INSERT.execute(connection, dataSet);
+                    }
+                });
+    }
+
+    /**
+     * Creates a loader with a custom DBUnit operation executor.
+     *
+     * @param pathsConfig path settings
+     * @param connectionConfig connection settings
+     * @param schemaNameResolver schema resolver
+     * @param dialectFactory dialect resolver
+     * @param dbUnitConfig DBUnit settings
+     * @param dumpConfig dump settings
+     * @param operationExecutor executor for DBUnit write operations
+     */
+    DataLoader(PathsConfig pathsConfig, ConnectionConfig connectionConfig,
+            Function<ConnectionConfig.Entry, String> schemaNameResolver,
+            Function<ConnectionConfig.Entry, DbDialectHandler> dialectFactory,
+            DbUnitConfig dbUnitConfig, DumpConfig dumpConfig, OperationExecutor operationExecutor) {
+        this.pathsConfig = pathsConfig;
+        this.connectionConfig = connectionConfig;
+        this.schemaNameResolver = schemaNameResolver;
+        this.dialectFactory = dialectFactory;
+        this.dbUnitConfig = dbUnitConfig;
+        this.dumpConfig = dumpConfig;
+        this.operationExecutor = operationExecutor;
+    }
+
+    /**
+     * Returns current operation executor (for tests).
+     *
+     * @return current operation executor
+     */
+    OperationExecutor getOperationExecutor() {
+        return operationExecutor;
+    }
+
+    /**
+     * Replaces operation executor (for tests).
+     *
+     * @param operationExecutor replacement executor
+     */
+    void setOperationExecutor(OperationExecutor operationExecutor) {
+        this.operationExecutor = operationExecutor;
+    }
 
     /**
      * Entry point for data loading.
@@ -177,6 +284,10 @@ public class DataLoader {
 
             // Load table list from table-ordering.txt
             Path orderPath = new File(dir, "table-ordering.txt").toPath();
+            if (!Files.exists(orderPath)) {
+                log.info("[{}] No table-ordering.txt found → skipping", dbId);
+                return;
+            }
             List<String> tables =
                     Files.readAllLines(orderPath, StandardCharsets.UTF_8).stream().map(String::trim)
                             .filter(s -> !s.isEmpty()).sorted().collect(Collectors.toList());
@@ -208,12 +319,14 @@ public class DataLoader {
             Class.forName(entry.getDriverClass());
             try (Connection jdbc = DriverManager.getConnection(entry.getUrl(), entry.getUser(),
                     entry.getPassword())) {
+                jdbc.setAutoCommit(false);
 
-                DatabaseConnection dbConn = createDbUnitConn(jdbc, entry, dialectHandler);
-                String schema = schemaNameResolver.apply(entry);
+                DatabaseConnection dbConn = null;
+                try {
+                    dbConn = createDbUnitConn(jdbc, entry, dialectHandler);
+                    String schema = schemaNameResolver.apply(entry);
 
-                for (String table : tables) {
-                    try {
+                    for (String table : tables) {
                         // ファイル形式を自動判別して読み込み
                         IDataSet dataSet = DataLoaderFactory.create(dir, table);
 
@@ -234,15 +347,15 @@ public class DataLoader {
                                     log.info(
                                             "[{}] {}: NOT NULL LOB detected; CLEAN_INSERT all cols",
                                             dbId, table);
-                                    DatabaseOperation.CLEAN_INSERT.execute(dbConn, ds);
+                                    operationExecutor.cleanInsert(dbConn, ds);
                                 } else {
-                                    DatabaseOperation.CLEAN_INSERT.execute(dbConn,
+                                    operationExecutor.cleanInsert(dbConn,
                                             new DefaultDataSet(DefaultColumnFilter
                                                     .excludedColumnsTable(base, lobCols)));
-                                    DatabaseOperation.UPDATE.execute(dbConn, ds);
+                                    operationExecutor.update(dbConn, ds);
                                 }
                             } else {
-                                DatabaseOperation.CLEAN_INSERT.execute(dbConn, ds);
+                                operationExecutor.cleanInsert(dbConn, ds);
                             }
                             log.info("[{}] Table[{}] Initial | inserted={}", dbId, table, rowCount);
 
@@ -263,7 +376,7 @@ public class DataLoader {
 
                             FilteredTable filtered =
                                     new FilteredTable(wrapped, identicalMap.keySet());
-                            DatabaseOperation.INSERT.execute(dbConn, new DefaultDataSet(filtered));
+                            operationExecutor.insert(dbConn, new DefaultDataSet(filtered));
                             log.info("[{}] Table[{}] Scenario (INSERT only) | inserted={}", dbId,
                                     table, filtered.getRowCount());
                         }
@@ -272,14 +385,24 @@ public class DataLoader {
                         int currentCount = dialectHandler.countRows(jdbc, table);
                         insertSummary.computeIfAbsent(dbId, k -> new LinkedHashMap<>()).put(table,
                                 currentCount);
+                    }
 
-                    } catch (Exception e) {
-                        log.warn("[{}] Failed to load table [{}]: {}", dbId, table, e.getMessage(),
-                                e);
+                    jdbc.commit();
+                    log.info("[{}] Transaction committed (tables={})", dbId, tables.size());
+                } catch (Exception e) {
+                    try {
+                        jdbc.rollback();
+                        log.warn("[{}] Transaction rolled back due to error.", dbId);
+                    } catch (SQLException rollbackEx) {
+                        log.warn("[{}] Rollback failed: {}", dbId, rollbackEx.getMessage(),
+                                rollbackEx);
+                    }
+                    throw e;
+                } finally {
+                    if (dbConn != null) {
+                        dbConn.close();
                     }
                 }
-
-                dbConn.close();
             }
 
         } catch (Exception e) {
@@ -399,27 +522,39 @@ public class DataLoader {
                             deleted);
                 }
             } else {
-                // DELETE by all columns
-                String where = Arrays.stream(cols)
-                        .map(c -> dialectHandler.quoteIdentifier(c.getColumnName()) + " = ?")
-                        .collect(Collectors.joining(" AND "));
-                String deleteSql = String.format("DELETE FROM %s.%s WHERE %s",
-                        dialectHandler.quoteIdentifier(schema),
-                        dialectHandler.quoteIdentifier(table), where);
+                // DELETE by all columns (NULL-safe)
+                int deleted = 0;
+                for (Map.Entry<Integer, Integer> e : identicalMap.entrySet()) {
+                    int dbRow = e.getValue();
+                    List<Object> bindValues = new ArrayList<>();
+                    List<String> predicates = new ArrayList<>();
 
-                try (PreparedStatement ps = jdbc.prepareStatement(deleteSql)) {
-                    for (Map.Entry<Integer, Integer> e : identicalMap.entrySet()) {
-                        int dbRow = e.getValue();
-                        for (int k = 0; k < cols.length; k++) {
-                            Object val = originalDbTable.getValue(dbRow, cols[k].getColumnName());
-                            ps.setObject(k + 1, val);
+                    for (Column col : cols) {
+                        String colName = col.getColumnName();
+                        String quotedColumn = dialectHandler.quoteIdentifier(colName);
+                        Object val = originalDbTable.getValue(dbRow, colName);
+                        if (val == null) {
+                            predicates.add(quotedColumn + " IS NULL");
+                        } else {
+                            predicates.add(quotedColumn + " = ?");
+                            bindValues.add(val);
                         }
-                        ps.addBatch();
                     }
-                    int deleted = Arrays.stream(ps.executeBatch()).sum();
-                    log.info("[{}] Table[{}] Deleted duplicates by all columns → {}", dbId, table,
-                            deleted);
+
+                    String where = String.join(" AND ", predicates);
+                    String deleteSql = String.format("DELETE FROM %s.%s WHERE %s",
+                            dialectHandler.quoteIdentifier(schema),
+                            dialectHandler.quoteIdentifier(table), where);
+
+                    try (PreparedStatement ps = jdbc.prepareStatement(deleteSql)) {
+                        for (int i = 0; i < bindValues.size(); i++) {
+                            ps.setObject(i + 1, bindValues.get(i));
+                        }
+                        deleted += ps.executeUpdate();
+                    }
                 }
+                log.info("[{}] Table[{}] Deleted duplicates by all columns → {}", dbId, table,
+                        deleted);
             }
         } catch (SQLException e) {
             throw new DataSetException("Failed to delete duplicates for table: " + table, e);
@@ -441,10 +576,7 @@ public class DataLoader {
 
         dialectHandler.prepareConnection(jdbc);
         String schema = schemaNameResolver.apply(entry);
-        DatabaseConnection dbConn = new DatabaseConnection(jdbc, schema);
-        DatabaseConfig config = dbConn.getConfig();
-        configFactory.configure(config, dialectHandler.getDataTypeFactory());
-        return dbConn;
+        return dialectHandler.createDbUnitConnection(jdbc, schema);
     }
 
     /**
@@ -891,19 +1023,19 @@ public class DataLoader {
                             dialectHandler.hasNotNullLobColumn(jdbc, schema, table, lobCols);
                     if (anyNotNullLob) {
                         // LOB contains NOT NULL → single CLEAN_INSERT
-                        DatabaseOperation.CLEAN_INSERT.execute(dbConn, ds);
+                        operationExecutor.cleanInsert(dbConn, ds);
                     } else {
                         // All LOB columns are NULL-allowed:
                         // 1) CLEAN_INSERT for non-LOB columns
                         ITable nonLobOnly = DefaultColumnFilter.excludedColumnsTable(base, lobCols);
-                        DatabaseOperation.CLEAN_INSERT.execute(dbConn,
+                        operationExecutor.cleanInsert(dbConn,
                                 new DefaultDataSet(nonLobOnly));
                         // 2) UPDATE to reflect LOB values (including file:... sources)
-                        DatabaseOperation.UPDATE.execute(dbConn, ds);
+                        operationExecutor.update(dbConn, ds);
                     }
                 } else {
                     // No LOB columns → simple CLEAN_INSERT
-                    DatabaseOperation.CLEAN_INSERT.execute(dbConn, ds);
+                    operationExecutor.cleanInsert(dbConn, ds);
                 }
 
                 // Update summary

@@ -12,7 +12,6 @@ import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
@@ -41,6 +40,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVPrinter;
@@ -118,18 +118,8 @@ public class DataDumper {
 
         // ── If the scenario folder already exists, back it up
         if (scenarioDir.exists()) {
-
-            // 2) Backup the existing scenario folder if present
-            if (scenarioDir.exists()) {
-                try {
-                    Path dataPath = Path.of(pathsConfig.getDataPath()).toAbsolutePath().normalize();
-                    backupScenarioDirectory(dataPath, scenarioDir);
-                } catch (IOException e) {
-                    ErrorHandler.errorAndExit(
-                            "Exception occurred during backup of the existing scenario directory",
-                            e);
-                }
-            }
+            Path dataPath = Path.of(pathsConfig.getDataPath()).toAbsolutePath().normalize();
+            backupScenarioDirectory(dataPath, scenarioDir);
         }
 
         // 3) Create the new scenario folder
@@ -151,8 +141,9 @@ public class DataDumper {
             try {
                 // Load JDBC driver
                 Class.forName(entry.getDriverClass());
-                try (Connection conn = DriverManager.getConnection(entry.getUrl(), entry.getUser(),
-                        entry.getPassword())) {
+                Connection conn = DriverManager.getConnection(entry.getUrl(), entry.getUser(),
+                        entry.getPassword());
+                try {
 
                     // Create dialect handler
                     DbDialectHandler dialectHandler = dialectFactory.apply(entry);
@@ -179,7 +170,7 @@ public class DataDumper {
                     for (String tbl : tables) {
                         // --- 1) CSV dump ---
                         File csvFile = new File(dbDir, tbl + ".csv");
-                        exportTableAsCsvUtf8(conn, tbl, csvFile);
+                        exportTableAsCsvUtf8(conn, tbl, csvFile, dialectHandler);
                         log.info("[{}] Table[{}] CSV dump completed (UTF-8)", dbId, tbl);
 
                         // --- 2) BLOB/CLOB dump ---
@@ -197,6 +188,8 @@ public class DataDumper {
                     log.info("[{}] === DB dump completed ===", dbId);
 
                     dbConn.close();
+                } finally {
+                    conn.close();
                 }
             } catch (Exception e) {
                 ErrorHandler.errorAndExit("Dump failed (DB=" + dbId + ")", e);
@@ -251,9 +244,8 @@ public class DataDumper {
      *
      * @param dataPath the {@code dataPath} specified in application.yml
      * @param scenarioDir scenario directory to back up
-     * @throws IOException on rename/path manipulation errors
      */
-    private void backupScenarioDirectory(Path dataPath, File scenarioDir) throws IOException {
+    private void backupScenarioDirectory(Path dataPath, File scenarioDir) {
         // Generate timestamped folder name
         String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS"));
         File backupDir =
@@ -285,12 +277,16 @@ public class DataDumper {
     private List<String> fetchTargetTables(Connection conn, String schema,
             List<String> excludeTables) throws SQLException {
         List<String> tables = new ArrayList<>();
+        List<String> effectiveExcludeTables = excludeTables;
+        if (effectiveExcludeTables == null) {
+            effectiveExcludeTables = new ArrayList<>();
+        }
         DatabaseMetaData meta = conn.getMetaData();
         try (ResultSet rs = meta.getTables(null, schema, "%", new String[] {"TABLE"})) {
             while (rs.next()) {
                 String tableName = rs.getString("TABLE_NAME");
-                boolean excluded =
-                        excludeTables.stream().anyMatch(ex -> ex.equalsIgnoreCase(tableName));
+                boolean excluded = effectiveExcludeTables.stream()
+                        .anyMatch(ex -> ex.equalsIgnoreCase(tableName));
                 if (excluded) {
                     log.info("Table [{}] is excluded; skipping", tableName);
                 } else {
@@ -312,18 +308,20 @@ public class DataDumper {
      * @param conn JDBC connection
      * @param table table name
      * @param csvFile destination CSV file
+     * @param dialectHandler DB dialect handler used for identifier quoting
      * @throws Exception on SQL or file I/O error
      */
-    private void exportTableAsCsvUtf8(Connection conn, String table, File csvFile)
-            throws Exception {
+    private void exportTableAsCsvUtf8(Connection conn, String table, File csvFile,
+            DbDialectHandler dialectHandler) throws Exception {
 
         // --- 1) Extract primary key column names from metadata ---
         List<String> pkColumns = fetchPrimaryKeyColumns(conn, conn.getSchema(), table);
 
         // --- 2) Read header first (for sorting) ---
         String[] headerArray;
+        String quotedTable = dialectHandler.quoteIdentifier(table);
         try (Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery("SELECT * FROM " + table + " WHERE 1=0")) {
+                ResultSet rs = stmt.executeQuery("SELECT * FROM " + quotedTable + " WHERE 1=0")) {
             ResultSetMetaData md = rs.getMetaData();
             int colCount = md.getColumnCount();
             headerArray = new String[colCount];
@@ -337,17 +335,18 @@ public class DataDumper {
         if (!pkColumns.isEmpty()) {
             // Attach "ASC" to each PK column
             String cols =
-                    pkColumns.stream().map(col -> col + " ASC").collect(Collectors.joining(", "));
+                    pkColumns.stream().map(col -> dialectHandler.quoteIdentifier(col) + " ASC")
+                            .collect(Collectors.joining(", "));
             orderBy = " ORDER BY " + cols;
             log.debug("Table[{}] Sorting by primary key(s) (SQL): {}", table, cols);
         } else {
             // Fallback to first column
             String firstCol = headerArray[0];
-            orderBy = " ORDER BY " + firstCol + " ASC";
+            orderBy = " ORDER BY " + dialectHandler.quoteIdentifier(firstCol) + " ASC";
             log.debug("Table[{}] No primary key -> sort by first column '{}' (SQL)", table,
                     firstCol);
         }
-        String sql = "SELECT * FROM " + table + orderBy;
+        String sql = "SELECT * FROM " + quotedTable + orderBy;
 
         // --- 4) Read records into memory ---
         List<List<String>> rows = new ArrayList<>();
@@ -365,12 +364,9 @@ public class DataDumper {
                     // RAW / LONG RAW / VARBINARY → hex string
                     if ("RAW".equalsIgnoreCase(typeNm) || "LONG RAW".equalsIgnoreCase(typeNm)
                             || sqlType == Types.BINARY || sqlType == Types.VARBINARY
-                            || sqlType == Types.LONGVARBINARY
-                            || (sqlType == Types.OTHER && "RAW".equalsIgnoreCase(typeNm))) {
+                            || sqlType == Types.LONGVARBINARY) {
                         byte[] bytes = rs.getBytes(i);
-                        cell = (bytes == null || bytes.length == 0) ? ""
-                                : org.apache.commons.codec.binary.Hex.encodeHexString(bytes)
-                                        .toUpperCase();
+                        cell = (bytes == null) ? "" : Hex.encodeHexString(bytes).toUpperCase();
                     } else {
                         Object val = rs.getObject(i);
                         cell = (val == null) ? "" : val.toString();
@@ -518,8 +514,9 @@ public class DataDumper {
         log.debug("BLOB/CLOB output filename patterns: [{}]", joined);
 
         // 5) Scan DB + write files + replace cells
+        String quotedTable = dialectHandler.quoteIdentifier(table);
         try (Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery("SELECT * FROM " + table)) {
+                ResultSet rs = stmt.executeQuery("SELECT * FROM " + quotedTable)) {
 
             ResultSetMetaData md = rs.getMetaData();
             int colCount = md.getColumnCount();
@@ -545,28 +542,33 @@ public class DataDumper {
                         String sv = rs.getString(i);
                         cell = dateTimeFormatter.formatJdbcDateTime(col, sv, conn);
 
-                    } else if (raw != null && (type == Types.DATE || type == Types.TIMESTAMP
-                            || type == -101 || type == -102)) {
-                        cell = dateTimeFormatter.formatJdbcDateTime(col, raw, conn);
+                    } else if (type == Types.DATE || type == Types.TIMESTAMP || type == -101
+                            || type == -102) {
+                        cell = (raw == null) ? ""
+                                : dateTimeFormatter.formatJdbcDateTime(col, raw, conn);
 
                         // BLOB/CLOB types
-                    } else if (raw != null
-                            && (type == Types.BLOB || type == Types.CLOB || type == Types.NCLOB)) {
-                        String pattern = filePatternConfig.getPattern(table, col)
-                                .orElseThrow(() -> new IllegalStateException("No definition for \""
-                                        + table + "\" / \"" + col + "\" in file-patterns."));
-                        Map<String, Object> keyMap = buildKeyMap(rs, pattern);
-                        String fname = applyPlaceholders(pattern, keyMap);
-                        Path outPath = filesDir.toPath().resolve(fname);
-                        dialectHandler.writeLobFile(table, col, raw, outPath);
-                        wroteAny = true;
-                        cell = "file:" + fname;
+                    } else if (type == Types.BLOB || type == Types.CLOB || type == Types.NCLOB) {
+                        if (raw == null) {
+                            cell = "";
+                        } else {
+                            String pattern = filePatternConfig.getPattern(table, col).orElseThrow(
+                                    () -> new IllegalStateException("No definition for \"" + table
+                                            + "\" / \"" + col + "\" in file-patterns."));
+                            Map<String, Object> keyMap = buildKeyMap(rs, pattern);
+                            String fname = applyPlaceholders(pattern, keyMap);
+                            Path outPath = filesDir.toPath().resolve(fname);
+                            dialectHandler.writeLobFile(table, col, raw, outPath);
+                            wroteAny = true;
+                            cell = "file:" + fname;
+                        }
 
                         // RAW/BINARY family
-                    } else if (raw != null && (type == Types.BINARY || type == Types.VARBINARY
-                            || type == Types.LONGVARBINARY)) {
+                    } else if (type == Types.BINARY || type == Types.VARBINARY
+                            || type == Types.LONGVARBINARY) {
                         byte[] bytes = rs.getBytes(i);
-                        cell = BaseEncoding.base16().upperCase().encode(bytes);
+                        cell = (bytes == null) ? ""
+                                : BaseEncoding.base16().upperCase().encode(bytes);
 
                         // Others
                     } else {

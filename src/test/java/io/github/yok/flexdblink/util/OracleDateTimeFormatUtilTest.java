@@ -3,11 +3,15 @@ package io.github.yok.flexdblink.util;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import io.github.yok.flexdblink.config.CsvDateTimeFormatProperties;
-import java.sql.Connection;
+import java.lang.reflect.Method;
 import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.description.modifier.Visibility;
+import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
+import net.bytebuddy.implementation.FixedValue;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -112,25 +116,6 @@ class OracleDateTimeFormatUtilTest {
     }
 
     @Test
-    void formatJdbcDateTime_異常ケース_stringValue実行時例外でtoStringが返ること() {
-        class BadTstz {
-            @Override
-            public String toString() {
-                return "fallback";
-            }
-
-            @SuppressWarnings("unused")
-            public String stringValue(Connection c) {
-                throw new RuntimeException("boom");
-            }
-        }
-
-        String out = util.formatJdbcDateTime("ANY", new BadTstz(), null);
-
-        assertEquals("fallback", out);
-    }
-
-    @Test
     void formatJdbcDateTime_正常ケース_TimestampTz_null入力はnullが返ること() {
         String out = util.formatJdbcDateTime("ANY", (String) null, null);
         assertNull(out);
@@ -148,5 +133,111 @@ class OracleDateTimeFormatUtilTest {
         String in = "2020-01-01 12:34:56.0";
         String out = util.formatJdbcDateTime("TIMESTAMP_COL", in, null);
         assertEquals("2020-01-01 12:34:56", out);
+    }
+
+    @Test
+    void formatJdbcDateTime_正常ケース_oracleJdbcTimestampTzクラス名を動的生成する_数値オフセットが正規化されること()
+            throws Exception {
+        Object value = newDynamicOracleTemporalObject("oracle.jdbc.OracleTIMESTAMPTZ",
+                "2020-01-01 12:34:56 +09:00");
+        String out = util.formatJdbcDateTime("ANY", value, null);
+        assertEquals("2020-01-01 12:34:56 +0900", out);
+    }
+
+    @Test
+    void formatJdbcDateTime_正常ケース_oracleJdbcTimestampLtzクラス名を動的生成する_リージョンオフセットが正規化されること()
+            throws Exception {
+        Object value = newDynamicOracleTemporalObject("oracle.jdbc.OracleTimestampltz",
+                "2020-01-01 12:34:56.0 Asia/Tokyo");
+        String out = util.formatJdbcDateTime("ANY", value, null);
+        assertEquals("2020-01-01 12:34:56 +0900", out);
+    }
+
+    @Test
+    void formatJdbcDateTime_異常ケース_colNameにnullを指定する_toString値が返ること() {
+        String out = util.formatJdbcDateTime(null, "fallback-value", null);
+        assertEquals("fallback-value", out);
+    }
+
+    @Test
+    void normalizeTimestampTz_正常ケース_リージョン日時形式で日時が不正の場合_入力値が返ること() throws Exception {
+        Method method = OracleDateTimeFormatUtil.class.getDeclaredMethod("normalizeTimestampTz",
+                String.class);
+        method.setAccessible(true);
+        String out = (String) method.invoke(util, "2020-13-99 99:99:99 Asia/Tokyo");
+        assertEquals("2020-13-99 99:99:99 Asia/Tokyo", out);
+    }
+
+    @Test
+    void normalizeTimestampTz_正常ケース_数値オフセット形式を指定する_コロン無しオフセットが返ること() throws Exception {
+        Method method = OracleDateTimeFormatUtil.class.getDeclaredMethod("normalizeTimestampTz",
+                String.class);
+        method.setAccessible(true);
+        String out = (String) method.invoke(util, "2020-01-01 12:00:00 +09:00");
+        assertEquals("2020-01-01 12:00:00 +0900", out);
+    }
+
+    @Test
+    void normalizeIntervalYm_正常ケース_書式不一致を指定する_入力値が返ること() throws Exception {
+        Method method = OracleDateTimeFormatUtil.class.getDeclaredMethod("normalizeIntervalYm",
+                String.class);
+        method.setAccessible(true);
+        String out = (String) method.invoke(util, "invalid-value");
+        assertEquals("invalid-value", out);
+    }
+
+    @Test
+    void normalizeIntervalDs_正常ケース_書式不一致を指定する_入力値が返ること() throws Exception {
+        Method method = OracleDateTimeFormatUtil.class.getDeclaredMethod("normalizeIntervalDs",
+                String.class);
+        method.setAccessible(true);
+        String out = (String) method.invoke(util, "invalid-value");
+        assertEquals("invalid-value", out);
+    }
+
+    @Test
+    void normalizeTimestampTz_正常ケース_nullを指定する_nullが返ること() throws Exception {
+        Method method = OracleDateTimeFormatUtil.class.getDeclaredMethod("normalizeTimestampTz",
+                String.class);
+        method.setAccessible(true);
+        String out = (String) method.invoke(util, new Object[] {null});
+        assertNull(out);
+    }
+
+    @Test
+    void normalizeIntervalYm_正常ケース_負値を指定する_マイナス符号付きで返ること() throws Exception {
+        Method method = OracleDateTimeFormatUtil.class.getDeclaredMethod("normalizeIntervalYm",
+                String.class);
+        method.setAccessible(true);
+        String out = (String) method.invoke(util, "-2-3");
+        assertEquals("-02-03", out);
+    }
+
+    @Test
+    void normalizeIntervalDs_正常ケース_負値を指定する_マイナス符号付きで返ること() throws Exception {
+        Method method = OracleDateTimeFormatUtil.class.getDeclaredMethod("normalizeIntervalDs",
+                String.class);
+        method.setAccessible(true);
+        String out = (String) method.invoke(util, "-2 3:4:5.0");
+        assertEquals("-02 03:04:05", out);
+    }
+
+    /**
+     * Builds a runtime class with a specific Oracle JDBC-like FQCN and a
+     * {@code stringValue(Connection)} method.
+     *
+     * @param className fully qualified class name to expose through {@code getClass().getName()}
+     * @param rawValue return value of {@code stringValue(Connection)}
+     * @return instantiated dynamic object
+     * @throws Exception if bytecode generation or class loading fails
+     */
+    private Object newDynamicOracleTemporalObject(String className, String rawValue)
+            throws Exception {
+        Class<?> dynamicClass = new ByteBuddy().subclass(Object.class).name(className)
+                .defineMethod("stringValue", String.class, Visibility.PUBLIC)
+                .withParameters(java.sql.Connection.class).intercept(FixedValue.value(rawValue))
+                .make().load(getClass().getClassLoader(), ClassLoadingStrategy.Default.INJECTION)
+                .getLoaded();
+        return dynamicClass.getDeclaredConstructor().newInstance();
     }
 }

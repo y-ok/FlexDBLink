@@ -88,17 +88,18 @@ public class DataLoaderFactory {
      * @throws IllegalArgumentException if the format is not supported
      */
     private static DataParser createParser(DataFormat format) {
-        switch (format) {
-            case CSV:
-                return new CsvDataParser();
-            case JSON:
-                return new JsonDataParser();
-            case YAML:
-                return new YamlDataParser();
-            case XML:
-                return new XmlDataParser();
-            default:
-                throw new IllegalArgumentException("Unsupported format: " + format);
+        if (format == DataFormat.CSV) {
+            return new CsvDataParser();
         }
+        if (format == DataFormat.JSON) {
+            return new JsonDataParser();
+        }
+        if (format == DataFormat.YAML) {
+            return new YamlDataParser();
+        }
+        if (format == DataFormat.XML) {
+            return new XmlDataParser();
+        }
+        throw new IllegalArgumentException("Unsupported format: " + format);
     }
 }

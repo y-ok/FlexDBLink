@@ -248,7 +248,7 @@ public class LoadDataExtension
                 entry -> Optional.ofNullable(entry.getUser()).map(u -> u.toUpperCase(Locale.ROOT))
                         .orElseThrow(() -> new IllegalStateException(
                                 "Failed to resolve schema: user is undefined")),
-                handlerFactory::create, dbUnitConfig, configFactory, dumpConfig);
+                handlerFactory::create, dbUnitConfig, dumpConfig);
 
         // Mode detection
         boolean multi = dbNamesAttr != null && dbNamesAttr.length > 0;

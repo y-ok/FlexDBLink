@@ -50,15 +50,19 @@ public class DbUnitConfigFactory {
         cfg.setProperty(DatabaseConfig.PROPERTY_DATATYPE_FACTORY, dataTypeFactory);
         log.debug("DBUnit: DataTypeFactory set to {}", dataTypeFactory.getClass().getSimpleName());
 
-        // 2) Configure whether to allow empty fields ("")
+        // 2) Escape identifiers with double quotes (e.g. numeric-leading table names)
+        cfg.setProperty(DatabaseConfig.PROPERTY_ESCAPE_PATTERN, "\"?\"");
+        log.debug("DBUnit: escape pattern = \"?\"");
+
+        // 3) Configure whether to allow empty fields ("")
         cfg.setProperty(DatabaseConfig.FEATURE_ALLOW_EMPTY_FIELDS, props.isAllowEmptyFields());
         log.debug("DBUnit: allow empty fields = {}", props.isAllowEmptyFields());
 
-        // 3) Configure whether to enable batched statements execution
+        // 4) Configure whether to enable batched statements execution
         cfg.setProperty(DatabaseConfig.FEATURE_BATCHED_STATEMENTS, props.isBatchedStatements());
         log.debug("DBUnit: batched statements enabled = {}", props.isBatchedStatements());
 
-        // 4) Configure batch size
+        // 5) Configure batch size
         cfg.setProperty(DatabaseConfig.PROPERTY_BATCH_SIZE, props.getBatchSize());
         log.debug("DBUnit: batch size = {}", props.getBatchSize());
     }

@@ -350,7 +350,7 @@ class TestResourceContext {
                 if (firstIdx == 1 && "datasource".equals(tokens[2])) {
                     score += 3;
                 }
-                if (tokens.length >= 3 && "datasource".equals(tokens[1]) && firstIdx == 2) {
+                if ("datasource".equals(tokens[1]) && firstIdx == 2) {
                     score += 2;
                 }
             }
@@ -444,8 +444,8 @@ class TestResourceContext {
     }
 
     /**
-     * Extract the profile token from a file name like
-     * {@code application-<profile>.properties} / {@code .yml} / {@code .yaml}.
+     * Extract the profile token from a file name like {@code application-<profile>.properties} /
+     * {@code .yml} / {@code .yaml}.
      *
      * @param simpleName simple resource name (no path)
      * @return extracted profile or empty string when not applicable
@@ -563,31 +563,20 @@ class TestResourceContext {
     /**
      * Resolve {@code src/test/resources/{package-path}/{TestClassName}} from the classpath.
      *
-     * <p>
-     * At test runtime, this folder is typically copied onto the classpath. This method locates it
-     * via the context class loader.
-     * </p>
-     *
      * @param testClass test class
      * @return absolute, normalized path to the resource root
-     * @throws Exception if the resource is not found or is not a directory
+     * @throws Exception if the resource is not found
      */
     private static Path resolveTestClassRootFromClasspath(Class<?> testClass) throws Exception {
-        String pkg = Optional.ofNullable(testClass.getPackage()).map(Package::getName).orElse("");
-        String pkgPath = pkg.replace('.', '/');
+        String pkgPath = testClass.getPackageName().replace('.', '/');
         String resourcePath =
-                (pkgPath.isEmpty() ? "" : (pkgPath + "/")) + testClass.getSimpleName();
+                Paths.get(pkgPath, testClass.getSimpleName()).toString().replace('\\', '/');
         URL url = Thread.currentThread().getContextClassLoader().getResource(resourcePath);
         if (url == null) {
             String msg = "Test resource folder not found on classpath: " + resourcePath;
             throw new IllegalStateException(msg);
         }
-        Path p = Paths.get(url.toURI()).toAbsolutePath().normalize();
-        if (!Files.isDirectory(p)) {
-            String msg = "Resolved test resource path is not a directory: " + p;
-            throw new IllegalStateException(msg);
-        }
-        return p;
+        return Paths.get(url.toURI()).toAbsolutePath().normalize();
     }
 
     /**

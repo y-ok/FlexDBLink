@@ -9,7 +9,6 @@ import io.github.yok.flexdblink.core.DataDumper;
 import io.github.yok.flexdblink.core.DataLoader;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
-import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
 import java.util.ArrayList;
@@ -79,7 +78,6 @@ public class Main implements CommandLineRunner {
     private final DumpConfig dumpConfig;
     private final DbDialectHandlerFactory dialectFactory;
     private final OracleDateTimeFormatUtil dateTimeFormatter;
-    private final DbUnitConfigFactory configFactory;
 
     /**
      * Bootstraps the application.
@@ -164,8 +162,8 @@ public class Main implements CommandLineRunner {
                 log.info("Starting data load. Scenario [{}], Target DBs {}", scenario, targetDbIds);
 
                 new DataLoader(pathsConfig, connectionConfig, schemaResolver,
-                        dialectHandlerProvider, dbUnitConfig, configFactory, dumpConfig)
-                                .execute(scenario, targetDbIds);
+                        dialectHandlerProvider, dbUnitConfig, dumpConfig).execute(scenario,
+                                targetDbIds);
 
                 log.info("Data load completed. Scenario [{}]", scenario);
 
