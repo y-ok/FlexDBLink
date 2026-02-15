@@ -578,8 +578,8 @@ src/test/resources/<package path>/<TestClassName>/<scenario>/input/files/*      
 
 ## ライセンス / License
 
-本リポジトリは **MIT License** で提供されています。詳しくは [LICENSE](LICENSE.txt) を参照してください。  
-This repository is distributed under the **MIT License**. See [LICENSE](LICENSE.txt) for details.
+本リポジトリは **Apache License 2.0** で提供されています。詳しくは [LICENSE](LICENSE.txt) を参照してください。  
+This repository is distributed under the **Apache License 2.0**. See [LICENSE](LICENSE.txt) for details.
 
 
 ---
