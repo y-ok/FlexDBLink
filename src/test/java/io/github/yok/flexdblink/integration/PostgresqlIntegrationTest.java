@@ -15,17 +15,17 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.junit.jupiter.api.parallel.Execution;
-import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -38,7 +38,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * </p>
  */
 @Testcontainers
-@Execution(ExecutionMode.SAME_THREAD)
 public class PostgresqlIntegrationTest {
 
     private static final Set<String> NUMERIC_COLUMNS =
@@ -156,11 +155,13 @@ public class PostgresqlIntegrationTest {
         Path dbDir = PostgresqlIntegrationSupport.executeDump(runtime, "pg_dump_case");
         Path filesDir = dbDir.resolve("files");
 
-        assertTrue(Files.exists(dbDir.resolve("IT_TYPED_MAIN.csv")));
-        assertTrue(Files.exists(dbDir.resolve("IT_TYPED_AUX.csv")));
+        Path mainCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
 
-        String csvText =
-                Files.readString(dbDir.resolve("IT_TYPED_MAIN.csv"), StandardCharsets.UTF_8);
+        assertTrue(Files.exists(mainCsv));
+        assertTrue(Files.exists(auxCsv));
+
+        String csvText = Files.readString(mainCsv, StandardCharsets.UTF_8);
         assertTrue(csvText.contains("file:"), "LOB列が file: 参照として出力されていません。");
 
         // 出力された BLOB ファイルのうち、少なくとも1つはDBの bytea と一致すること
@@ -172,8 +173,7 @@ public class PostgresqlIntegrationTest {
             long id = rs.getLong("ID");
             byte[] expected = rs.getBytes("BLOB_COL");
 
-            Map<String, String> row =
-                    readCsvRowById(dbDir.resolve("IT_TYPED_MAIN.csv"), "ID", String.valueOf(id));
+            Map<String, String> row = readCsvRowById(mainCsv, "ID", String.valueOf(id));
             String ref = row.get("BLOB_COL");
             assertTrue(ref.startsWith("file:"), "BLOB_COL が file: 参照ではありません: " + ref);
 
@@ -195,8 +195,8 @@ public class PostgresqlIntegrationTest {
         Path inputAuxCsv = dataPath.resolve("load/pre/db1/IT_TYPED_AUX.csv");
         Path inputFilesDir = dataPath.resolve("load/pre/db1/files");
 
-        Path outputMainCsv = outputDbDir.resolve("IT_TYPED_MAIN.csv");
-        Path outputAuxCsv = outputDbDir.resolve("IT_TYPED_AUX.csv");
+        Path outputMainCsv = resolveFileIgnoreCase(outputDbDir, "IT_TYPED_MAIN.csv");
+        Path outputAuxCsv = resolveFileIgnoreCase(outputDbDir, "IT_TYPED_AUX.csv");
         Path outputFilesDir = outputDbDir.resolve("files");
 
         assertTableEquals("IT_TYPED_MAIN", "ID", inputMainCsv, outputMainCsv, inputFilesDir,
@@ -351,14 +351,14 @@ public class PostgresqlIntegrationTest {
 
     private static Map<String, Map<String, String>> readCsvById(Path csvPath, String idColumn)
             throws IOException {
-        Map<String, Map<String, String>> rows = new java.util.LinkedHashMap<>();
+        Map<String, Map<String, String>> rows = new LinkedHashMap<>();
         String normalizedIdColumn = idColumn.toUpperCase(Locale.ROOT);
         CSVFormat format = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true)
                 .setIgnoreSurroundingSpaces(false).setTrim(false).get();
 
         try (CSVParser parser = CSVParser.parse(csvPath, StandardCharsets.UTF_8, format)) {
             for (CSVRecord record : parser) {
-                Map<String, String> row = new java.util.LinkedHashMap<>();
+                Map<String, String> row = new LinkedHashMap<>();
                 for (String header : parser.getHeaderMap().keySet()) {
                     row.put(header.toUpperCase(Locale.ROOT), record.get(header));
                 }
@@ -366,5 +366,19 @@ public class PostgresqlIntegrationTest {
             }
         }
         return rows;
+    }
+
+    private static Path resolveFileIgnoreCase(Path dir, String fileName) throws IOException {
+        Path direct = dir.resolve(fileName);
+        if (Files.exists(direct)) {
+            return direct;
+        }
+
+        try (Stream<Path> stream = Files.list(dir)) {
+            return stream.filter(p -> p.getFileName().toString().equalsIgnoreCase(fileName))
+                    .findFirst().orElseThrow(
+                            () -> new IOException("File not found (case-insensitive): expected="
+                                    + fileName + " dir=" + dir.toAbsolutePath()));
+        }
     }
 }
