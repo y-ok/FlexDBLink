@@ -24,6 +24,8 @@ import org.apache.commons.csv.CSVRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -36,6 +38,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * </p>
  */
 @Testcontainers
+@Execution(ExecutionMode.SAME_THREAD)
 public class PostgresqlIntegrationTest {
 
     private static final Set<String> NUMERIC_COLUMNS =
