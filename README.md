@@ -48,6 +48,8 @@ Most importantly, its greatest strength lies in the fact that **you no longer ne
 ## 前提
 
 * **Java 11+**（`JAVA_HOME` を JDK 11 以上に設定）
+  * **サポート対象（CIで動作確認）**: **Java 11 / 17 / 21（LTS）**
+  * **互換性ターゲット**: **Java 25（非LTS、CI必須対象外・動作報告歓迎）**
 * **Apache Maven 3.9+**（CLI ツールのビルドに使用します。例: 3.9.10）
 * **Oracle JDBC Driver**（`oracle.jdbc.OracleDriver`）
 * **OS**: Windows / macOS / Linux いずれでも可
@@ -59,6 +61,8 @@ Most importantly, its greatest strength lies in the fact that **you no longer ne
 ### Requirements
 
 * **Java 11+** (set `JAVA_HOME` to JDK 11 or later)
+  * **Supported (CI-tested):** **Java 11 / 17 / 21 (LTS)**
+  * **Compatibility target:** **Java 25 (non-LTS; not required in CI; bug reports welcome)**
 * **Apache Maven 3.9+** (used to build the CLI tool; e.g., 3.9.10)
 * **Oracle JDBC Driver** (`oracle.jdbc.OracleDriver`)
 * **OS**: Windows / macOS / Linux

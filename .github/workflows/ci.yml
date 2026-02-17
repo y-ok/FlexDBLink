@@ -15,6 +15,11 @@ jobs:
   test-and-coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '11', '17', '21', '25' ]
+
     env:
       DOCKER_HOST: unix:///var/run/docker.sock
       TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
@@ -24,11 +29,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 11
+      - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '11'
+          java-version: ${{ matrix.java }}
           cache: maven
 
       - name: Verify Docker
@@ -38,7 +43,7 @@ jobs:
         run: mvn -B clean test
 
       - name: Upload JaCoCo XML as artifact
-        if: always()
+        if: always() && matrix.java == '21'
         uses: actions/upload-artifact@v4
         with:
           name: jacoco-report
@@ -46,7 +51,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload coverage to Codecov
-        if: always()
+        if: always() && matrix.java == '21'
         uses: codecov/codecov-action@v5
         with:
           files: target/site/jacoco/jacoco.xml
