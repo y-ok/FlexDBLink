@@ -64,26 +64,10 @@ public class DbDialectHandlerFactory {
         try {
             switch (dbUnitConfig.getDataTypeFactoryMode()) {
                 case ORACLE:
-                    // 1) Establish a raw JDBC connection
-                    Connection jdbc = DriverManager.getConnection(entry.getUrl(), entry.getUser(),
-                            entry.getPassword());
+                    return createOracle(entry);
 
-                    // 2) Create a DBUnit connection (schema uses the upper-cased user name)
-                    DatabaseConnection dbConn =
-                            new DatabaseConnection(jdbc, entry.getUser().toUpperCase());
-
-                    // 3) Create and initialize OracleDialectHandler
-                    OracleDialectHandler handler = new OracleDialectHandler(dbConn, dumpConfig,
-                            dbUnitConfig, configFactory, dateTimeFormatter, pathsConfig);
-
-                    // 4) Apply common DBUnit configuration
-                    DatabaseConfig config = dbConn.getConfig();
-                    configFactory.configure(config, handler.getDataTypeFactory());
-
-                    // 5) Perform dialect/session initialization
-                    handler.prepareConnection(jdbc);
-
-                    return handler;
+                case POSTGRESQL:
+                    return createPostgresql(entry);
 
                 default:
                     String msg = "Unsupported DataTypeFactoryMode: "
@@ -104,5 +88,64 @@ public class DbDialectHandlerFactory {
             log.error("Unexpected error during DbDialectHandler creation", e);
             throw new IllegalStateException("Failed to create DbDialectHandler", e);
         }
+    }
+
+    /**
+     * Creates Oracle dialect handler.
+     *
+     * <p>
+     * This method creates a {@link DatabaseConnection} with the schema resolved from the connection
+     * entry, instantiates {@link OracleDialectHandler} to cache metadata, applies common DBUnit
+     * configuration, and initializes the JDBC session.
+     * </p>
+     *
+     * @param entry connection entry
+     * @return handler
+     * @throws Exception if creation fails
+     */
+    private DbDialectHandler createOracle(ConnectionConfig.Entry entry) throws Exception {
+        Connection jdbc =
+                DriverManager.getConnection(entry.getUrl(), entry.getUser(), entry.getPassword());
+        DatabaseConnection dbConn = new DatabaseConnection(jdbc, entry.getUser().toUpperCase());
+
+        OracleDialectHandler handler = new OracleDialectHandler(dbConn, dumpConfig, dbUnitConfig,
+                configFactory, dateTimeFormatter, pathsConfig);
+
+        DatabaseConfig config = dbConn.getConfig();
+        configFactory.configure(config, handler.getDataTypeFactory());
+
+        handler.prepareConnection(jdbc);
+
+        return handler;
+    }
+
+    /**
+     * Creates PostgreSQL dialect handler.
+     *
+     * <p>
+     * Creates a single {@link DatabaseConnection} and a single {@link PostgresqlDialectHandler}
+     * instance, then applies common DBUnit configuration and session initialization.
+     * </p>
+     *
+     * @param entry connection entry
+     * @return handler
+     * @throws Exception if creation fails
+     */
+    private DbDialectHandler createPostgresql(ConnectionConfig.Entry entry) throws Exception {
+        Connection jdbc =
+                DriverManager.getConnection(entry.getUrl(), entry.getUser(), entry.getPassword());
+
+        String schema = "public";
+        DatabaseConnection dbConn = new DatabaseConnection(jdbc, schema);
+
+        PostgresqlDialectHandler handler = new PostgresqlDialectHandler(dbConn, dumpConfig,
+                dbUnitConfig, configFactory, dateTimeFormatter, pathsConfig);
+
+        DatabaseConfig config = dbConn.getConfig();
+        configFactory.configure(config, handler.getDataTypeFactory());
+
+        handler.prepareConnection(jdbc);
+
+        return handler;
     }
 }

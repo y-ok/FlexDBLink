@@ -50,11 +50,20 @@ public class FilePatternConfig {
      *         otherwise
      */
     public Optional<String> getPattern(String tableName, String columnName) {
-        Map<String, String> cols = filePatterns.get(tableName);
+        Map<String, String> cols = findColumnsByTableName(tableName);
         if (cols == null) {
             return Optional.empty();
         }
-        return Optional.ofNullable(cols.get(columnName));
+        String pattern = cols.get(columnName);
+        if (pattern != null) {
+            return Optional.of(pattern);
+        }
+        for (Map.Entry<String, String> entry : cols.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase(columnName)) {
+                return Optional.ofNullable(entry.getValue());
+            }
+        }
+        return Optional.empty();
     }
 
     /**
@@ -65,7 +74,29 @@ public class FilePatternConfig {
      *         entry
      */
     public Map<String, String> getPatternsForTable(String tableName) {
+        Map<String, String> cols = findColumnsByTableName(tableName);
+        if (cols == null) {
+            return Collections.emptyMap();
+        }
+        return Collections.unmodifiableMap(cols);
+    }
+
+    /**
+     * Finds the configured column map by table name.
+     *
+     * @param tableName target table name
+     * @return column-to-pattern map if present; otherwise null
+     */
+    private Map<String, String> findColumnsByTableName(String tableName) {
         Map<String, String> cols = filePatterns.get(tableName);
-        return cols != null ? Collections.unmodifiableMap(cols) : Collections.emptyMap();
+        if (cols != null) {
+            return cols;
+        }
+        for (Map.Entry<String, Map<String, String>> entry : filePatterns.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase(tableName)) {
+                return entry.getValue();
+            }
+        }
+        return null;
     }
 }

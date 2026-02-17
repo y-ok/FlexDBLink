@@ -91,9 +91,11 @@ class LoadDataExtensionTest {
 
     // テストで使用するパス情報（ターゲットに合わせて両系統を作成）
     private Path classpathRoot; // target/test-classes
-    private Path resourcesRoot; // src/test/resources
+    @TempDir
+    Path tempDir;
+    private Path resourcesRoot; // temp test resources
     private Path dummyClassClassPathDir; // target/test-classes/<pkg>/<ClassName>
-    private Path dummyClassResourcesDir; // src/test/resources/<pkg>/<ClassName>
+    private Path dummyClassResourcesDir; // temp test resources/<pkg>/<ClassName>
 
     // 後始末用
     private final List<Path> createdPaths = new ArrayList<>();
@@ -104,7 +106,7 @@ class LoadDataExtensionTest {
         target = new LoadDataExtension();
 
         classpathRoot = Paths.get("target", "test-classes").toAbsolutePath().normalize();
-        resourcesRoot = Paths.get("src", "test", "resources").toAbsolutePath().normalize();
+        resourcesRoot = tempDir.resolve("test-resources").toAbsolutePath().normalize();
 
         String pkgPath = DummyTargetTest.class.getPackage().getName().replace('.', '/');
         String clsName = DummyTargetTest.class.getSimpleName();

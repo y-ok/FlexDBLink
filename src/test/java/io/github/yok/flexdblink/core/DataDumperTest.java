@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -29,6 +30,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
 import java.util.Collections;
@@ -170,7 +172,7 @@ class DataDumperTest {
     @Test
     void exportTableAsCsvUtf8_識別子クォートとbinarynull空文字化を行うこと() throws Exception {
         DataDumper dumper = createDumper();
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
 
@@ -225,7 +227,7 @@ class DataDumperTest {
     @Test
     void exportTableAsCsvUtf8_正常ケース_binary非nullを16進へ変換すること() throws Exception {
         DataDumper dumper = createDumper();
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
 
@@ -280,7 +282,7 @@ class DataDumperTest {
     @Test
     void exportTableAsCsvUtf8_正常ケース_主キーなしで数値ソートすること() throws Exception {
         DataDumper dumper = createDumper();
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
 
@@ -337,7 +339,7 @@ class DataDumperTest {
     @Test
     void exportTableAsCsvUtf8_正常ケース_主キーありで文字列ソートすること() throws Exception {
         DataDumper dumper = createDumper();
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
 
@@ -392,7 +394,7 @@ class DataDumperTest {
     @Test
     void exportTableAsCsvUtf8_正常ケース_sqlTypeOtherかつRAW型を指定する_16進文字列が出力されること() throws Exception {
         DataDumper dumper = createDumper();
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
 
@@ -445,7 +447,7 @@ class DataDumperTest {
     @Test
     void exportTableAsCsvUtf8_正常ケース_比較値が同一である_比較結果0で完了すること() throws Exception {
         DataDumper dumper = createDumper();
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
 
@@ -497,7 +499,7 @@ class DataDumperTest {
     @Test
     void exportTableAsCsvUtf8_正常ケース_longRawと通常nullを指定する_16進と空文字が出力されること() throws Exception {
         DataDumper dumper = createDumper();
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
 
@@ -554,7 +556,7 @@ class DataDumperTest {
     @Test
     void exportTableAsCsvUtf8_正常ケース_longVarBinaryを指定する_16進文字列が出力されること() throws Exception {
         DataDumper dumper = createDumper();
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         Connection conn = mock(Connection.class);
@@ -598,7 +600,7 @@ class DataDumperTest {
     @Test
     void exportTableAsCsvUtf8_正常ケース_varBinaryを指定する_16進文字列が出力されること() throws Exception {
         DataDumper dumper = createDumper();
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         Connection conn = mock(Connection.class);
@@ -643,7 +645,7 @@ class DataDumperTest {
     void dumpBlobClob_型別null処理とクォートSQLを適用すること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DataDumper dumper = createDumper(filePatternConfig);
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
 
@@ -711,7 +713,7 @@ class DataDumperTest {
     void dumpBlobClob_正常ケース_interval列を含む_日時整形値が設定されること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DataDumper dumper = createDumper(filePatternConfig);
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         when(filePatternConfig.getPatternsForTable("TINTERVAL")).thenReturn(Collections.emptyMap());
@@ -761,10 +763,123 @@ class DataDumperTest {
     }
 
     @Test
+    void dumpBlobClob_正常ケース_timestampwithtimezone列を含む_方言整形値が設定されること() throws Exception {
+        FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
+        DataDumper dumper = createDumper(filePatternConfig);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+        when(dialectHandler.quoteIdentifier(any()))
+                .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
+        when(filePatternConfig.getPatternsForTable("TTSTZ")).thenReturn(Collections.emptyMap());
+
+        Connection conn = mock(Connection.class);
+        when(dialectHandler.formatDateTimeColumn("TS_TZ", "2026-02-15T01:02:03+09:00", conn))
+                .thenReturn("2026-02-15 01:02:03+09:00");
+        when(conn.getCatalog()).thenReturn(null);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        ResultSet pkRs = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("TTSTZ"))).thenReturn(pkRs);
+        when(pkRs.next()).thenReturn(false);
+        Statement stmt = mock(Statement.class);
+        when(conn.createStatement()).thenReturn(stmt);
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery("SELECT * FROM \"TTSTZ\"")).thenReturn(rs);
+        ResultSetMetaData md = mock(ResultSetMetaData.class);
+        when(rs.getMetaData()).thenReturn(md);
+        when(md.getColumnCount()).thenReturn(1);
+        when(md.getColumnLabel(1)).thenReturn("TS_TZ");
+        when(md.getColumnType(1)).thenReturn(-101);
+        when(rs.next()).thenReturn(true, false);
+        when(rs.getObject(1)).thenReturn("2026-02-15T01:02:03+09:00");
+
+        Path dbDirPath = Files.createDirectories(tempDir.resolve("db_tstz"));
+        Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
+        Path csvPath = dbDirPath.resolve("TTSTZ.csv");
+        Files.writeString(csvPath, "TS_TZ\nx\n", StandardCharsets.UTF_8);
+
+        Method method = DataDumper.class.getDeclaredMethod("dumpBlobClob", Connection.class,
+                String.class, File.class, File.class, FileNameResolver.class, String.class,
+                DbDialectHandler.class);
+        method.setAccessible(true);
+        DumpResult result = (DumpResult) method.invoke(dumper, conn, "TTSTZ", dbDirPath.toFile(),
+                filesDirPath.toFile(), new FileNameResolver(filePatternConfig), "APP",
+                dialectHandler);
+        assertEquals(1, result.getRowCount());
+
+        CSVFormat fmt =
+                CSVFormat.DEFAULT.builder().setHeader("TS_TZ").setSkipHeaderRecord(true).get();
+        try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
+            List<CSVRecord> records = parser.getRecords();
+            assertEquals("2026-02-15 01:02:03+09:00", records.get(0).get("TS_TZ"));
+        }
+    }
+
+    @Test
+    void dumpBlobClob_正常ケース_nclob列を含む_file参照が設定されること() throws Exception {
+        FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
+        DataDumper dumper = createDumper(filePatternConfig);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+        when(dialectHandler.quoteIdentifier(any()))
+                .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
+        when(filePatternConfig.getPatternsForTable("TNClob"))
+                .thenReturn(Collections.singletonMap("NCLOB_COL", "nclob_{ID}.txt"));
+        when(filePatternConfig.getPattern("TNClob", "NCLOB_COL"))
+                .thenReturn(Optional.of("nclob_{ID}.txt"));
+
+        Connection conn = mock(Connection.class);
+        when(conn.getCatalog()).thenReturn(null);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        ResultSet pkRs = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("TNClob"))).thenReturn(pkRs);
+        when(pkRs.next()).thenReturn(true, false);
+        when(pkRs.getString("COLUMN_NAME")).thenReturn("ID");
+
+        Statement stmt = mock(Statement.class);
+        when(conn.createStatement()).thenReturn(stmt);
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery("SELECT * FROM \"TNClob\"")).thenReturn(rs);
+        ResultSetMetaData md = mock(ResultSetMetaData.class);
+        when(rs.getMetaData()).thenReturn(md);
+        when(md.getColumnCount()).thenReturn(2);
+        when(md.getColumnLabel(1)).thenReturn("ID");
+        when(md.getColumnLabel(2)).thenReturn("NCLOB_COL");
+        when(md.getColumnType(1)).thenReturn(Types.INTEGER);
+        when(md.getColumnType(2)).thenReturn(Types.NCLOB);
+        when(rs.next()).thenReturn(true, false);
+        when(rs.getObject(1)).thenReturn(10);
+        when(rs.getObject("ID")).thenReturn(10);
+        when(rs.getObject(2)).thenReturn("nclob-body");
+
+        Path dbDirPath = Files.createDirectories(tempDir.resolve("db_nclob"));
+        Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
+        Path csvPath = dbDirPath.resolve("TNClob.csv");
+        Files.writeString(csvPath, "ID,NCLOB_COL\n10,x\n", StandardCharsets.UTF_8);
+
+        Method method = DataDumper.class.getDeclaredMethod("dumpBlobClob", Connection.class,
+                String.class, File.class, File.class, FileNameResolver.class, String.class,
+                DbDialectHandler.class);
+        method.setAccessible(true);
+        DumpResult result = (DumpResult) method.invoke(dumper, conn, "TNClob", dbDirPath.toFile(),
+                filesDirPath.toFile(), new FileNameResolver(filePatternConfig), "APP",
+                dialectHandler);
+
+        assertEquals(1, result.getRowCount());
+        assertEquals(1, result.getFileCount());
+
+        CSVFormat fmt = CSVFormat.DEFAULT.builder().setHeader("ID", "NCLOB_COL")
+                .setSkipHeaderRecord(true).get();
+        try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
+            List<CSVRecord> records = parser.getRecords();
+            assertEquals("file:nclob_10.txt", records.get(0).get("NCLOB_COL"));
+        }
+    }
+
+    @Test
     void dumpBlobClob_正常ケース_ソートで数値変換失敗かつ同値である_比較結果0で完了すること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DataDumper dumper = createDumper(filePatternConfig);
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         when(filePatternConfig.getPatternsForTable("TSORT_EQ")).thenReturn(Collections.emptyMap());
@@ -788,6 +903,7 @@ class DataDumperTest {
         when(md.getColumnType(1)).thenReturn(Types.VARCHAR);
         when(rs.next()).thenReturn(true, true, false);
         when(rs.getString(1)).thenReturn("A", "A");
+        when(rs.getObject(1)).thenReturn("A", "A");
 
         Path dbDirPath = Files.createDirectories(tempDir.resolve("db_sort_eq"));
         Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
@@ -816,7 +932,7 @@ class DataDumperTest {
     void dumpBlobClob_正常ケース_型分岐を複合指定する_各列が期待形式へ変換されること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DataDumper dumper = createDumper(filePatternConfig);
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         when(filePatternConfig.getPatternsForTable("TMULTI"))
@@ -860,12 +976,11 @@ class DataDumperTest {
         when(rs.getObject(3)).thenReturn(tz2);
         when(rs.getObject(4)).thenReturn(clobRaw);
         when(rs.getObject(5)).thenReturn(new byte[] {0x00});
+        when(rs.getObject(6)).thenReturn(null);
         when(rs.getObject("ID")).thenReturn(1);
         when(rs.getBytes(5)).thenReturn(new byte[] {0x01, 0x2A});
-        when(rs.getString(1)).thenReturn("1");
-        when(rs.getString(6)).thenReturn("null");
-        when(dateTimeFormatter.formatJdbcDateTime("TZ_COL", tz1, conn)).thenReturn("T1");
-        when(dateTimeFormatter.formatJdbcDateTime("TZ_COL2", tz2, conn)).thenReturn("T2");
+        when(dialectHandler.formatDateTimeColumn("TZ_COL", tz1, conn)).thenReturn("T1");
+        when(dialectHandler.formatDateTimeColumn("TZ_COL2", tz2, conn)).thenReturn("T2");
 
         Path dbDirPath = Files.createDirectories(tempDir.resolve("db_multi_type"));
         Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
@@ -900,7 +1015,7 @@ class DataDumperTest {
     void dumpBlobClob_正常ケース_重複ヘッダを含むCSVを指定する_先勝ちインデックスで処理されること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DataDumper dumper = createDumper(filePatternConfig);
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         when(filePatternConfig.getPatternsForTable("TDUP")).thenReturn(Collections.emptyMap());
@@ -942,7 +1057,7 @@ class DataDumperTest {
     void dumpBlobClob_正常ケース_blob非nullでファイル参照へ置換すること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DataDumper dumper = createDumper(filePatternConfig);
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
 
@@ -1009,7 +1124,7 @@ class DataDumperTest {
     void dumpBlobClob_正常ケース_timestampnclobvarbinaryを処理する_型別の期待値であること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DataDumper dumper = createDumper(filePatternConfig);
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         when(filePatternConfig.getPatternsForTable("1TABLE"))
@@ -1051,7 +1166,7 @@ class DataDumperTest {
         when(rs.getObject("ID")).thenReturn(10);
         when(rs.getBytes(4)).thenReturn(new byte[] {0x0A, 0x0B});
         when(rs.getString(1)).thenReturn("10");
-        when(dateTimeFormatter.formatJdbcDateTime("TS_COL", timestampRaw, conn))
+        when(dialectHandler.formatDateTimeColumn("TS_COL", timestampRaw, conn))
                 .thenReturn("2026-02-15 12:34:56");
 
         Path dbDirPath = Files.createDirectories(tempDir.resolve("db_timestamp_nclob"));
@@ -1088,7 +1203,7 @@ class DataDumperTest {
     void dumpBlobClob_異常ケース_blob非nullでパターン未定義_IllegalStateExceptionが送出されること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DataDumper dumper = createDumper(filePatternConfig);
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
 
@@ -1136,10 +1251,64 @@ class DataDumperTest {
     }
 
     @Test
+    void dumpBlobClob_異常ケース_パターン取得が途中で空になる_IllegalStateExceptionが送出されること() throws Exception {
+        FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
+        DataDumper dumper = createDumper(filePatternConfig);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+        when(dialectHandler.quoteIdentifier(any()))
+                .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
+
+        when(filePatternConfig.getPatternsForTable("TPATTERN_EMPTY"))
+                .thenReturn(Collections.singletonMap("BLOB_COL", "blob_{ID}.bin"));
+        when(filePatternConfig.getPattern("TPATTERN_EMPTY", "BLOB_COL"))
+                .thenReturn(Optional.of("blob_{ID}.bin"), Optional.empty());
+
+        Connection conn = mock(Connection.class);
+        when(conn.getCatalog()).thenReturn(null);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        ResultSet pkRs = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("TPATTERN_EMPTY"))).thenReturn(pkRs);
+        when(pkRs.next()).thenReturn(false);
+
+        Statement stmt = mock(Statement.class);
+        when(conn.createStatement()).thenReturn(stmt);
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery("SELECT * FROM \"TPATTERN_EMPTY\"")).thenReturn(rs);
+        ResultSetMetaData md = mock(ResultSetMetaData.class);
+        when(rs.getMetaData()).thenReturn(md);
+        when(md.getColumnCount()).thenReturn(2);
+        when(md.getColumnLabel(1)).thenReturn("ID");
+        when(md.getColumnLabel(2)).thenReturn("BLOB_COL");
+        when(md.getColumnType(1)).thenReturn(Types.INTEGER);
+        when(md.getColumnType(2)).thenReturn(Types.BLOB);
+        when(rs.next()).thenReturn(true, false);
+        when(rs.getObject(1)).thenReturn(1);
+        when(rs.getObject(2)).thenReturn(new byte[] {0x01});
+        when(rs.getObject("ID")).thenReturn(1);
+        when(rs.getString(1)).thenReturn("1");
+
+        Path dbDirPath = Files.createDirectories(tempDir.resolve("db_pattern_empty"));
+        Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
+        Path csvPath = dbDirPath.resolve("TPATTERN_EMPTY.csv");
+        Files.writeString(csvPath, "ID,BLOB_COL\n1,x\n", StandardCharsets.UTF_8);
+
+        Method method = DataDumper.class.getDeclaredMethod("dumpBlobClob", Connection.class,
+                String.class, File.class, File.class, FileNameResolver.class, String.class,
+                DbDialectHandler.class);
+        method.setAccessible(true);
+        InvocationTargetException ex = assertThrows(InvocationTargetException.class,
+                () -> method.invoke(dumper, conn, "TPATTERN_EMPTY", dbDirPath.toFile(),
+                        filesDirPath.toFile(), new FileNameResolver(filePatternConfig), "APP",
+                        dialectHandler));
+        assertTrue(ex.getCause() instanceof IllegalStateException);
+    }
+
+    @Test
     void dumpBlobClob_正常ケース_主キーで数値ソートする_並び順が昇順になること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DataDumper dumper = createDumper(filePatternConfig);
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         when(filePatternConfig.getPatternsForTable("TSORT")).thenReturn(Collections.emptyMap());
@@ -1167,6 +1336,8 @@ class DataDumperTest {
         when(rs.next()).thenReturn(true, true, false);
         when(rs.getString(1)).thenReturn("10", "2");
         when(rs.getString(2)).thenReturn("x", "y");
+        when(rs.getObject(1)).thenReturn("10", "2");
+        when(rs.getObject(2)).thenReturn("x", "y");
 
         Path dbDirPath = Files.createDirectories(tempDir.resolve("db_sort_num"));
         Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
@@ -1203,7 +1374,7 @@ class DataDumperTest {
         Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
         DumpResult result = (DumpResult) method.invoke(dumper, mock(Connection.class), "NOFILE",
                 dbDirPath.toFile(), filesDirPath.toFile(), new FileNameResolver(filePatternConfig),
-                "APP", mock(DbDialectHandler.class));
+                "APP", createDialectHandlerMock());
         assertEquals(0, result.getRowCount());
         assertEquals(0, result.getFileCount());
     }
@@ -1212,7 +1383,7 @@ class DataDumperTest {
     void dumpBlobClob_異常ケース_テーブルのパターン定義がnullである_IllegalStateExceptionが送出されること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DataDumper dumper = createDumper(filePatternConfig);
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         when(filePatternConfig.getPatternsForTable("TNOPAT")).thenReturn(null);
@@ -1249,7 +1420,7 @@ class DataDumperTest {
     void dumpBlobClob_正常ケース_ヘッダにない列を含む_未定義列は無視されること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DataDumper dumper = createDumper(filePatternConfig);
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         when(filePatternConfig.getPatternsForTable("THEADER_SKIP"))
@@ -1276,6 +1447,8 @@ class DataDumperTest {
         when(rs.next()).thenReturn(true, false);
         when(rs.getString(1)).thenReturn("1");
         when(rs.getString(2)).thenReturn("ignored");
+        when(rs.getObject(1)).thenReturn("1");
+        when(rs.getObject(2)).thenReturn("ignored");
 
         Path dbDirPath = Files.createDirectories(tempDir.resolve("db_header_skip"));
         Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
@@ -1447,7 +1620,7 @@ class DataDumperTest {
         dumpConfig.setExcludeTables(List.of());
 
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> mock(DbDialectHandler.class), dateTimeFormatter);
+                e -> "APP", e -> createDialectHandlerMock(), dateTimeFormatter);
 
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class)) {
@@ -1477,7 +1650,7 @@ class DataDumperTest {
         Connection conn = mock(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         ResultSet rs = mock(ResultSet.class);
-        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
         org.dbunit.database.DatabaseConnection dbConn =
                 mock(org.dbunit.database.DatabaseConnection.class);
 
@@ -1573,7 +1746,7 @@ class DataDumperTest {
         when(rsDump.next()).thenReturn(true, false);
         when(rsDump.getString(1)).thenReturn("1");
 
-        DbDialectHandler dialect = mock(DbDialectHandler.class);
+        DbDialectHandler dialect = createDialectHandlerMock();
         when(dialect.quoteIdentifier(any())).thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         when(dialect.createDbUnitConnection(eq(conn), eq("APP")))
                 .thenReturn(mock(org.dbunit.database.DatabaseConnection.class));
@@ -1606,7 +1779,7 @@ class DataDumperTest {
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(List.of());
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> mock(DbDialectHandler.class), dateTimeFormatter);
+                e -> "APP", e -> createDialectHandlerMock(), dateTimeFormatter);
         try (MockedStatic<ErrorHandler> handler =
                 org.mockito.Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any(), any())).thenAnswer(inv -> {
@@ -1660,7 +1833,7 @@ class DataDumperTest {
         Connection conn = mock(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         ResultSet rs = mock(ResultSet.class);
-        DbDialectHandler dialect = mock(DbDialectHandler.class);
+        DbDialectHandler dialect = createDialectHandlerMock();
         org.dbunit.database.DatabaseConnection dbConn =
                 mock(org.dbunit.database.DatabaseConnection.class);
         when(conn.getMetaData()).thenReturn(meta);
@@ -1696,7 +1869,7 @@ class DataDumperTest {
         Connection conn = mock(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         ResultSet rs = mock(ResultSet.class);
-        DbDialectHandler dialect = mock(DbDialectHandler.class);
+        DbDialectHandler dialect = createDialectHandlerMock();
         org.dbunit.database.DatabaseConnection dbConn =
                 mock(org.dbunit.database.DatabaseConnection.class);
         when(conn.getMetaData()).thenReturn(meta);
@@ -1733,7 +1906,7 @@ class DataDumperTest {
         doThrow(new java.sql.SQLException("close failed")).when(conn).close();
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         ResultSet rs = mock(ResultSet.class);
-        DbDialectHandler dialect = mock(DbDialectHandler.class);
+        DbDialectHandler dialect = createDialectHandlerMock();
         org.dbunit.database.DatabaseConnection dbConn =
                 mock(org.dbunit.database.DatabaseConnection.class);
         when(conn.getMetaData()).thenReturn(meta);
@@ -1783,7 +1956,8 @@ class DataDumperTest {
         when(tableRs.getString("TABLE_NAME")).thenReturn("T1");
         ResultSet pkRsForExport = mock(ResultSet.class);
         ResultSet pkRsForDump = mock(ResultSet.class);
-        when(meta.getPrimaryKeys(any(), eq("APP"), eq("T1"))).thenReturn(pkRsForExport, pkRsForDump);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("T1"))).thenReturn(pkRsForExport,
+                pkRsForDump);
         when(pkRsForExport.next()).thenReturn(false);
         when(pkRsForDump.next()).thenReturn(false);
         Statement stmtHeader = mock(Statement.class);
@@ -1814,7 +1988,7 @@ class DataDumperTest {
         when(mdDump.getColumnType(1)).thenReturn(Types.VARCHAR);
         when(rsDump.next()).thenReturn(true, false);
         when(rsDump.getString(1)).thenReturn("1");
-        DbDialectHandler dialect = mock(DbDialectHandler.class);
+        DbDialectHandler dialect = createDialectHandlerMock();
         when(dialect.quoteIdentifier(any())).thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         when(dialect.createDbUnitConnection(eq(conn), eq("APP")))
                 .thenReturn(mock(org.dbunit.database.DatabaseConnection.class));
@@ -1847,7 +2021,7 @@ class DataDumperTest {
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(List.of());
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> mock(DbDialectHandler.class), dateTimeFormatter);
+                e -> "APP", e -> createDialectHandlerMock(), dateTimeFormatter);
         try (MockedStatic<ErrorHandler> handler =
                 org.mockito.Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any(), any())).thenAnswer(inv -> null);
@@ -1875,6 +2049,33 @@ class DataDumperTest {
         return createDumper(mock(FilePatternConfig.class));
     }
 
+    private DbDialectHandler createDialectHandlerMock() {
+        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.quoteIdentifier(any()))
+                .thenAnswer(invocation -> "\"" + invocation.getArgument(0) + "\"");
+        try {
+            when(dialectHandler.formatDbValueForCsv(nullable(String.class), any()))
+                    .thenAnswer(invocation -> {
+                        Object value = invocation.getArgument(1);
+                        if (value == null) {
+                            return "";
+                        }
+                        return value.toString();
+                    });
+            when(dialectHandler.formatDateTimeColumn(nullable(String.class), any(), any()))
+                    .thenAnswer(invocation -> {
+                        Object value = invocation.getArgument(1);
+                        if (value == null) {
+                            return "";
+                        }
+                        return value.toString();
+                    });
+        } catch (SQLException e) {
+            throw new IllegalStateException("Failed to stub formatDbValueForCsv", e);
+        }
+        return dialectHandler;
+    }
+
     private DataDumper createDumper(FilePatternConfig filePatternConfig) {
         PathsConfig pathsConfig = mock(PathsConfig.class);
         ConnectionConfig connectionConfig = mock(ConnectionConfig.class);
@@ -1882,6 +2083,6 @@ class DataDumperTest {
         when(dumpConfig.getExcludeTables()).thenReturn(Collections.emptyList());
 
         return new DataDumper(pathsConfig, connectionConfig, filePatternConfig, dumpConfig,
-                e -> "APP", e -> mock(DbDialectHandler.class), dateTimeFormatter);
+                e -> "APP", e -> createDialectHandlerMock(), dateTimeFormatter);
     }
 }
