@@ -290,7 +290,7 @@ public class DataLoader {
             }
             List<String> tables =
                     Files.readAllLines(orderPath, StandardCharsets.UTF_8).stream().map(String::trim)
-                            .filter(s -> !s.isEmpty()).sorted().collect(Collectors.toList());
+                            .filter(s -> !s.isEmpty()).collect(Collectors.toList());
 
             if (tables.isEmpty()) {
                 log.info("[{}] No tables → skipping", dbId);

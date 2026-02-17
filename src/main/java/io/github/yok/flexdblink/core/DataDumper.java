@@ -33,6 +33,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -95,6 +97,7 @@ public class DataDumper {
 
     // Date/time formatting utility
     private final OracleDateTimeFormatUtil dateTimeFormatter;
+    private static final Set<Integer> LOB_SQL_TYPES = Set.of(Types.BLOB, Types.CLOB, Types.NCLOB);
 
     /**
      * Dumps CSV and BLOB/CLOB files for each table according to the specified scenario and target
@@ -360,6 +363,8 @@ public class DataDumper {
                 for (int i = 1; i <= colCount; i++) {
                     int sqlType = md.getColumnType(i);
                     String typeNm = md.getColumnTypeName(i);
+                    String columnName = md.getColumnLabel(i);
+                    Object val = rs.getObject(i);
                     String cell;
                     // RAW / LONG RAW / VARBINARY → hex string
                     if ("RAW".equalsIgnoreCase(typeNm) || "LONG RAW".equalsIgnoreCase(typeNm)
@@ -367,9 +372,13 @@ public class DataDumper {
                             || sqlType == Types.LONGVARBINARY) {
                         byte[] bytes = rs.getBytes(i);
                         cell = (bytes == null) ? "" : Hex.encodeHexString(bytes).toUpperCase();
+                    } else if (sqlType == Types.DATE || sqlType == Types.TIME
+                            || sqlType == Types.TIMESTAMP || sqlType == -101 || sqlType == -102) {
+                        cell = (val == null) ? ""
+                                : dialectHandler.formatDateTimeColumn(columnName, val, conn);
                     } else {
-                        Object val = rs.getObject(i);
-                        cell = (val == null) ? "" : val.toString();
+                        cell = (val == null) ? ""
+                                : dialectHandler.formatDbValueForCsv(columnName, val);
                     }
                     row.add(cell);
                 }
@@ -545,14 +554,15 @@ public class DataDumper {
                     } else if (type == Types.DATE || type == Types.TIMESTAMP || type == -101
                             || type == -102) {
                         cell = (raw == null) ? ""
-                                : dateTimeFormatter.formatJdbcDateTime(col, raw, conn);
+                                : dialectHandler.formatDateTimeColumn(col, raw, conn);
 
                         // BLOB/CLOB types
-                    } else if (type == Types.BLOB || type == Types.CLOB || type == Types.NCLOB) {
+                    } else if (filePatternConfig.getPattern(table, col).isPresent()) {
                         if (raw == null) {
                             cell = "";
                         } else {
-                            String pattern = filePatternConfig.getPattern(table, col).orElseThrow(
+                            Optional<String> patternOpt = filePatternConfig.getPattern(table, col);
+                            String pattern = patternOpt.orElseThrow(
                                     () -> new IllegalStateException("No definition for \"" + table
                                             + "\" / \"" + col + "\" in file-patterns."));
                             Map<String, Object> keyMap = buildKeyMap(rs, pattern);
@@ -563,6 +573,10 @@ public class DataDumper {
                             cell = "file:" + fname;
                         }
 
+                    } else if (isLobSqlType(type)) {
+                        throw new IllegalStateException("No definition for \"" + table + "\" / \""
+                                + col + "\" in file-patterns.");
+
                         // RAW/BINARY family
                     } else if (type == Types.BINARY || type == Types.VARBINARY
                             || type == Types.LONGVARBINARY) {
@@ -572,8 +586,7 @@ public class DataDumper {
 
                         // Others
                     } else {
-                        String v = rs.getString(i);
-                        cell = (v == null || "null".equals(v)) ? "" : v;
+                        cell = (raw == null) ? "" : dialectHandler.formatDbValueForCsv(col, raw);
                     }
 
                     row.set(idx, cell);
@@ -628,6 +641,16 @@ public class DataDumper {
         }
 
         return new DumpResult(csvData.size(), fileCount);
+    }
+
+    /**
+     * Returns whether the JDBC type should be handled as LOB output.
+     *
+     * @param sqlType JDBC SQL type
+     * @return true if BLOB/CLOB/NCLOB
+     */
+    private boolean isLobSqlType(int sqlType) {
+        return LOB_SQL_TYPES.contains(sqlType);
     }
 
     /**

@@ -1,0 +1,3 @@
+ID,MAIN_ID,LABEL,PAYLOAD_XML,PAYLOAD_CLOB,PAYLOAD_BLOB,LOB_KIND
+201,101,aux-xml,"<aux><kind>xml</kind><source>load-aux</source></aux>","<aux><kind>xml</kind><source>load</source></aux>",file:aux_xml_1.xml,xml
+202,102,aux-zip,"<aux><kind>zip</kind><source>load-aux</source></aux>",,file:aux_zip_1.zip,zip

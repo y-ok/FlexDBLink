@@ -1,6 +1,6 @@
-# Oracle Integration Test Fixtures
+# Integration Test Fixtures
 
-This directory contains fixed fixtures for Oracle Free integration tests.
+This directory contains fixed fixtures for Oracle and PostgreSQL integration tests.
 
 ## Covered Types in Integration Tests
 
@@ -23,6 +23,9 @@ This directory contains fixed fixtures for Oracle Free integration tests.
 
 ## Fixture Usage
 
-- `load/pre/db1/*.csv` and `load/pre/db1/files/*` are used by `DataLoader` tests.
+- `integration/oracle/load/pre/db1/*.csv` are Oracle-specific `DataLoader` fixtures.
+- `integration/postgresql/load/pre/db1/*.csv` are PostgreSQL-specific `DataLoader` fixtures.
+- `integration/common/load/pre/db1/files/*` are shared LOB fixture files used by both
+  Oracle and PostgreSQL integration tests.
 - Flyway migration scripts under `db/migration/oracle` create and seed tables used by
   both `DataLoader` and `DataDumper` tests.
