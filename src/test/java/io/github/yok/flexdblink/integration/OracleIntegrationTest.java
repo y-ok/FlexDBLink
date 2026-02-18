@@ -16,6 +16,10 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.temporal.ChronoField;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Set;
@@ -36,6 +40,14 @@ class OracleIntegrationTest {
 
     private static final Set<String> NUMERIC_COLUMNS =
             Set.of("ID", "MAIN_ID", "NUM_COL", "BF_COL", "BD_COL");
+    private static final DateTimeFormatter OFFSET_DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
+            .appendPattern("yyyy-MM-dd HH:mm:ss")
+            .optionalStart()
+            .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true)
+            .optionalEnd()
+            .appendLiteral(' ')
+            .appendOffset("+HHmm", "Z")
+            .toFormatter();
 
     @Container
     static final OracleContainer ORACLE = new OracleContainer("gvenzl/oracle-free:slim-faststart");
@@ -381,8 +393,12 @@ class OracleIntegrationTest {
             return;
         }
 
+        if ("TSTZ_COL".equalsIgnoreCase(column) || "TSLTZ_COL".equalsIgnoreCase(column)) {
+            assertDateTimeWithOffsetEquals(table, id, column, inVal, outVal);
+            return;
+        }
+
         if ("IV_YM_COL".equalsIgnoreCase(column) || "IV_DS_COL".equalsIgnoreCase(column)
-                || "TSTZ_COL".equalsIgnoreCase(column) || "TSLTZ_COL".equalsIgnoreCase(column)
                 || "DATE_COL".equalsIgnoreCase(column)) {
             assertEquals(OracleIntegrationSupport.trimToEmpty(inVal),
                     OracleIntegrationSupport.trimToEmpty(outVal),
@@ -435,6 +451,19 @@ class OracleIntegrationTest {
 
     private static String diffPrefix(String table, String id, String column) {
         return "Table=" + table + " ID=" + id + " Column=" + column + " ";
+    }
+
+    private static void assertDateTimeWithOffsetEquals(String table, String id, String column,
+            String inputValue, String outputValue) {
+        OffsetDateTime inDateTime = parseOffsetDateTime(inputValue);
+        OffsetDateTime outDateTime = parseOffsetDateTime(outputValue);
+        assertEquals(inDateTime.toInstant(), outDateTime.toInstant(),
+                diffPrefix(table, id, column) + "日時/INTERVAL値が一致しません");
+    }
+
+    private static OffsetDateTime parseOffsetDateTime(String value) {
+        return OffsetDateTime.parse(OracleIntegrationSupport.trimToEmpty(value),
+                OFFSET_DATE_TIME_FORMATTER);
     }
 
     private static String dumpMainRows(Connection conn) {
