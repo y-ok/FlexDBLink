@@ -120,7 +120,7 @@ class DbDialectHandlerFactoryTest {
     @Test
     void create_異常ケース_未サポートモードを指定する_IllegalStateExceptionが送出されること() {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.MYSQL);
+        dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.SQLSERVER);
         DbDialectHandlerFactory factory =
                 new DbDialectHandlerFactory(dbUnitConfig, new DumpConfig(), new PathsConfig(),
                         mock(OracleDateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
@@ -131,6 +131,49 @@ class DbDialectHandlerFactoryTest {
         entry.setPassword("pw");
 
         assertThrows(IllegalStateException.class, () -> factory.create(entry));
+    }
+
+    @Test
+    void create_正常ケース_mysqlモードを指定する_MySqlDialectHandlerが返ること() throws Exception {
+        DbUnitConfig dbUnitConfig = new DbUnitConfig();
+        dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.MYSQL);
+        DumpConfig dumpConfig = new DumpConfig();
+        PathsConfig pathsConfig = new PathsConfig();
+        DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
+        OracleDateTimeFormatUtil dateTimeFormatUtil = mock(OracleDateTimeFormatUtil.class);
+        DbDialectHandlerFactory factory = new DbDialectHandlerFactory(dbUnitConfig, dumpConfig,
+                pathsConfig, dateTimeFormatUtil, configFactory);
+
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setUrl("jdbc:mysql://localhost:3306/testdb");
+        entry.setUser("app");
+        entry.setPassword("pw");
+
+        Connection jdbc = mock(Connection.class);
+        DatabaseConfig databaseConfig = mock(DatabaseConfig.class);
+        IDataTypeFactory dataTypeFactory = mock(IDataTypeFactory.class);
+
+        try (MockedStatic<DriverManager> driverManagerMock = mockStatic(DriverManager.class);
+                MockedConstruction<DatabaseConnection> dbConnMock =
+                        mockConstruction(DatabaseConnection.class, (mock, context) -> {
+                            when(mock.getConfig()).thenReturn(databaseConfig);
+                        });
+                MockedConstruction<MySqlDialectHandler> handlerMock =
+                        mockConstruction(MySqlDialectHandler.class, (mock, context) -> {
+                            when(mock.getDataTypeFactory()).thenReturn(dataTypeFactory);
+                        })) {
+
+            driverManagerMock
+                    .when(() -> DriverManager.getConnection("jdbc:mysql://localhost:3306/testdb",
+                            "app", "pw"))
+                    .thenReturn(jdbc);
+
+            DbDialectHandler actual = factory.create(entry);
+            MySqlDialectHandler created = handlerMock.constructed().get(0);
+            assertSame(created, actual);
+            verify(created).prepareConnection(jdbc);
+            verify(configFactory).configure(eq(databaseConfig), eq(dataTypeFactory));
+        }
     }
 
     @Test
@@ -209,5 +252,27 @@ class DbDialectHandlerFactoryTest {
                     .thenReturn(jdbc);
             assertThrows(IllegalStateException.class, () -> factory.create(entry));
         }
+    }
+
+    @Test
+    void private_正常ケース_resolveMySqlDatabaseを呼び出す_URL形式ごとにDB名が解決されること() throws Exception {
+        DbUnitConfig dbUnitConfig = new DbUnitConfig();
+        dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.MYSQL);
+        DbDialectHandlerFactory factory =
+                new DbDialectHandlerFactory(dbUnitConfig, new DumpConfig(), new PathsConfig(),
+                        mock(OracleDateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+
+        java.lang.reflect.Method method = DbDialectHandlerFactory.class
+                .getDeclaredMethod("resolveMySqlDatabase", String.class);
+        method.setAccessible(true);
+
+        assertEquals("testdb", method.invoke(factory, new Object[] {null}));
+        assertEquals("testdb", method.invoke(factory, "plain-url"));
+        assertEquals("localhost", method.invoke(factory, "jdbc:mysql://localhost"));
+        assertEquals("testdb", method.invoke(factory, "jdbc:mysql://localhost/"));
+        assertEquals("testdb", method.invoke(factory, "jdbc:mysql://localhost/?useSSL=false"));
+        assertEquals("sample", method.invoke(factory, "jdbc:mysql://localhost:3306/sample"));
+        assertEquals("sample",
+                method.invoke(factory, "jdbc:mysql://localhost:3306/sample?useSSL=false"));
     }
 }

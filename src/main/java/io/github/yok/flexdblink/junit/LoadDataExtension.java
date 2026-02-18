@@ -380,6 +380,11 @@ public class LoadDataExtension
     /**
      * Switch the default TransactionManager of every {@link TransactionInterceptor} in the context
      * to the selected TM's bean name. Restored after the test.
+     *
+     * @param context JUnit extension context
+     * @param ac Spring application context
+     * @param picked selected transaction manager
+     * @param key logical key used for logging and store association
      */
     private void setTxInterceptorDefaultManager(ExtensionContext context, ApplicationContext ac,
             PlatformTransactionManager picked, String key) {
@@ -422,6 +427,8 @@ public class LoadDataExtension
     /**
      * Restore the default TransactionManager settings for {@link TransactionInterceptor}s that were
      * modified by {@link #setTxInterceptorDefaultManager}.
+     *
+     * @param context JUnit extension context
      */
     private void restoreTxInterceptorDefaultManager(ExtensionContext context) {
         Store store = context.getStore(NS);

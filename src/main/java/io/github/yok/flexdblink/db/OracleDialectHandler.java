@@ -1085,7 +1085,6 @@ public class OracleDialectHandler implements DbDialectHandler {
     /**
      * Parses a timestamp-like string into {@link java.sql.Timestamp}.
      *
-     * <p>
      * Normalization: replaces {@code 'T'} with space and {@code '/'} with {@code '-'}. Tries, in
      * order:
      * <ol>
@@ -1095,7 +1094,6 @@ public class OracleDialectHandler implements DbDialectHandler {
      * <li>{@code yyyy-MM-dd HH:mm:ss[.fraction]}</li>
      * </ol>
      * On total failure, throws {@link DataSetException}.
-     * </p>
      *
      * @param str raw timestamp text
      * @param column column name (for logging context)

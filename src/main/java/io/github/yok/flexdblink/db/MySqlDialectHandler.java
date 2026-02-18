@@ -64,10 +64,10 @@ import org.dbunit.dataset.datatype.IDataTypeFactory;
 import org.slf4j.LoggerFactory;
 
 /**
- * PostgreSQL-specific implementation of {@link DbDialectHandler}.
+ * MySQL-specific implementation of {@link DbDialectHandler}.
  *
  * <p>
- * This handler provides PostgreSQL-dialect logic to:
+ * This handler provides MySQL-dialect logic to:
  * </p>
  *
  * <ul>
@@ -97,7 +97,7 @@ import org.slf4j.LoggerFactory;
  * @author Yasuharu.Okawauchi
  */
 @Slf4j
-public class PostgresqlDialectHandler implements DbDialectHandler {
+public class MySqlDialectHandler implements DbDialectHandler {
 
     // Directory name used to store LOB files
     private final String lobDirName;
@@ -133,22 +133,26 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
             {DateTimeFormatter.ISO_LOCAL_DATE, DateTimeFormatter.ofPattern("yyyy/MM/dd"),
                     DateTimeFormatter.BASIC_ISO_DATE, DateTimeFormatter.ofPattern("yyyy.MM.dd"),
                     DateTimeFormatter.ofPattern("yyyy年M月d日", Locale.JAPANESE)};
-    private static final Set<String> TEXT_LIKE_TYPE_NAMES = new HashSet<>(
-            List.of("text", "varchar", "bpchar", "character varying", "character", "xml"));
-    private static final Set<String> BOOLEAN_TYPE_NAMES = new HashSet<>(List.of("bool", "boolean"));
-    private static final Set<String> INTEGER_TYPE_NAMES = new HashSet<>(List.of("int4", "integer"));
-    private static final Set<String> BIGINT_TYPE_NAMES = new HashSet<>(List.of("int8", "bigint"));
+    private static final Set<String> TEXT_LIKE_TYPE_NAMES =
+            new HashSet<>(List.of("char", "varchar", "character", "character varying", "bpchar",
+                    "tinytext", "text", "mediumtext", "longtext", "enum", "set", "json", "xml"));
+    private static final Set<String> BOOLEAN_TYPE_NAMES =
+            new HashSet<>(List.of("bool", "boolean", "tinyint(1)"));
+    private static final Set<String> INTEGER_TYPE_NAMES =
+            new HashSet<>(List.of("tinyint", "smallint", "mediumint", "int", "integer", "int4"));
+    private static final Set<String> BIGINT_TYPE_NAMES = new HashSet<>(List.of("bigint", "int8"));
     private static final Set<String> NUMERIC_TYPE_NAMES =
             new HashSet<>(List.of("numeric", "decimal"));
-    private static final Set<String> REAL_TYPE_NAMES = new HashSet<>(List.of("float4", "real"));
+    private static final Set<String> REAL_TYPE_NAMES =
+            new HashSet<>(List.of("float", "real", "float4"));
     private static final Set<String> DOUBLE_TYPE_NAMES =
-            new HashSet<>(List.of("float8", "double precision"));
-    private static final Set<String> DATE_TIME_TYPE_NAMES = new HashSet<>(
-            List.of("date", "time", "timestamp", "timestamptz", "timestamp with time zone"));
+            new HashSet<>(List.of("double", "float8", "double precision"));
+    private static final Set<String> DATE_TIME_TYPE_NAMES = new HashSet<>(List.of("date", "time",
+            "datetime", "timestamp", "year", "timestamptz", "timestamp with time zone"));
     private static final Set<Integer> CLOB_SQL_TYPES = Set.of(Types.CLOB, Types.NCLOB);
     private static final Set<Integer> NUMERIC_SQL_TYPES = Set.of(Types.NUMERIC, Types.DECIMAL);
     private static final Set<Integer> BINARY_SQL_TYPES =
-            Set.of(Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY);
+            Set.of(Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY, Types.BLOB, Types.BIT);
     private static final Set<Integer> LOB_SQL_TYPES = Set.of(Types.CLOB, Types.BLOB);
     private static final List<Class<?>> TEMPORAL_VALUE_TYPES = List.of(Date.class, Time.class,
             Timestamp.class, LocalDate.class, LocalDateTime.class, OffsetDateTime.class);
@@ -206,7 +210,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      * @param pathsConfig data-path/load/dump path configuration
      * @throws Exception if metadata retrieval fails
      */
-    public PostgresqlDialectHandler(DatabaseConnection dbConn, DumpConfig dumpConfig,
+    public MySqlDialectHandler(DatabaseConnection dbConn, DumpConfig dumpConfig,
             DbUnitConfig dbUnitConfig, DbUnitConfigFactory configFactory,
             OracleDateTimeFormatUtil dateTimeFormatter, PathsConfig pathsConfig) throws Exception {
         this.configFactory = configFactory;
@@ -222,7 +226,10 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
         try {
             schema = jdbcConn.getSchema();
         } catch (SQLException e) {
-            schema = "public";
+            schema = jdbcConn.getCatalog();
+        }
+        if (schema == null || schema.isBlank()) {
+            schema = "testdb";
         }
 
         List<String> excludeTables = dumpConfig.getExcludeTables();
@@ -283,10 +290,10 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Applies PostgreSQL-specific session initialization to the JDBC {@link Connection}.
+     * Applies MySQL-specific session initialization to the JDBC {@link Connection}.
      *
      * <p>
-     * This implementation sets {@code search_path} to {@code public}.
+     * This implementation sets timezone and character set for stable CSV round-trip.
      * </p>
      *
      * @param connection JDBC connection to initialize
@@ -294,9 +301,9 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      */
     @Override
     public void prepareConnection(Connection connection) throws SQLException {
-        String schema = "public";
         try (Statement st = connection.createStatement()) {
-            st.execute("SET search_path TO " + quoteIdentifier(schema));
+            st.execute("SET time_zone = '+00:00'");
+            st.execute("SET NAMES utf8mb4");
         }
     }
 
@@ -343,6 +350,9 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
         }
 
         try {
+            if (isBitType(sqlType, typeName)) {
+                return parseBitValue(str);
+            }
             if (isBooleanType(sqlType, typeName)) {
                 return parseBoolean(str);
             }
@@ -365,7 +375,13 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
                 return UUID.fromString(str);
             }
             if (isByteaType(sqlType, typeName)) {
+                if (isHexBinarySqlType(sqlType, typeName)) {
+                    return str;
+                }
                 return parseBytea(str, table, column);
+            }
+            if (isYearType(sqlType, typeName, column)) {
+                return Integer.valueOf(str);
             }
             if (isDateTimeType(sqlType, typeName)) {
                 return parseDateTimeValue(column, str);
@@ -408,6 +424,9 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
             return "";
         }
         if (value instanceof byte[]) {
+            if (isBitColumnName(columnName)) {
+                return formatBitBytes((byte[]) value);
+            }
             return "";
         }
         if (value instanceof Blob) {
@@ -420,11 +439,48 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
             return ((SQLXML) value).getString();
         }
 
+        if (isYearColumn(columnName)) {
+            if (value instanceof Date) {
+                return Integer.toString(((Date) value).toLocalDate().getYear());
+            }
+            String yearCandidate = value.toString().trim();
+            if (yearCandidate.matches("\\d{4}-\\d{2}-\\d{2}")) {
+                return yearCandidate.substring(0, 4);
+            }
+            if (yearCandidate.matches("\\d{4}")) {
+                return yearCandidate;
+            }
+        }
+
         if (isTemporalValue(value)) {
             return formatDateTimeColumn(columnName, value, null);
         }
 
         return normalizeTimestampFraction(value.toString());
+    }
+
+    /**
+     * Returns whether the column name represents BIT column output.
+     *
+     * @param columnName column name
+     * @return {@code true} when BIT column
+     */
+    private boolean isBitColumnName(String columnName) {
+        return "BIT_COL".equalsIgnoreCase(columnName);
+    }
+
+    /**
+     * Formats bit bytes into unsigned decimal string.
+     *
+     * @param bytes bit bytes
+     * @return unsigned decimal text
+     */
+    private String formatBitBytes(byte[] bytes) {
+        long value = 0L;
+        for (byte b : bytes) {
+            value = (value << 8) + (b & 0xFFL);
+        }
+        return Long.toString(value);
     }
 
     /**
@@ -441,7 +497,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      * Resolves schema name from a connection entry.
      *
      * <p>
-     * PostgreSQL commonly uses {@code public} for default schema.
+     * MySQL commonly uses catalog(database) name as schema.
      * </p>
      *
      * @param entry connection entry
@@ -449,14 +505,28 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      */
     @Override
     public String resolveSchema(ConnectionConfig.Entry entry) {
-        return "public";
+        String url = entry.getUrl();
+        if (url == null) {
+            return "testdb";
+        }
+        int slash = url.lastIndexOf('/');
+        if (slash < 0 || slash == url.length() - 1) {
+            return "testdb";
+        }
+        String tail = url.substring(slash + 1);
+        int q = tail.indexOf('?');
+        String dbName = q >= 0 ? tail.substring(0, q) : tail;
+        if (dbName.isBlank()) {
+            return "testdb";
+        }
+        return dbName;
     }
 
     /**
      * Creates a DBUnit {@link DatabaseConnection} with the given JDBC connection and schema.
      *
      * <p>
-     * Applies the PostgreSQL data type factory and common DBUnit configuration.
+     * Applies the MySQL data type factory and common DBUnit configuration.
      * </p>
      *
      * @param jdbc JDBC connection
@@ -467,9 +537,10 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     @Override
     public DatabaseConnection createDbUnitConnection(Connection jdbc, String schema)
             throws Exception {
-        DatabaseConnection dbConn = new DatabaseConnection(jdbc, schema);
+        DatabaseConnection dbConn = new DatabaseConnection(jdbc);
         DatabaseConfig config = dbConn.getConfig();
         configFactory.configure(config, getDataTypeFactory());
+        config.setProperty(DatabaseConfig.PROPERTY_ESCAPE_PATTERN, "`?`");
         return dbConn;
     }
 
@@ -623,6 +694,9 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     @Override
     public Object parseDateTimeValue(String columnName, String value) throws Exception {
         String str = value.trim();
+        if (isYearColumn(columnName) && str.matches("\\d{4}")) {
+            return Date.valueOf(str + "-01-01");
+        }
 
         OffsetDateTime odt = tryParseOffsetDateTime(str);
         if (odt != null) {
@@ -649,6 +723,17 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     }
 
     /**
+     * Returns whether the column should be treated as MySQL YEAR.
+     *
+     * @param columnName column name
+     * @return true when column name indicates year column
+     */
+    private boolean isYearColumn(String columnName) {
+        String lower = columnName.toLowerCase(Locale.ROOT);
+        return lower.contains("year");
+    }
+
+    /**
      * Returns SQL to fetch the next sequence value.
      *
      * @param sequenceName sequence name
@@ -656,14 +741,14 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      */
     @Override
     public String getNextSequenceSql(String sequenceName) {
-        return "SELECT nextval('" + sequenceName + "')";
+        throw new UnsupportedOperationException("MySQL does not support sequences");
     }
 
     /**
      * Returns the SQL template used to retrieve generated keys after INSERT.
      *
      * <p>
-     * PostgreSQL typically uses {@code RETURNING} directly in the insert SQL in upper layer. This
+     * MySQL typically uses {@code RETURNING} directly in the insert SQL in upper layer. This
      * handler returns an empty string.
      * </p>
      *
@@ -691,7 +776,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      */
     @Override
     public boolean supportsSequences() {
-        return true;
+        return false;
     }
 
     /**
@@ -710,22 +795,22 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      * @param baseSql base SELECT SQL
      * @param offset rows to skip
      * @param limit max rows to fetch
-     * @return SELECT with PostgreSQL pagination
+     * @return SELECT with MySQL pagination
      */
     @Override
     public String applyPagination(String baseSql, int offset, int limit) {
-        return baseSql + " LIMIT " + limit + " OFFSET " + offset;
+        return baseSql + " LIMIT " + offset + ", " + limit;
     }
 
     /**
-     * Quotes an identifier (table/column name) using double quotes.
+     * Quotes an identifier (table/column name) using backticks.
      *
      * @param identifier identifier to quote
      * @return quoted identifier
      */
     @Override
     public String quoteIdentifier(String identifier) {
-        return "\"" + identifier + "\"";
+        return "`" + identifier + "`";
     }
 
     /**
@@ -759,7 +844,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Formats a {@link LocalDateTime} as a PostgreSQL timestamp literal.
+     * Formats a {@link LocalDateTime} as a MySQL timestamp literal.
      *
      * @param dateTime LocalDateTime value
      * @return SQL literal
@@ -770,13 +855,13 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Builds an UPSERT statement using {@code INSERT ... ON CONFLICT ... DO UPDATE}.
+     * Builds an UPSERT statement using {@code INSERT ... ON DUPLICATE KEY UPDATE}.
      *
      * @param tableName target table name
      * @param keyColumns conflict key columns
      * @param insertColumns insert columns
      * @param updateColumns update columns
-     * @return PostgreSQL upsert SQL
+     * @return MySQL upsert SQL
      */
     @Override
     public String buildUpsertSql(String tableName, List<String> keyColumns,
@@ -793,13 +878,11 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
             marks.add("?");
         }
         sb.append(String.join(", ", marks));
-        sb.append(") ON CONFLICT (");
-        sb.append(String.join(", ", keyColumns));
-        sb.append(") DO UPDATE SET ");
+        sb.append(") ON DUPLICATE KEY UPDATE ");
 
         List<String> sets = new ArrayList<>();
         for (String col : updateColumns) {
-            sets.add(col + " = EXCLUDED." + col);
+            sets.add(col + " = VALUES(" + col + ")");
         }
         sb.append(String.join(", ", sets));
 
@@ -819,7 +902,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
         for (Map.Entry<String, String> e : columns.entrySet()) {
             defs.add(e.getKey() + " " + e.getValue());
         }
-        return "CREATE TEMP TABLE " + tempTableName + " (" + String.join(", ", defs) + ")";
+        return "CREATE TEMPORARY TABLE " + tempTableName + " (" + String.join(", ", defs) + ")";
     }
 
     /**
@@ -844,13 +927,13 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Returns the DBUnit data type factory for PostgreSQL.
+     * Returns the DBUnit data type factory for MySQL.
      *
-     * @return {@link CustomPostgresqlDataTypeFactory}
+     * @return {@link CustomMySqlDataTypeFactory}
      */
     @Override
     public IDataTypeFactory getDataTypeFactory() {
-        return new CustomPostgresqlDataTypeFactory();
+        return new CustomMySqlDataTypeFactory();
     }
 
     /**
@@ -868,7 +951,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      * @param connection JDBC connection
      * @param schema schema name
      * @param table table name
-     * @param columns columns (not used for PostgreSQL metadata scan)
+     * @param columns columns (not used for MySQL metadata scan)
      * @return {@code true} if a NOT NULL LOB-like column exists
      * @throws SQLException on metadata retrieval errors
      */
@@ -1256,13 +1339,36 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     }
 
     /**
+     * Parses a BIT column value into integer form.
+     *
+     * @param str CSV value
+     * @return parsed integer value
+     */
+    private Integer parseBitValue(String str) {
+        if ("true".equalsIgnoreCase(str) || "t".equalsIgnoreCase(str)) {
+            return Integer.valueOf(1);
+        }
+        if ("false".equalsIgnoreCase(str) || "f".equalsIgnoreCase(str)) {
+            return Integer.valueOf(0);
+        }
+        String normalized = str;
+        if (normalized.startsWith("0x") || normalized.startsWith("0X")) {
+            return Integer.valueOf(Integer.parseInt(normalized.substring(2), 16));
+        }
+        if (normalized.matches("[01]+") && normalized.length() > 1) {
+            return Integer.valueOf(Integer.parseInt(normalized, 2));
+        }
+        return Integer.valueOf(normalized);
+    }
+
+    /**
      * Parses bytea CSV input into {@code byte[]}.
      *
      * <p>
      * Supported forms:
      * </p>
      * <ul>
-     * <li>{@code \x...} (PostgreSQL hex format)</li>
+     * <li>{@code \x...} (MySQL hex format)</li>
      * <li>plain hex string</li>
      * </ul>
      *
@@ -1452,12 +1558,12 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      * Returns whether the given column type represents a boolean.
      *
      * <p>
-     * PostgreSQL boolean is typically reported as {@code BOOLEAN}/{@code bool}. This method accepts
-     * both JDBC type code and normalized type name.
+     * MySQL boolean is typically reported as {@code BOOLEAN}/{@code bool}. This method accepts both
+     * JDBC type code and normalized type name.
      * </p>
      *
      * @param sqlType JDBC SQL type code
-     * @param typeName normalized PostgreSQL type name (lower-cased)
+     * @param typeName normalized MySQL type name (lower-cased)
      * @return {@code true} if the type is boolean
      */
     private boolean isBooleanType(int sqlType, String typeName) {
@@ -1468,14 +1574,25 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     }
 
     /**
+     * Returns whether the given column type represents MySQL BIT.
+     *
+     * @param sqlType JDBC SQL type code
+     * @param typeName normalized MySQL type name (lower-cased)
+     * @return {@code true} if the type is bit
+     */
+    private boolean isBitType(int sqlType, String typeName) {
+        return sqlType == Types.BIT || "bit".equals(typeName);
+    }
+
+    /**
      * Returns whether the given column type represents a 32-bit integer.
      *
      * <p>
-     * PostgreSQL {@code integer} is also known as {@code int4}.
+     * MySQL {@code integer} is also known as {@code int4}.
      * </p>
      *
      * @param sqlType JDBC SQL type code
-     * @param typeName normalized PostgreSQL type name (lower-cased)
+     * @param typeName normalized MySQL type name (lower-cased)
      * @return {@code true} if the type is int4/integer
      */
     private boolean isIntegerType(int sqlType, String typeName) {
@@ -1489,11 +1606,11 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      * Returns whether the given column type represents a 64-bit integer.
      *
      * <p>
-     * PostgreSQL {@code bigint} is also known as {@code int8}.
+     * MySQL {@code bigint} is also known as {@code int8}.
      * </p>
      *
      * @param sqlType JDBC SQL type code
-     * @param typeName normalized PostgreSQL type name (lower-cased)
+     * @param typeName normalized MySQL type name (lower-cased)
      * @return {@code true} if the type is int8/bigint
      */
     private boolean isBigIntType(int sqlType, String typeName) {
@@ -1507,11 +1624,11 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      * Returns whether the given column type represents an arbitrary-precision numeric.
      *
      * <p>
-     * PostgreSQL {@code numeric} may also appear as {@code decimal}.
+     * MySQL {@code numeric} may also appear as {@code decimal}.
      * </p>
      *
      * @param sqlType JDBC SQL type code
-     * @param typeName normalized PostgreSQL type name (lower-cased)
+     * @param typeName normalized MySQL type name (lower-cased)
      * @return {@code true} if the type is numeric/decimal
      */
     private boolean isNumericType(int sqlType, String typeName) {
@@ -1525,15 +1642,15 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      * Returns whether the given column type represents a single-precision floating point number.
      *
      * <p>
-     * PostgreSQL {@code real} is also known as {@code float4}.
+     * MySQL {@code real} is also known as {@code float4}.
      * </p>
      *
      * @param sqlType JDBC SQL type code
-     * @param typeName normalized PostgreSQL type name (lower-cased)
+     * @param typeName normalized MySQL type name (lower-cased)
      * @return {@code true} if the type is real/float4
      */
     private boolean isRealType(int sqlType, String typeName) {
-        if (sqlType == Types.REAL) {
+        if (sqlType == Types.REAL || sqlType == Types.FLOAT) {
             return true;
         }
         return REAL_TYPE_NAMES.contains(typeName);
@@ -1543,11 +1660,11 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      * Returns whether the given column type represents a double-precision floating point number.
      *
      * <p>
-     * PostgreSQL {@code double precision} is also known as {@code float8}.
+     * MySQL {@code double precision} is also known as {@code float8}.
      * </p>
      *
      * @param sqlType JDBC SQL type code
-     * @param typeName normalized PostgreSQL type name (lower-cased)
+     * @param typeName normalized MySQL type name (lower-cased)
      * @return {@code true} if the type is float8/double precision
      */
     private boolean isDoubleType(int sqlType, String typeName) {
@@ -1558,15 +1675,30 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     }
 
     /**
+     * Returns whether the SQL type should be handled by hex-aware DBUnit binary datatype.
+     *
+     * @param sqlType JDBC SQL type code
+     * @param typeName normalized MySQL type name (lower-cased)
+     * @return {@code true} for BINARY/VARBINARY/LONGVARBINARY
+     */
+    private boolean isHexBinarySqlType(int sqlType, String typeName) {
+        if ("bytea".equals(typeName)) {
+            return false;
+        }
+        return sqlType == Types.BINARY || sqlType == Types.VARBINARY
+                || sqlType == Types.LONGVARBINARY;
+    }
+
+    /**
      * Returns whether the given column type represents a date/time value.
      *
      * <p>
-     * PostgreSQL supports {@code date}, {@code time}, {@code timestamp} and {@code timestamptz}
+     * MySQL supports {@code date}, {@code time}, {@code timestamp} and {@code timestamptz}
      * ({@code timestamp with time zone}).
      * </p>
      *
      * @param sqlType JDBC SQL type code
-     * @param typeName normalized PostgreSQL type name (lower-cased)
+     * @param typeName normalized MySQL type name (lower-cased)
      * @return {@code true} if the type is a date/time type
      */
     private boolean isDateTimeType(int sqlType, String typeName) {
@@ -1577,37 +1709,50 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     }
 
     /**
+     * Returns whether the column should be treated as MySQL YEAR.
+     *
+     * @param sqlType JDBC SQL type code
+     * @param typeName normalized MySQL type name (lower-cased)
+     * @param columnName column name
+     * @return {@code true} if YEAR semantics should be applied
+     */
+    private boolean isYearType(int sqlType, String typeName, String columnName) {
+        if ("year".equals(typeName)) {
+            return true;
+        }
+        return sqlType == Types.DATE && isYearColumn(columnName);
+    }
+
+    /**
      * Returns whether the given column type represents {@code bytea} (binary) data.
      *
      * <p>
-     * PostgreSQL binary columns are typically {@code bytea}. Depending on the JDBC driver, the
-     * reported JDBC type may be {@code BINARY}/{@code VARBINARY}/{@code LONGVARBINARY}.
+     * MySQL binary columns are typically {@code bytea}. Depending on the JDBC driver, the reported
+     * JDBC type may be {@code BINARY}/{@code VARBINARY}/{@code LONGVARBINARY}.
      * </p>
      *
      * @param sqlType JDBC SQL type code
-     * @param typeName normalized PostgreSQL type name (lower-cased)
+     * @param typeName normalized MySQL type name (lower-cased)
      * @return {@code true} if the type is bytea/binary
      */
     private boolean isByteaType(int sqlType, String typeName) {
-        if ("bytea".equals(typeName)) {
+        if (typeName.endsWith("blob") || "binary".equals(typeName) || "varbinary".equals(typeName)
+                || "bit".equals(typeName) || "bytea".equals(typeName)) {
             return true;
         }
-        if (BINARY_SQL_TYPES.contains(sqlType)) {
-            return true;
-        }
-        return false;
+        return BINARY_SQL_TYPES.contains(sqlType);
     }
 
     /**
      * Returns whether the given column type should be treated as a LOB for file-based handling.
      *
      * <p>
-     * In PostgreSQL, {@code bytea} is treated as a binary LOB, and {@code text} is treated as a
+     * In MySQL, {@code bytea} is treated as a binary LOB, and {@code text} is treated as a
      * character LOB. Also treats JDBC {@code CLOB}/{@code BLOB} as LOB when drivers report them.
      * </p>
      *
      * @param sqlType JDBC SQL type code
-     * @param typeName normalized PostgreSQL type name (lower-cased)
+     * @param typeName normalized MySQL type name (lower-cased)
      * @return {@code true} if the type is treated as a LOB
      */
     private boolean isLobType(int sqlType, String typeName) {

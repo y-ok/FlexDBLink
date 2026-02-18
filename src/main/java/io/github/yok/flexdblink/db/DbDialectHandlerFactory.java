@@ -69,6 +69,9 @@ public class DbDialectHandlerFactory {
                 case POSTGRESQL:
                     return createPostgresql(entry);
 
+                case MYSQL:
+                    return createMySql(entry);
+
                 default:
                     String msg = "Unsupported DataTypeFactoryMode: "
                             + dbUnitConfig.getDataTypeFactoryMode();
@@ -147,5 +150,53 @@ public class DbDialectHandlerFactory {
         handler.prepareConnection(jdbc);
 
         return handler;
+    }
+
+    /**
+     * Creates MySQL dialect handler.
+     *
+     * @param entry connection entry
+     * @return handler
+     * @throws Exception if creation fails
+     */
+    private DbDialectHandler createMySql(ConnectionConfig.Entry entry) throws Exception {
+        Connection jdbc =
+                DriverManager.getConnection(entry.getUrl(), entry.getUser(), entry.getPassword());
+
+        String schema = resolveMySqlDatabase(entry.getUrl());
+        DatabaseConnection dbConn = new DatabaseConnection(jdbc, schema);
+
+        MySqlDialectHandler handler = new MySqlDialectHandler(dbConn, dumpConfig, dbUnitConfig,
+                configFactory, dateTimeFormatter, pathsConfig);
+
+        DatabaseConfig config = dbConn.getConfig();
+        configFactory.configure(config, handler.getDataTypeFactory());
+
+        handler.prepareConnection(jdbc);
+
+        return handler;
+    }
+
+    /**
+     * Resolves MySQL database name from JDBC URL.
+     *
+     * @param jdbcUrl JDBC URL
+     * @return database name
+     */
+    private String resolveMySqlDatabase(String jdbcUrl) {
+        if (jdbcUrl == null) {
+            return "testdb";
+        }
+        int slash = jdbcUrl.lastIndexOf('/');
+        if (slash < 0 || slash == jdbcUrl.length() - 1) {
+            return "testdb";
+        }
+        String tail = jdbcUrl.substring(slash + 1);
+        int q = tail.indexOf('?');
+        String dbName = q >= 0 ? tail.substring(0, q) : tail;
+        if (dbName.isBlank()) {
+            return "testdb";
+        }
+        return dbName;
     }
 }

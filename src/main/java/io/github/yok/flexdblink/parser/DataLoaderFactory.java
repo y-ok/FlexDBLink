@@ -73,7 +73,6 @@ public class DataLoaderFactory {
     /**
      * Creates the appropriate {@link DataParser} for the given {@link DataFormat}.
      *
-     * <p>
      * Supported formats are:
      * <ul>
      * <li>{@link DataFormat#CSV}</li>
@@ -81,7 +80,6 @@ public class DataLoaderFactory {
      * <li>{@link DataFormat#YAML}</li>
      * <li>{@link DataFormat#XML}</li>
      * </ul>
-     * </p>
      *
      * @param format the {@link DataFormat} to create a parser for
      * @return a {@link DataParser} implementation corresponding to the format
