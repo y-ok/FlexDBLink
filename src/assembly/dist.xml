@@ -14,7 +14,7 @@
   <!-- 実行JAR（exec）を flexdblink.jar という名前でルートに配置 -->
   <files>
     <file>
-      <source>${project.build.directory}/${project.artifactId}-exec.jar</source>
+      <source>${project.build.directory}/${project.build.finalName}-exec.jar</source>
       <outputDirectory>/</outputDirectory>
       <destName>${project.artifactId}.jar</destName>
     </file>

@@ -37,6 +37,8 @@ jobs:
           files: |
             target/FlexDBLink.jar
             target/FlexDBLink-exec.jar
+            target/FlexDBLink-all.jar
+            target/FlexDBLink-*-all.jar
             target/flexdblink-*-all.jar
             target/FlexDBLink-sources.jar
             target/FlexDBLink-distribution.zip
