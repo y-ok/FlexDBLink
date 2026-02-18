@@ -9,7 +9,6 @@ import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.util.CsvUtils;
 import io.github.yok.flexdblink.util.ErrorHandler;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
@@ -94,9 +93,6 @@ public class DataDumper {
     // Input : ConnectionConfig.Entry
     // Output: corresponding DbDialectHandler
     private final Function<ConnectionConfig.Entry, DbDialectHandler> dialectFactory;
-
-    // Date/time formatting utility
-    private final OracleDateTimeFormatUtil dateTimeFormatter;
     private static final Set<Integer> LOB_SQL_TYPES = Set.of(Types.BLOB, Types.CLOB, Types.NCLOB);
 
     /**
@@ -374,8 +370,20 @@ public class DataDumper {
                         cell = (bytes == null) ? "" : Hex.encodeHexString(bytes).toUpperCase();
                     } else if (sqlType == Types.DATE || sqlType == Types.TIME
                             || sqlType == Types.TIMESTAMP || sqlType == -101 || sqlType == -102) {
-                        cell = (val == null) ? ""
-                                : dialectHandler.formatDateTimeColumn(columnName, val, conn);
+                        Object temporalValue = val;
+                        if ("DATE".equalsIgnoreCase(typeNm) || sqlType == Types.DATE) {
+                            Object typed = rs.getDate(i);
+                            temporalValue = (typed != null) ? typed : temporalValue;
+                        } else if (sqlType == Types.TIME) {
+                            Object typed = rs.getTime(i);
+                            temporalValue = (typed != null) ? typed : temporalValue;
+                        } else if (sqlType == Types.TIMESTAMP) {
+                            Object typed = rs.getTimestamp(i);
+                            temporalValue = (typed != null) ? typed : temporalValue;
+                        }
+                        cell = (temporalValue == null) ? ""
+                                : dialectHandler.formatDateTimeColumn(columnName, temporalValue,
+                                        conn);
                     } else {
                         cell = (val == null) ? ""
                                 : dialectHandler.formatDbValueForCsv(columnName, val);
@@ -538,6 +546,7 @@ public class DataDumper {
                 for (int i = 1; i <= colCount; i++) {
                     String col = md.getColumnLabel(i);
                     int type = md.getColumnType(i);
+                    String typeName = md.getColumnTypeName(i);
                     int idx = headers.indexOf(col);
                     if (idx < 0) {
                         continue;
@@ -548,13 +557,23 @@ public class DataDumper {
 
                     // DATE/TIMESTAMP/INTERVAL types
                     if (isOracleIntervalColumn(col)) {
-                        String sv = rs.getString(i);
-                        cell = dateTimeFormatter.formatJdbcDateTime(col, sv, conn);
+                        cell = formatOracleIntervalForDump(col, rs.getString(i));
 
-                    } else if (type == Types.DATE || type == Types.TIMESTAMP || type == -101
-                            || type == -102) {
-                        cell = (raw == null) ? ""
-                                : dialectHandler.formatDateTimeColumn(col, raw, conn);
+                    } else if (type == Types.DATE || type == Types.TIME || type == Types.TIMESTAMP
+                            || type == -101 || type == -102) {
+                        Object temporalValue = raw;
+                        if ("DATE".equalsIgnoreCase(typeName) || type == Types.DATE) {
+                            Object typed = rs.getDate(i);
+                            temporalValue = (typed != null) ? typed : temporalValue;
+                        } else if (type == Types.TIME) {
+                            Object typed = rs.getTime(i);
+                            temporalValue = (typed != null) ? typed : temporalValue;
+                        } else if (type == Types.TIMESTAMP) {
+                            Object typed = rs.getTimestamp(i);
+                            temporalValue = (typed != null) ? typed : temporalValue;
+                        }
+                        cell = (temporalValue == null) ? ""
+                                : dialectHandler.formatDateTimeColumn(col, temporalValue, conn);
 
                         // BLOB/CLOB types
                     } else if (filePatternConfig.getPattern(table, col).isPresent()) {
@@ -664,7 +683,25 @@ public class DataDumper {
      * @return {@code true} if it looks like an INTERVAL column name; {@code false} otherwise
      */
     private boolean isOracleIntervalColumn(String col) {
-        return "INTERVAL_YM_COL".equalsIgnoreCase(col) || "INTERVAL_DS_COL".equalsIgnoreCase(col);
+        return "INTERVAL_YM_COL".equalsIgnoreCase(col) || "INTERVAL_DS_COL".equalsIgnoreCase(col)
+                || "IV_YM_COL".equalsIgnoreCase(col) || "IV_DS_COL".equalsIgnoreCase(col);
+    }
+
+    /**
+     * Formats Oracle INTERVAL text in the same style accepted by load fixtures.
+     *
+     * @param col column name
+     * @param value raw JDBC string
+     * @return formatted interval text
+     */
+    private String formatOracleIntervalForDump(String col, String value) {
+        if (value == null) {
+            return "";
+        }
+        if ("INTERVAL_DS_COL".equalsIgnoreCase(col) || "IV_DS_COL".equalsIgnoreCase(col)) {
+            return value.replaceAll("\\.0+$", "");
+        }
+        return value;
     }
 
     /**

@@ -10,7 +10,6 @@ import io.github.yok.flexdblink.core.DataLoader;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.util.ErrorHandler;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -62,7 +61,6 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
  * @see ConnectionConfig
  * @see FilePatternConfig
  * @see DbDialectHandlerFactory
- * @see OracleDateTimeFormatUtil
  */
 @Slf4j
 @SpringBootApplication
@@ -77,7 +75,6 @@ public class Main implements CommandLineRunner {
     private final FilePatternConfig filePatternConfig;
     private final DumpConfig dumpConfig;
     private final DbDialectHandlerFactory dialectFactory;
-    private final OracleDateTimeFormatUtil dateTimeFormatter;
 
     /**
      * Bootstraps the application.
@@ -171,8 +168,7 @@ public class Main implements CommandLineRunner {
                 log.info("Starting data dump. Scenario [{}], Target DBs [{}]", scenario,
                         targetDbIds);
                 new DataDumper(pathsConfig, connectionConfig, filePatternConfig, dumpConfig,
-                        schemaResolver, dialectHandlerProvider, dateTimeFormatter).execute(scenario,
-                                targetDbIds);
+                        schemaResolver, dialectHandlerProvider).execute(scenario, targetDbIds);
                 log.info("Data dump completed. Scenario [{}]", scenario);
             }
 

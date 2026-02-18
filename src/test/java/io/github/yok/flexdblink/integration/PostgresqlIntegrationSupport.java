@@ -102,7 +102,7 @@ final class PostgresqlIntegrationSupport {
                 dialectFactory(dbUnitConfig, dumpConfig, pathsConfig, dateTimeUtil);
 
         return new Runtime(dataPath, connectionConfig, dbUnitConfig, dumpConfig, pathsConfig,
-                filePatternConfig, dateTimeUtil, factory);
+                filePatternConfig, factory);
     }
 
     /**
@@ -355,19 +355,17 @@ final class PostgresqlIntegrationSupport {
         private final DumpConfig dumpConfig;
         private final PathsConfig pathsConfig;
         private final FilePatternConfig filePatternConfig;
-        private final OracleDateTimeFormatUtil dateTimeUtil;
         private final DbDialectHandlerFactory dialectFactory;
 
         Runtime(Path dataPath, ConnectionConfig connectionConfig, DbUnitConfig dbUnitConfig,
                 DumpConfig dumpConfig, PathsConfig pathsConfig, FilePatternConfig filePatternConfig,
-                OracleDateTimeFormatUtil dateTimeUtil, DbDialectHandlerFactory dialectFactory) {
+                DbDialectHandlerFactory dialectFactory) {
             this.dataPath = dataPath;
             this.connectionConfig = connectionConfig;
             this.dbUnitConfig = dbUnitConfig;
             this.dumpConfig = dumpConfig;
             this.pathsConfig = pathsConfig;
             this.filePatternConfig = filePatternConfig;
-            this.dateTimeUtil = dateTimeUtil;
             this.dialectFactory = dialectFactory;
         }
 
@@ -405,7 +403,7 @@ final class PostgresqlIntegrationSupport {
          */
         DataDumper newDumper() {
             return new DataDumper(pathsConfig, connectionConfig, filePatternConfig, dumpConfig,
-                    entry -> "public", dialectFactory::create, dateTimeUtil);
+                    entry -> "public", dialectFactory::create);
         }
     }
 }

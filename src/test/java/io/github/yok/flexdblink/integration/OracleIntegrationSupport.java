@@ -20,22 +20,10 @@ import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
-import java.time.DateTimeException;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.time.ZoneId;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
-import java.time.format.DateTimeParseException;
-import java.time.temporal.ChronoField;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
@@ -130,7 +118,7 @@ final class OracleIntegrationSupport {
                 dialectFactory(dbUnitConfig, dumpConfig, pathsConfig, dateTimeUtil);
 
         return new Runtime(dataPath, connectionConfig, dbUnitConfig, dumpConfig, pathsConfig,
-                filePatternConfig, dateTimeUtil, factory);
+                filePatternConfig, factory);
     }
 
     /**
@@ -225,134 +213,6 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * オフセット付き日時文字列を比較用に正規化します。
-     *
-     * <p>
-     * 以下を行います。
-     * </p>
-     * <ul>
-     * <li>末尾のオフセット前の空白を除去（例：{@code "... +09:00"} → {@code "...+09:00"}）</li>
-     * <li>{@code +09:00} を {@code +0900} に変換</li>
-     * </ul>
-     *
-     * @param value 入力値
-     * @return 正規化した文字列
-     */
-    static String normalizeOffsetDateTime(String value) {
-        String v = trimToEmpty(value);
-        v = v.replaceAll("\\s+([+-]\\d{2}:?\\d{2})$", "$1");
-        return v.replaceAll("([+-]\\d{2}):(\\d{2})$", "$1$2");
-    }
-
-    /**
-     * オフセット付き日時文字列を比較用に正規化し、可能なら {@link Instant} 文字列へ変換します。
-     *
-     * <p>
-     * Oracle の TIMESTAMP WITH TIME ZONE / LOCAL TIME ZONE などが JDBC で返す表現の差を吸収するため、 パースできる場合は
-     * Instant へ変換して比較します。
-     * </p>
-     *
-     * @param value 入力値
-     * @return 正規化文字列、または Instant 文字列
-     */
-    static String normalizeOffsetDateTimeToInstant(String value) {
-        String normalized = normalizeOffsetDateTime(value);
-        if (normalized.isEmpty()) {
-            return normalized;
-        }
-        Instant instant = parseToInstant(normalized);
-        if (instant != null) {
-            return instant.toString();
-        }
-        return normalized;
-    }
-
-    /**
-     * 日付文字列から {@code yyyy-MM-dd} のみを抽出します。
-     *
-     * <p>
-     * Oracle の DATE が時刻を含んで返る場合でも日付比較のみを行うためのユーティリティです。
-     * </p>
-     *
-     * @param value 入力値
-     * @return 日付のみ（抽出できない場合は元値）
-     */
-    static String normalizeDateOnly(String value) {
-        String v = trimToEmpty(value);
-        Matcher m = Pattern.compile("^(\\d{4}-\\d{2}-\\d{2})").matcher(v);
-        if (m.find()) {
-            return m.group(1);
-        }
-        return v;
-    }
-
-    /**
-     * Oracle INTERVAL YEAR TO MONTH 表現を比較用に正規化します。
-     *
-     * <p>
-     * 入力例：
-     * </p>
-     * <ul>
-     * <li>{@code 1-2} → {@code +01-02}</li>
-     * <li>{@code -1-2} → {@code -01-02}</li>
-     * </ul>
-     *
-     * @param raw 入力値
-     * @return 正規化した INTERVAL YM 文字列
-     */
-    static String normalizeIntervalYm(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String s = raw.replaceAll("[\\s\\u3000]+", "");
-        Matcher m = Pattern.compile("^([+-]?)(\\d+)-(\\d+)$").matcher(s);
-        if (!m.matches()) {
-            return s;
-        }
-        String sign = m.group(1);
-        if (!"-".equals(sign)) {
-            sign = "+";
-        }
-        int years = Integer.parseInt(m.group(2));
-        int months = Integer.parseInt(m.group(3));
-        return String.format("%s%02d-%02d", sign, years, months);
-    }
-
-    /**
-     * Oracle INTERVAL DAY TO SECOND 表現を比較用に正規化します。
-     *
-     * <p>
-     * 入力例：
-     * </p>
-     * <ul>
-     * <li>{@code 1 2:3:4} → {@code +01 02:03:04}</li>
-     * <li>{@code -1 2:3:4} → {@code -01 02:03:04}</li>
-     * </ul>
-     *
-     * @param raw 入力値
-     * @return 正規化した INTERVAL DS 文字列
-     */
-    static String normalizeIntervalDs(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String s = raw.replaceAll("\\.\\d+$", "").replaceAll("[\\s\\u3000]+", " ").trim();
-        Matcher m = Pattern.compile("^([+-]?)(\\d+) (\\d+):(\\d+):(\\d+)$").matcher(s);
-        if (!m.matches()) {
-            return s;
-        }
-        String sign = m.group(1);
-        if (!"-".equals(sign)) {
-            sign = "+";
-        }
-        int days = Integer.parseInt(m.group(2));
-        int hours = Integer.parseInt(m.group(3));
-        int minutes = Integer.parseInt(m.group(4));
-        int seconds = Integer.parseInt(m.group(5));
-        return String.format("%s%02d %02d:%02d:%02d", sign, days, hours, minutes, seconds);
-    }
-
-    /**
      * 16進文字列（HEX）をバイト配列へデコードします。
      *
      * @param value 16進文字列
@@ -399,74 +259,6 @@ final class OracleIntegrationSupport {
         return value.trim();
     }
 
-    private static Instant parseToInstant(String value) {
-        OffsetDateTime odt = parseOffsetDateTime(value);
-        if (odt != null) {
-            return odt.toInstant();
-        }
-
-        Matcher utcMatcher =
-                Pattern.compile("^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?) UTC$")
-                        .matcher(value);
-        if (utcMatcher.matches()) {
-            LocalDateTime ldt = parseLocalDateTime(utcMatcher.group(1));
-            if (ldt != null) {
-                return ldt.toInstant(ZoneOffset.UTC);
-            }
-        }
-
-        Matcher zoneMatcher = Pattern.compile(
-                "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?) ([A-Za-z0-9_./+-]+)$")
-                .matcher(value);
-        if (zoneMatcher.matches()) {
-            LocalDateTime ldt = parseLocalDateTime(zoneMatcher.group(1));
-            if (ldt != null) {
-                try {
-                    return ldt.atZone(ZoneId.of(zoneMatcher.group(2))).toInstant();
-                } catch (DateTimeException e) {
-                    return null;
-                }
-            }
-        }
-        return null;
-    }
-
-    private static OffsetDateTime parseOffsetDateTime(String value) {
-        String isoLike = value;
-        Matcher compactMatcher = Pattern
-                .compile("^(\\d{4}-\\d{2}-\\d{2}) (\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?)([+-]\\d{4})$")
-                .matcher(value);
-        if (compactMatcher.matches()) {
-            String offset = compactMatcher.group(3);
-            isoLike = compactMatcher.group(1) + "T" + compactMatcher.group(2)
-                    + offset.substring(0, 3) + ":" + offset.substring(3);
-        } else {
-            Matcher colonMatcher = Pattern.compile(
-                    "^(\\d{4}-\\d{2}-\\d{2}) (\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?)([+-]\\d{2}:\\d{2})$")
-                    .matcher(value);
-            if (colonMatcher.matches()) {
-                isoLike =
-                        colonMatcher.group(1) + "T" + colonMatcher.group(2) + colonMatcher.group(3);
-            }
-        }
-        try {
-            return OffsetDateTime.parse(isoLike);
-        } catch (DateTimeParseException e) {
-            return null;
-        }
-    }
-
-    private static LocalDateTime parseLocalDateTime(String value) {
-        DateTimeFormatter formatter = new DateTimeFormatterBuilder()
-                .appendPattern("yyyy-MM-dd HH:mm:ss").optionalStart()
-                .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd().toFormatter();
-        try {
-            return LocalDateTime.parse(value, formatter);
-        } catch (DateTimeParseException e) {
-            return null;
-        }
-    }
-
     /**
      * Flyway を用いて Oracle スキーマを初期化します。
      *
@@ -502,8 +294,7 @@ final class OracleIntegrationSupport {
      */
     static void copyLoadFixtures(Path dataPath) throws IOException {
         Path src = Path.of("src", "test", "resources", "integration", "oracle", "load");
-        Path commonSrc =
-                Path.of("src", "test", "resources", "integration", "common", "load");
+        Path commonSrc = Path.of("src", "test", "resources", "integration", "common", "load");
         Path dst = dataPath.resolve("load");
         Files.createDirectories(dst);
         copyTree(src, dst);
@@ -684,20 +475,17 @@ final class OracleIntegrationSupport {
 
         private final FilePatternConfig filePatternConfig;
 
-        private final OracleDateTimeFormatUtil dateTimeUtil;
-
         private final DbDialectHandlerFactory dialectFactory;
 
         Runtime(Path dataPath, ConnectionConfig connectionConfig, DbUnitConfig dbUnitConfig,
                 DumpConfig dumpConfig, PathsConfig pathsConfig, FilePatternConfig filePatternConfig,
-                OracleDateTimeFormatUtil dateTimeUtil, DbDialectHandlerFactory dialectFactory) {
+                DbDialectHandlerFactory dialectFactory) {
             this.dataPath = dataPath;
             this.connectionConfig = connectionConfig;
             this.dbUnitConfig = dbUnitConfig;
             this.dumpConfig = dumpConfig;
             this.pathsConfig = pathsConfig;
             this.filePatternConfig = filePatternConfig;
-            this.dateTimeUtil = dateTimeUtil;
             this.dialectFactory = dialectFactory;
         }
 
@@ -731,7 +519,7 @@ final class OracleIntegrationSupport {
          */
         DataDumper newDumper() {
             return new DataDumper(pathsConfig, connectionConfig, filePatternConfig, dumpConfig,
-                    entry -> entry.getUser().toUpperCase(), dialectFactory::create, dateTimeUtil);
+                    entry -> entry.getUser().toUpperCase(), dialectFactory::create);
         }
     }
 }

@@ -86,10 +86,8 @@ class OracleIntegrationTest {
                         .compareTo(new BigDecimal("1.25")));
                 assertEquals(0, BigDecimal.valueOf(rs.getDouble("BD_COL"))
                         .compareTo(new BigDecimal("10.125")));
-                assertEquals("+01-02",
-                        OracleIntegrationSupport.normalizeIntervalYm(rs.getString("IV_YM_COL")));
-                assertEquals("+01 02:03:04",
-                        OracleIntegrationSupport.normalizeIntervalDs(rs.getString("IV_DS_COL")));
+                assertEquals("1-2", rs.getString("IV_YM_COL"));
+                assertEquals("1 2:3:4.0", rs.getString("IV_DS_COL"));
 
                 byte[] rawCol = rs.getBytes("RAW_COL");
                 assertNotNull(rawCol);
@@ -383,31 +381,12 @@ class OracleIntegrationTest {
             return;
         }
 
-        if ("IV_YM_COL".equalsIgnoreCase(column)) {
-            assertEquals(OracleIntegrationSupport.normalizeIntervalYm(inVal),
-                    OracleIntegrationSupport.normalizeIntervalYm(outVal),
-                    diffPrefix(table, id, column) + "INTERVAL YMが一致しません");
-            return;
-        }
-
-        if ("IV_DS_COL".equalsIgnoreCase(column)) {
-            assertEquals(OracleIntegrationSupport.normalizeIntervalDs(inVal),
-                    OracleIntegrationSupport.normalizeIntervalDs(outVal),
-                    diffPrefix(table, id, column) + "INTERVAL DSが一致しません");
-            return;
-        }
-
-        if ("TSTZ_COL".equalsIgnoreCase(column) || "TSLTZ_COL".equalsIgnoreCase(column)) {
-            assertEquals(OracleIntegrationSupport.normalizeOffsetDateTimeToInstant(inVal),
-                    OracleIntegrationSupport.normalizeOffsetDateTimeToInstant(outVal),
-                    diffPrefix(table, id, column) + "日時オフセット値が一致しません");
-            return;
-        }
-
-        if ("DATE_COL".equalsIgnoreCase(column)) {
-            assertEquals(OracleIntegrationSupport.normalizeDateOnly(inVal),
-                    OracleIntegrationSupport.normalizeDateOnly(outVal),
-                    diffPrefix(table, id, column) + "日付値が一致しません");
+        if ("IV_YM_COL".equalsIgnoreCase(column) || "IV_DS_COL".equalsIgnoreCase(column)
+                || "TSTZ_COL".equalsIgnoreCase(column) || "TSLTZ_COL".equalsIgnoreCase(column)
+                || "DATE_COL".equalsIgnoreCase(column)) {
+            assertEquals(OracleIntegrationSupport.trimToEmpty(inVal),
+                    OracleIntegrationSupport.trimToEmpty(outVal),
+                    diffPrefix(table, id, column) + "日時/INTERVAL値が一致しません");
             return;
         }
 

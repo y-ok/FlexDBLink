@@ -1,7 +1,6 @@
 package io.github.yok.flexdblink.parser;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
-
 import java.io.File;
 import java.io.FilenameFilter;
 import java.nio.file.Files;
@@ -47,10 +46,8 @@ class XmlDataParserKnownIssueTest {
     }
 
     private static void writeXml(Path path, String table) throws Exception {
-        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
-                + "<dataset>\n"
-                + "  <" + table + " ID=\"1\" />\n"
-                + "</dataset>\n";
+        String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + "<dataset>\n" + "  <" + table
+                + " ID=\"1\" />\n" + "</dataset>\n";
         Files.writeString(path, xml);
     }
 }

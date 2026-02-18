@@ -45,6 +45,44 @@ Most importantly, its greatest strength lies in the fact that **you no longer ne
 
 ---
 
+## Temporal Formats and Type Coverage (Oracle / PostgreSQL) / 時刻フォーマットと対応型（Oracle / PostgreSQL）
+
+The following matrix defines target temporal formats used by FlexDBLink.  
+以下の表は、FlexDBLink が対象とする時刻フォーマットを示します。
+
+### Oracle
+
+| Category / 区分 | Target format / 対象フォーマット |
+| --- | --- |
+| `DATE` | `yyyy-MM-dd` |
+| `TIME` | `HH:mm:ss` |
+| `TIMESTAMP` | `yyyy-MM-dd HH:mm:ss.SSS` |
+| `TIMESTAMP WITH TIME ZONE` / `TIMESTAMP WITH LOCAL TIME ZONE` | `yyyy-MM-dd HH:mm:ss +HHMM` |
+| `INTERVAL YEAR TO MONTH` | `Y-M` |
+| `INTERVAL DAY TO SECOND` | `D H:M:S` |
+
+Covered Oracle SQL types in current dialect handling:  
+現在の Oracle 方言処理で対応している SQL 型:
+`NUMBER`, `BINARY_FLOAT`, `BINARY_DOUBLE`, `VARCHAR2`, `CHAR`, `NVARCHAR2`, `NCHAR`, `DATE`,
+`TIMESTAMP(6)`, `TIMESTAMP(6) WITH TIME ZONE`, `TIMESTAMP(6) WITH LOCAL TIME ZONE`,
+`INTERVAL YEAR TO MONTH`, `INTERVAL DAY TO SECOND`, `RAW`, `CLOB`, `NCLOB`, `BLOB`.
+
+### PostgreSQL
+
+| Category / 区分 | Target format / 対象フォーマット |
+| --- | --- |
+| `DATE` | `yyyy-MM-dd` |
+| `TIME` | `HH:mm:ss` |
+| `TIMESTAMP` | `yyyy-MM-dd HH:mm:ss[.fraction]` |
+| `TIMESTAMPTZ` | `yyyy-MM-dd HH:mm:ss[.fraction]+HHMM` |
+
+Covered PostgreSQL SQL types in current dialect handling:  
+現在の PostgreSQL 方言処理で対応している SQL 型:
+`BIGINT`, `NUMERIC`, `REAL`, `DOUBLE PRECISION`, `VARCHAR`, `CHAR`, `DATE`, `TIME`, `TIMESTAMP`,
+`TIMESTAMPTZ`, `BYTEA`, `XML`, `TEXT`.
+
+---
+
 ## 前提
 
 * **Java 11+**（`JAVA_HOME` を JDK 11 以上に設定）

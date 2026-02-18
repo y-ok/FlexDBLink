@@ -18,7 +18,6 @@ import io.github.yok.flexdblink.config.FilePatternConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.util.ErrorHandler;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
 import java.io.File;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -49,9 +48,6 @@ class DataDumperTest {
 
     @TempDir
     Path tempDir;
-
-    private final OracleDateTimeFormatUtil dateTimeFormatter = mock(OracleDateTimeFormatUtil.class);
-
     @Test
     void buildSortIndices_正常ケース_主キー列ありを指定する_主キー順インデックスが返ること() throws Exception {
         DataDumper dumper = createDumper();
@@ -642,6 +638,72 @@ class DataDumperTest {
     }
 
     @Test
+    void exportTableAsCsvUtf8_正常ケース_sqlTypeDateとtime列で型取得がnullを返す_生値が日時整形へ渡されること()
+            throws Exception {
+        DataDumper dumper = createDumper();
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+        when(dialectHandler.quoteIdentifier(any()))
+                .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
+
+        Connection conn = mock(Connection.class);
+        when(conn.getSchema()).thenReturn("APP");
+        when(conn.getCatalog()).thenReturn(null);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        ResultSet pkRs = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("TDTIME"))).thenReturn(pkRs);
+        when(pkRs.next()).thenReturn(false);
+
+        Statement stmtHeader = mock(Statement.class);
+        Statement stmtData = mock(Statement.class);
+        when(conn.createStatement()).thenReturn(stmtHeader, stmtData);
+        ResultSet rsHeader = mock(ResultSet.class);
+        when(stmtHeader.executeQuery("SELECT * FROM \"TDTIME\" WHERE 1=0")).thenReturn(rsHeader);
+        ResultSetMetaData mdHeader = mock(ResultSetMetaData.class);
+        when(rsHeader.getMetaData()).thenReturn(mdHeader);
+        when(mdHeader.getColumnCount()).thenReturn(2);
+        when(mdHeader.getColumnLabel(1)).thenReturn("D_COL");
+        when(mdHeader.getColumnLabel(2)).thenReturn("T_COL");
+
+        ResultSet rsData = mock(ResultSet.class);
+        when(stmtData.executeQuery("SELECT * FROM \"TDTIME\" ORDER BY \"D_COL\" ASC"))
+                .thenReturn(rsData);
+        ResultSetMetaData mdData = mock(ResultSetMetaData.class);
+        when(rsData.getMetaData()).thenReturn(mdData);
+        when(mdData.getColumnCount()).thenReturn(2);
+        when(mdData.getColumnType(1)).thenReturn(Types.DATE);
+        when(mdData.getColumnTypeName(1)).thenReturn("TIMESTAMP");
+        when(mdData.getColumnLabel(1)).thenReturn("D_COL");
+        when(mdData.getColumnType(2)).thenReturn(Types.TIME);
+        when(mdData.getColumnTypeName(2)).thenReturn("TIME");
+        when(mdData.getColumnLabel(2)).thenReturn("T_COL");
+        when(rsData.next()).thenReturn(true, false);
+
+        Object rawDate = new Object();
+        Object rawTime = new Object();
+        when(rsData.getObject(1)).thenReturn(rawDate);
+        when(rsData.getDate(1)).thenReturn(null);
+        when(rsData.getObject(2)).thenReturn(rawTime);
+        when(rsData.getTime(2)).thenReturn(null);
+        when(dialectHandler.formatDateTimeColumn("D_COL", rawDate, conn)).thenReturn("D_FMT");
+        when(dialectHandler.formatDateTimeColumn("T_COL", rawTime, conn)).thenReturn("T_FMT");
+
+        File csvFile = tempDir.resolve("TDTIME.csv").toFile();
+        Method method = DataDumper.class.getDeclaredMethod("exportTableAsCsvUtf8", Connection.class,
+                String.class, File.class, DbDialectHandler.class);
+        method.setAccessible(true);
+        method.invoke(dumper, conn, "TDTIME", csvFile, dialectHandler);
+
+        CSVFormat fmt = CSVFormat.DEFAULT.builder().setHeader("D_COL", "T_COL")
+                .setSkipHeaderRecord(true).get();
+        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, fmt)) {
+            List<CSVRecord> records = parser.getRecords();
+            assertEquals("D_FMT", records.get(0).get("D_COL"));
+            assertEquals("T_FMT", records.get(0).get("T_COL"));
+        }
+    }
+
+    @Test
     void dumpBlobClob_型別null処理とクォートSQLを適用すること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DataDumper dumper = createDumper(filePatternConfig);
@@ -737,8 +799,6 @@ class DataDumperTest {
         when(rs.next()).thenReturn(true, false);
         when(rs.getObject(1)).thenReturn("1 00:00:00");
         when(rs.getString(1)).thenReturn("1 00:00:00");
-        when(dateTimeFormatter.formatJdbcDateTime("INTERVAL_DS_COL", "1 00:00:00", conn))
-                .thenReturn("01 00:00:00");
 
         Path dbDirPath = Files.createDirectories(tempDir.resolve("db_interval"));
         Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
@@ -758,7 +818,7 @@ class DataDumperTest {
                 .setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
-            assertEquals("01 00:00:00", records.get(0).get("INTERVAL_DS_COL"));
+            assertEquals("1 00:00:00", records.get(0).get("INTERVAL_DS_COL"));
         }
     }
 
@@ -811,6 +871,62 @@ class DataDumperTest {
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("2026-02-15 01:02:03+09:00", records.get(0).get("TS_TZ"));
+        }
+    }
+
+    @Test
+    void dumpBlobClob_正常ケース_time列で型取得がnullを返す_生値が日時整形へ渡されること() throws Exception {
+        FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
+        DataDumper dumper = createDumper(filePatternConfig);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+        when(dialectHandler.quoteIdentifier(any()))
+                .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
+        when(filePatternConfig.getPatternsForTable("TTIME")).thenReturn(Collections.emptyMap());
+
+        Connection conn = mock(Connection.class);
+        when(conn.getCatalog()).thenReturn(null);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        ResultSet pkRs = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("TTIME"))).thenReturn(pkRs);
+        when(pkRs.next()).thenReturn(false);
+        Statement stmt = mock(Statement.class);
+        when(conn.createStatement()).thenReturn(stmt);
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery("SELECT * FROM \"TTIME\"")).thenReturn(rs);
+        ResultSetMetaData md = mock(ResultSetMetaData.class);
+        when(rs.getMetaData()).thenReturn(md);
+        when(md.getColumnCount()).thenReturn(1);
+        when(md.getColumnLabel(1)).thenReturn("TIME_COL");
+        when(md.getColumnType(1)).thenReturn(Types.TIME);
+        when(md.getColumnTypeName(1)).thenReturn("TIME");
+        when(rs.next()).thenReturn(true, false);
+
+        Object rawTime = new Object();
+        when(rs.getObject(1)).thenReturn(rawTime);
+        when(rs.getTime(1)).thenReturn(null);
+        when(dialectHandler.formatDateTimeColumn("TIME_COL", rawTime, conn))
+                .thenReturn("12:34:56");
+
+        Path dbDirPath = Files.createDirectories(tempDir.resolve("db_time"));
+        Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
+        Path csvPath = dbDirPath.resolve("TTIME.csv");
+        Files.writeString(csvPath, "TIME_COL\nx\n", StandardCharsets.UTF_8);
+
+        Method method = DataDumper.class.getDeclaredMethod("dumpBlobClob", Connection.class,
+                String.class, File.class, File.class, FileNameResolver.class, String.class,
+                DbDialectHandler.class);
+        method.setAccessible(true);
+        DumpResult result = (DumpResult) method.invoke(dumper, conn, "TTIME", dbDirPath.toFile(),
+                filesDirPath.toFile(), new FileNameResolver(filePatternConfig), "APP",
+                dialectHandler);
+        assertEquals(1, result.getRowCount());
+
+        CSVFormat fmt =
+                CSVFormat.DEFAULT.builder().setHeader("TIME_COL").setSkipHeaderRecord(true).get();
+        try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
+            List<CSVRecord> records = parser.getRecords();
+            assertEquals("12:34:56", records.get(0).get("TIME_COL"));
         }
     }
 
@@ -1620,7 +1736,7 @@ class DataDumperTest {
         dumpConfig.setExcludeTables(List.of());
 
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> createDialectHandlerMock(), dateTimeFormatter);
+                e -> "APP", e -> createDialectHandlerMock());
 
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class)) {
@@ -1660,7 +1776,7 @@ class DataDumperTest {
         when(dialectHandler.createDbUnitConnection(conn, "APP")).thenReturn(dbConn);
 
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> dialectHandler, dateTimeFormatter);
+                e -> "APP", e -> dialectHandler);
 
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class)) {
@@ -1752,7 +1868,7 @@ class DataDumperTest {
                 .thenReturn(mock(org.dbunit.database.DatabaseConnection.class));
 
         DataDumper dumper = new DataDumper(pathsConfig, config, filePatternConfig, dumpConfig,
-                e -> "APP", e -> dialect, dateTimeFormatter);
+                e -> "APP", e -> dialect);
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:execok", "u", "p"))
@@ -1779,7 +1895,7 @@ class DataDumperTest {
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(List.of());
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> createDialectHandlerMock(), dateTimeFormatter);
+                e -> "APP", e -> createDialectHandlerMock());
         try (MockedStatic<ErrorHandler> handler =
                 org.mockito.Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any(), any())).thenAnswer(inv -> {
@@ -1841,7 +1957,7 @@ class DataDumperTest {
         when(rs.next()).thenReturn(false);
         when(dialect.createDbUnitConnection(conn, "APP")).thenReturn(dbConn);
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> dialect, dateTimeFormatter);
+                e -> "APP", e -> dialect);
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:emptytarget", "u", "p"))
@@ -1877,7 +1993,7 @@ class DataDumperTest {
         when(rs.next()).thenReturn(false);
         when(dialect.createDbUnitConnection(conn, "APP")).thenReturn(dbConn);
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> dialect, dateTimeFormatter);
+                e -> "APP", e -> dialect);
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:nulltarget", "u", "p"))
@@ -1914,7 +2030,7 @@ class DataDumperTest {
         when(rs.next()).thenReturn(false);
         when(dialect.createDbUnitConnection(conn, "APP")).thenReturn(dbConn);
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> dialect, dateTimeFormatter);
+                e -> "APP", e -> dialect);
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class);
                 MockedStatic<ErrorHandler> handler =
@@ -1993,7 +2109,7 @@ class DataDumperTest {
         when(dialect.createDbUnitConnection(eq(conn), eq("APP")))
                 .thenReturn(mock(org.dbunit.database.DatabaseConnection.class));
         DataDumper dumper = new DataDumper(pathsConfig, config, filePatternConfig, dumpConfig,
-                e -> "APP", e -> dialect, dateTimeFormatter);
+                e -> "APP", e -> dialect);
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class);
                 MockedStatic<ErrorHandler> handler =
@@ -2021,7 +2137,7 @@ class DataDumperTest {
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(List.of());
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> createDialectHandlerMock(), dateTimeFormatter);
+                e -> "APP", e -> createDialectHandlerMock());
         try (MockedStatic<ErrorHandler> handler =
                 org.mockito.Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any(), any())).thenAnswer(inv -> null);
@@ -2083,6 +2199,6 @@ class DataDumperTest {
         when(dumpConfig.getExcludeTables()).thenReturn(Collections.emptyList());
 
         return new DataDumper(pathsConfig, connectionConfig, filePatternConfig, dumpConfig,
-                e -> "APP", e -> createDialectHandlerMock(), dateTimeFormatter);
+                e -> "APP", e -> createDialectHandlerMock());
     }
 }

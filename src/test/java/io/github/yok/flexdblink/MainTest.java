@@ -1,7 +1,7 @@
 package io.github.yok.flexdblink;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -25,7 +25,6 @@ import io.github.yok.flexdblink.core.DataLoader;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.util.ErrorHandler;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Function;
@@ -46,7 +45,6 @@ class MainTest {
     private FilePatternConfig filePatternConfig;
     private DumpConfig dumpConfig;
     private DbDialectHandlerFactory dialectFactory;
-    private OracleDateTimeFormatUtil dateTimeFormatter;
 
     private Main main;
 
@@ -64,13 +62,12 @@ class MainTest {
         filePatternConfig = mock(FilePatternConfig.class);
         dumpConfig = mock(DumpConfig.class);
         dialectFactory = mock(DbDialectHandlerFactory.class);
-        dateTimeFormatter = mock(OracleDateTimeFormatUtil.class);
 
         when(dialectFactory.create(any())).thenReturn(mock(DbDialectHandler.class));
         when(dbUnitConfig.getPreDirName()).thenReturn("preScenario");
 
         main = new Main(pathsConfig, dbUnitConfig, connectionConfig, filePatternConfig, dumpConfig,
-                dialectFactory, dateTimeFormatter);
+                dialectFactory);
     }
 
     @Test
@@ -104,7 +101,7 @@ class MainTest {
     void run_異常ケース_シナリオ未指定時にErrorHandlerが呼ばれること() {
         Main sut = new Main(mock(PathsConfig.class), mock(DbUnitConfig.class),
                 mock(ConnectionConfig.class), mock(FilePatternConfig.class), mock(DumpConfig.class),
-                mock(DbDialectHandlerFactory.class), mock(OracleDateTimeFormatUtil.class));
+                mock(DbDialectHandlerFactory.class));
 
         try (MockedStatic<ErrorHandler> mocked = mockStatic(ErrorHandler.class)) {
             mocked.when(() -> ErrorHandler.errorAndExit(anyString())).thenAnswer(inv -> {
@@ -226,7 +223,7 @@ class MainTest {
         nullUserConfig.setConnections(Collections.singletonList(nullUserEntry));
 
         Main sut = new Main(pathsConfig, dbUnitConfig, nullUserConfig, filePatternConfig,
-                dumpConfig, dialectFactory, dateTimeFormatter);
+                dumpConfig, dialectFactory);
 
         try (MockedConstruction<DataLoader> mocked =
                 mockConstruction(DataLoader.class, (loader, context) -> {
@@ -268,8 +265,7 @@ class MainTest {
         try {
             Main sut = new Main(mock(PathsConfig.class), mock(DbUnitConfig.class),
                     mock(ConnectionConfig.class), mock(FilePatternConfig.class),
-                    mock(DumpConfig.class), mock(DbDialectHandlerFactory.class),
-                    mock(OracleDateTimeFormatUtil.class));
+                    mock(DumpConfig.class), mock(DbDialectHandlerFactory.class));
             assertThrows(IllegalStateException.class, () -> sut.run("--dump"));
         } finally {
             ErrorHandler.restoreExitForCurrentThread();
@@ -323,8 +319,8 @@ class MainTest {
     void run_異常ケース_dumpモードで空文字シナリオを指定する_IllegalStateExceptionが送出されること() {
         ErrorHandler.disableExitForCurrentThread();
         try {
-            IllegalStateException ex = assertThrows(IllegalStateException.class,
-                    () -> main.run("--dump", ""));
+            IllegalStateException ex =
+                    assertThrows(IllegalStateException.class, () -> main.run("--dump", ""));
             assertEquals("Scenario name is required in dump mode.", ex.getMessage());
         } finally {
             ErrorHandler.restoreExitForCurrentThread();
