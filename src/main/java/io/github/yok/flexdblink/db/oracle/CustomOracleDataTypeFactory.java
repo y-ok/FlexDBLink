@@ -1,4 +1,4 @@
-package io.github.yok.flexdblink.db;
+package io.github.yok.flexdblink.db.oracle;
 
 import java.sql.Clob;
 import java.sql.PreparedStatement;

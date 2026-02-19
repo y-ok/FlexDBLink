@@ -23,11 +23,16 @@ public final class LogPathUtil {
     }
 
     /**
-     * // Render directory path for logs: // - If the given directory is under
-     * {@code $PROJECT_ROOT/target/test-classes}, return the path relative to that base. // -
-     * Otherwise, return the absolute normalized path. // // @param dir directory as {@link File}
-     * // @return path string rendered for logs // @throws NullPointerException if {@code dir} is
-     * {@code null}
+     * Renders a directory path for logs.
+     *
+     * <p>
+     * If the given directory is under {@code $PROJECT_ROOT/target/test-classes}, this method
+     * returns a path relative to that base. Otherwise, it returns an absolute normalized path.
+     * </p>
+     *
+     * @param dir directory as {@link File}
+     * @return path string rendered for logs
+     * @throws NullPointerException if {@code dir} is {@code null}
      */
     public static String renderDirForLog(File dir) {
         Preconditions.checkNotNull(dir, "dir must not be null");

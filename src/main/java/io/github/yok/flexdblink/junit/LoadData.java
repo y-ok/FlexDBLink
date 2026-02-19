@@ -18,7 +18,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
  * <pre>
  * src/test/resources/&lt;package-path&gt;/&lt;TestClassName&gt;/&lt;scenario&gt;/&lt;DB name&gt;/
  * </pre>
- * </p>
  *
  * <p>
  * The {@link LoadDataExtension} interprets this annotation and performs the data load.
@@ -31,7 +30,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
  * src/test/resources/com/example/project/MyServiceTest/INITIAL/DB1/*.csv
  * src/test/resources/com/example/project/MyServiceTest/COMMON/DB2/*.csv
  * </pre>
- * </p>
  *
  * @author Yasuharu.Okawauchi
  */

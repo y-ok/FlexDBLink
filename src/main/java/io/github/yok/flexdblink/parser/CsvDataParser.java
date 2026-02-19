@@ -7,6 +7,8 @@ import org.dbunit.dataset.csv.CsvDataSet;
 /**
  * Implementation of {@link DataParser} that reads a directory of CSV files and produces a
  * {@link CsvDataSet}.
+ *
+ * @author Yasuharu.Okawauchi
  */
 public class CsvDataParser implements DataParser {
 

@@ -16,6 +16,8 @@ import org.dbunit.dataset.xml.FlatXmlDataSetBuilder;
  * Each XML file should be in DBUnit's {@code FlatXmlDataSet} format. The file name (without
  * extension) is used as the table name implicitly by DBUnit.
  * </p>
+ *
+ * @author Yasuharu.Okawauchi
  */
 public class XmlDataParser implements DataParser {
 

@@ -1,9 +1,11 @@
-package io.github.yok.flexdblink.db;
+package io.github.yok.flexdblink.db.postgresql;
 
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
+import io.github.yok.flexdblink.db.DbDialectHandler;
+import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
 import java.io.BufferedReader;
 import java.io.File;
@@ -75,7 +77,7 @@ import org.slf4j.LoggerFactory;
  * <li>Convert CSV strings back into JDBC-bindable values when loading.</li>
  * <li>Resolve LOB file references ("file:...") under {@code dump/<lobDirName>}.</li>
  * <li>Cache DBUnit and JDBC metadata at construction time, honoring
- * {@link DumpConfig#getExcludeTables()}.</li>
+ * {@code dump.exclude-tables}.</li>
  * </ul>
  *
  * <p>
@@ -196,7 +198,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
 
     /**
      * Constructor. Caches table metadata from a DBUnit {@link IDataSet} while honoring
-     * {@link DumpConfig#getExcludeTables()}.
+     * {@code dump.exclude-tables}.
      *
      * @param dbConn DBUnit {@link DatabaseConnection}
      * @param dumpConfig dump.exclude-tables configuration

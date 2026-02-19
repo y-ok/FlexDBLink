@@ -21,6 +21,8 @@ import org.dbunit.dataset.datatype.DataType;
  * Each JSON file should contain an array of objects, where the file name (without extension) is
  * used as the table name, and the object keys are treated as column names.
  * </p>
+ *
+ * @author Yasuharu.Okawauchi
  */
 public class JsonDataParser implements DataParser {
 

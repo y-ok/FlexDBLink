@@ -40,14 +40,10 @@ class OracleIntegrationTest {
 
     private static final Set<String> NUMERIC_COLUMNS =
             Set.of("ID", "MAIN_ID", "NUM_COL", "BF_COL", "BD_COL");
-    private static final DateTimeFormatter OFFSET_DATE_TIME_FORMATTER = new DateTimeFormatterBuilder()
-            .appendPattern("yyyy-MM-dd HH:mm:ss")
-            .optionalStart()
-            .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true)
-            .optionalEnd()
-            .appendLiteral(' ')
-            .appendOffset("+HHmm", "Z")
-            .toFormatter();
+    private static final DateTimeFormatter OFFSET_DATE_TIME_FORMATTER =
+            new DateTimeFormatterBuilder().appendPattern("yyyy-MM-dd HH:mm:ss").optionalStart()
+                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true).optionalEnd()
+                    .appendLiteral(' ').appendOffset("+HHmm", "Z").toFormatter();
 
     @Container
     static final OracleContainer ORACLE = new OracleContainer("gvenzl/oracle-free:slim-faststart");

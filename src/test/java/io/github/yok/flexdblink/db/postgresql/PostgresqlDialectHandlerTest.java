@@ -1,4 +1,4 @@
-package io.github.yok.flexdblink.db;
+package io.github.yok.flexdblink.db.postgresql;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -17,6 +17,7 @@ import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
+import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
 import java.io.StringReader;
 import java.lang.reflect.Field;
@@ -730,7 +731,7 @@ public class PostgresqlDialectHandlerTest {
         Map<String, Map<String, Object>> jdbcMap =
                 (Map<String, Map<String, Object>>) jdbcMapField.get(handler);
         Class<?> specClass = Class
-                .forName("io.github.yok.flexdblink.db.PostgresqlDialectHandler$JdbcColumnSpec");
+                .forName("io.github.yok.flexdblink.db.postgresql.PostgresqlDialectHandler$JdbcColumnSpec");
         java.lang.reflect.Constructor<?> ctor =
                 specClass.getDeclaredConstructor(int.class, String.class);
         ctor.setAccessible(true);
@@ -852,7 +853,7 @@ public class PostgresqlDialectHandlerTest {
         Map<String, Map<String, Object>> jdbcMap =
                 (Map<String, Map<String, Object>>) jdbcMapField.get(handler);
         Class<?> specClass = Class
-                .forName("io.github.yok.flexdblink.db.PostgresqlDialectHandler$JdbcColumnSpec");
+                .forName("io.github.yok.flexdblink.db.postgresql.PostgresqlDialectHandler$JdbcColumnSpec");
         java.lang.reflect.Constructor<?> ctor =
                 specClass.getDeclaredConstructor(int.class, String.class);
         ctor.setAccessible(true);
