@@ -70,6 +70,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * by {@code spring.profiles.active}; for each profile, multiple resources are loaded in ascending
  * resource-name order.</li>
  * </ol>
+ *
+ * @author Yasuharu.Okawauchi
  */
 @Slf4j
 class TestResourceContext {

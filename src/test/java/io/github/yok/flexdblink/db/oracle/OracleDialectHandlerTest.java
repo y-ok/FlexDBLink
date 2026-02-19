@@ -1,4 +1,4 @@
-package io.github.yok.flexdblink.db;
+package io.github.yok.flexdblink.db.oracle;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -20,6 +20,7 @@ import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
+import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
 import java.io.ByteArrayInputStream;
 import java.io.File;
@@ -1274,8 +1275,7 @@ public class OracleDialectHandlerTest {
     }
 
     @Test
-    void parseInterval_正常ケース_sqlTypeNameにnullを指定する_sqlTypeに応じた型または文字列が返ること()
-            throws Exception {
+    void parseInterval_正常ケース_sqlTypeNameにnullを指定する_sqlTypeに応じた型または文字列が返ること() throws Exception {
         OracleDialectHandler handler = createHandler();
         Method method = OracleDialectHandler.class.getDeclaredMethod("parseInterval", int.class,
                 String.class, String.class);
@@ -1473,8 +1473,8 @@ public class OracleDialectHandlerTest {
     @Test
     void isUnknownDbUnitType_正常ケース_dataTypeの組合せを指定する_判定結果が返ること() throws Exception {
         OracleDialectHandler handler = createHandler();
-        Method method = OracleDialectHandler.class.getDeclaredMethod("isUnknownDbUnitType",
-                DataType.class);
+        Method method =
+                OracleDialectHandler.class.getDeclaredMethod("isUnknownDbUnitType", DataType.class);
         method.setAccessible(true);
 
         DataType otherType = mock(DataType.class);
@@ -1596,7 +1596,7 @@ public class OracleDialectHandlerTest {
         }
 
         Class<?> specClass =
-                Class.forName("io.github.yok.flexdblink.db.OracleDialectHandler$JdbcColumnSpec");
+                Class.forName("io.github.yok.flexdblink.db.oracle.OracleDialectHandler$JdbcColumnSpec");
         Constructor<?> constructor = specClass.getDeclaredConstructor(int.class, String.class);
         constructor.setAccessible(true);
 

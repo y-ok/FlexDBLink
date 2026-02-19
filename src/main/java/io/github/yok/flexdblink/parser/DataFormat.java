@@ -18,6 +18,8 @@ import lombok.Getter;
  * This enum is responsible for handling extension matching in a centralized way, so that other
  * classes (such as factories) do not need to hardcode string comparisons.
  * </p>
+ *
+ * @author Yasuharu.Okawauchi
  */
 @Getter
 @AllArgsConstructor

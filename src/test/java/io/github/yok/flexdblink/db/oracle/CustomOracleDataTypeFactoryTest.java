@@ -1,4 +1,4 @@
-package io.github.yok.flexdblink.db;
+package io.github.yok.flexdblink.db.oracle;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -24,7 +24,7 @@ class CustomOracleDataTypeFactoryTest {
         CustomOracleDataTypeFactory factory = new CustomOracleDataTypeFactory();
         DataType actual = factory.createDataType(Types.BLOB, "BLOB");
         assertEquals(
-                "io.github.yok.flexdblink.db.CustomOracleDataTypeFactory$SafeOracleBlobDataType",
+                "io.github.yok.flexdblink.db.oracle.CustomOracleDataTypeFactory$SafeOracleBlobDataType",
                 actual.getClass().getName());
     }
 
@@ -33,7 +33,7 @@ class CustomOracleDataTypeFactoryTest {
         CustomOracleDataTypeFactory factory = new CustomOracleDataTypeFactory();
         DataType actual = factory.createDataType(Types.CLOB, "CLOB");
         assertEquals(
-                "io.github.yok.flexdblink.db.CustomOracleDataTypeFactory$SafeOracleClobDataType",
+                "io.github.yok.flexdblink.db.oracle.CustomOracleDataTypeFactory$SafeOracleClobDataType",
                 actual.getClass().getName());
     }
 
@@ -116,7 +116,7 @@ class CustomOracleDataTypeFactoryTest {
         CustomOracleDataTypeFactory factory = new CustomOracleDataTypeFactory();
         DataType actual = factory.createDataType(Types.VARBINARY, "blob");
         assertEquals(
-                "io.github.yok.flexdblink.db.CustomOracleDataTypeFactory$SafeOracleBlobDataType",
+                "io.github.yok.flexdblink.db.oracle.CustomOracleDataTypeFactory$SafeOracleBlobDataType",
                 actual.getClass().getName());
     }
 
@@ -125,7 +125,7 @@ class CustomOracleDataTypeFactoryTest {
         CustomOracleDataTypeFactory factory = new CustomOracleDataTypeFactory();
         DataType actual = factory.createDataType(Types.VARCHAR, "clob");
         assertEquals(
-                "io.github.yok.flexdblink.db.CustomOracleDataTypeFactory$SafeOracleClobDataType",
+                "io.github.yok.flexdblink.db.oracle.CustomOracleDataTypeFactory$SafeOracleClobDataType",
                 actual.getClass().getName());
     }
 

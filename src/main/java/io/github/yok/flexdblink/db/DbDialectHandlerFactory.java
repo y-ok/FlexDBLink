@@ -1,9 +1,14 @@
 package io.github.yok.flexdblink.db;
 
 import io.github.yok.flexdblink.config.ConnectionConfig;
+import io.github.yok.flexdblink.config.DataTypeFactoryMode;
 import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
+import io.github.yok.flexdblink.db.mysql.MySqlDialectHandler;
+import io.github.yok.flexdblink.db.oracle.OracleDialectHandler;
+import io.github.yok.flexdblink.db.postgresql.PostgresqlDialectHandler;
+import io.github.yok.flexdblink.db.sqlserver.SqlServerDialectHandler;
 import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -62,22 +67,22 @@ public class DbDialectHandlerFactory {
      */
     public DbDialectHandler create(ConnectionConfig.Entry entry) {
         try {
-            switch (dbUnitConfig.getDataTypeFactoryMode()) {
-                case ORACLE:
-                    return createOracle(entry);
-
-                case POSTGRESQL:
-                    return createPostgresql(entry);
-
-                case MYSQL:
-                    return createMySql(entry);
-
-                default:
-                    String msg = "Unsupported DataTypeFactoryMode: "
-                            + dbUnitConfig.getDataTypeFactoryMode();
-                    log.error(msg);
-                    throw new IllegalArgumentException(msg);
+            DataTypeFactoryMode mode = dbUnitConfig.getDataTypeFactoryMode();
+            if (mode == DataTypeFactoryMode.ORACLE) {
+                return createOracle(entry);
             }
+            if (mode == DataTypeFactoryMode.POSTGRESQL) {
+                return createPostgresql(entry);
+            }
+            if (mode == DataTypeFactoryMode.MYSQL) {
+                return createMySql(entry);
+            }
+            if (mode == DataTypeFactoryMode.SQLSERVER) {
+                return createSqlServer(entry);
+            }
+            String msg = "Unsupported DataTypeFactoryMode: " + mode;
+            log.error(msg);
+            throw new IllegalArgumentException(msg);
 
         } catch (SQLException e) {
             log.error("Failed to establish JDBC connection or initialize session", e);
@@ -178,6 +183,31 @@ public class DbDialectHandlerFactory {
     }
 
     /**
+     * Creates SQL Server dialect handler.
+     *
+     * @param entry connection entry
+     * @return handler
+     * @throws Exception if creation fails
+     */
+    private DbDialectHandler createSqlServer(ConnectionConfig.Entry entry) throws Exception {
+        Connection jdbc =
+                DriverManager.getConnection(entry.getUrl(), entry.getUser(), entry.getPassword());
+
+        String schema = resolveSqlServerSchema(entry.getUrl());
+        DatabaseConnection dbConn = new DatabaseConnection(jdbc, schema);
+
+        SqlServerDialectHandler handler = new SqlServerDialectHandler(dbConn, dumpConfig,
+                dbUnitConfig, configFactory, dateTimeFormatter, pathsConfig);
+
+        DatabaseConfig config = dbConn.getConfig();
+        configFactory.configure(config, handler.getDataTypeFactory());
+
+        handler.prepareConnection(jdbc);
+
+        return handler;
+    }
+
+    /**
      * Resolves MySQL database name from JDBC URL.
      *
      * @param jdbcUrl JDBC URL
@@ -198,5 +228,15 @@ public class DbDialectHandlerFactory {
             return "testdb";
         }
         return dbName;
+    }
+
+    /**
+     * Resolves SQL Server schema from JDBC URL.
+     *
+     * @param jdbcUrl JDBC URL
+     * @return schema name
+     */
+    private String resolveSqlServerSchema(String jdbcUrl) {
+        return "dbo";
     }
 }

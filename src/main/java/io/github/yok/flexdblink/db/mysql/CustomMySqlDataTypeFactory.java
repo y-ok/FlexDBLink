@@ -1,4 +1,4 @@
-package io.github.yok.flexdblink.db;
+package io.github.yok.flexdblink.db.mysql;
 
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;

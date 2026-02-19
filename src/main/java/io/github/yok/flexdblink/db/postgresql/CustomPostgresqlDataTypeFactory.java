@@ -1,4 +1,4 @@
-package io.github.yok.flexdblink.db;
+package io.github.yok.flexdblink.db.postgresql;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;

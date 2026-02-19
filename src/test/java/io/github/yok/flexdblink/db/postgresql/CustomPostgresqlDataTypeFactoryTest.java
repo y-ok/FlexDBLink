@@ -1,4 +1,4 @@
-package io.github.yok.flexdblink.db;
+package io.github.yok.flexdblink.db.postgresql;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;

@@ -6,6 +6,8 @@ import org.dbunit.dataset.IDataSet;
 /**
  * Interface for parsing a data directory (including multiple files) and producing a DBUnit
  * {@link IDataSet}.
+ *
+ * @author Yasuharu.Okawauchi
  */
 public interface DataParser {
 

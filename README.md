@@ -45,7 +45,7 @@ Most importantly, its greatest strength lies in the fact that **you no longer ne
 
 ---
 
-## Temporal Formats and Type Coverage (Oracle / PostgreSQL / MySQL) / 時刻フォーマットと対応型（Oracle / PostgreSQL / MySQL）
+## Temporal Formats and Type Coverage (Oracle / PostgreSQL / MySQL / SQL Server) / 時刻フォーマットと対応型（Oracle / PostgreSQL / MySQL / SQL Server）
 
 The following matrix defines target temporal formats used by FlexDBLink.  
 以下の表は、FlexDBLink が対象とする時刻フォーマットを示します。
@@ -97,6 +97,20 @@ Covered MySQL SQL types in current dialect handling:
 `BIT`, `BOOLEAN`, `CHAR`, `VARCHAR`, `TINYTEXT`, `TEXT`, `MEDIUMTEXT`, `LONGTEXT`, `ENUM`, `SET`,
 `JSON`, `BINARY`, `VARBINARY`, `TINYBLOB`, `BLOB`, `MEDIUMBLOB`, `LONGBLOB`, `DATE`, `TIME`,
 `DATETIME`, `TIMESTAMP`, `YEAR`.
+
+### SQL Server
+
+| Category / 区分 | Target format / 対象フォーマット |
+| --- | --- |
+| `DATE` | `yyyy-MM-dd` |
+| `TIME` | `HH:mm:ss` |
+| `DATETIME2` | `yyyy-MM-dd HH:mm:ss[.fraction]` |
+| LOB reference | `file:<relative-path>` |
+
+Covered SQL Server SQL types in current dialect handling:  
+現在の SQL Server 方言処理で対応している SQL 型:
+`BIGINT`, `INT`, `SMALLINT`, `TINYINT`, `DECIMAL`, `NUMERIC`, `FLOAT`, `REAL`, `BIT`,
+`CHAR`, `VARCHAR`, `NCHAR`, `NVARCHAR`, `DATE`, `TIME`, `DATETIME2`, `VARBINARY`, `XML`.
 
 ---
 

@@ -33,6 +33,8 @@ import org.dbunit.dataset.IDataSet;
  * Currently only CSV parsing is implemented. Parsers for JSON, YAML, and XML will be added in later
  * steps.
  * </p>
+ *
+ * @author Yasuharu.Okawauchi
  */
 @Slf4j
 public class DataLoaderFactory {
@@ -73,7 +75,9 @@ public class DataLoaderFactory {
     /**
      * Creates the appropriate {@link DataParser} for the given {@link DataFormat}.
      *
+     * <p>
      * Supported formats are:
+     * </p>
      * <ul>
      * <li>{@link DataFormat#CSV}</li>
      * <li>{@link DataFormat#JSON}</li>

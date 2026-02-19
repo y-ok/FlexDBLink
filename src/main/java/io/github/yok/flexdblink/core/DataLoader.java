@@ -288,9 +288,8 @@ public class DataLoader {
                 log.info("[{}] No table-ordering.txt found → skipping", dbId);
                 return;
             }
-            List<String> tables =
-                    Files.readAllLines(orderPath, StandardCharsets.UTF_8).stream().map(String::trim)
-                            .filter(s -> !s.isEmpty()).collect(Collectors.toList());
+            List<String> tables = Files.readAllLines(orderPath, StandardCharsets.UTF_8).stream()
+                    .map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toList());
 
             if (tables.isEmpty()) {
                 log.info("[{}] No tables → skipping", dbId);
@@ -1028,8 +1027,7 @@ public class DataLoader {
                         // All LOB columns are NULL-allowed:
                         // 1) CLEAN_INSERT for non-LOB columns
                         ITable nonLobOnly = DefaultColumnFilter.excludedColumnsTable(base, lobCols);
-                        operationExecutor.cleanInsert(dbConn,
-                                new DefaultDataSet(nonLobOnly));
+                        operationExecutor.cleanInsert(dbConn, new DefaultDataSet(nonLobOnly));
                         // 2) UPDATE to reflect LOB values (including file:... sources)
                         operationExecutor.update(dbConn, ds);
                     }

@@ -22,6 +22,9 @@
 | IT-MY-ERR-001 | Error handling | `execute_異常ケース_日時形式が不正である_ロールバックされること` | DATETIME/TIMESTAMP | Corrupted `IT_TYPED_MAIN.csv` in temp copy | Load fails and transaction is rolled back | Implemented |
 | IT-MY-DMP-001 | Dump | `execute_正常ケース_MySQL型をダンプする_CSVとLOBファイルが出力されること` | Numeric, ENUM/SET/JSON, DATE/TIME/DATETIME/TIMESTAMP/YEAR, BLOB/TEXT | Seeded DB data | CSV and LOB files are generated and values match DB | Implemented |
 | IT-MY-RT-001 | RoundTrip | `execute_正常ケース_ロード後にダンプする_件数と全列値が一致すること` | Same as IT-MY-LDR-002 + IT-MY-DMP-001 | Load fixture then dumped output | Input and dumped data match by row/column normalization rules | Implemented |
+| IT-MS-LDR-001 | Load | `execute_正常ケース_SQLServer型をロードする_全列値が登録されること` | Numeric, character, date/time, XML, VARBINARY | `integration/sqlserver/load/pre/db1/*.csv`, `files/*` | Row counts and column values are loaded correctly | Planned |
+| IT-MS-DMP-001 | Dump | `execute_正常ケース_SQLServer型をダンプする_CSVとLOBファイルが出力されること` | Numeric, character, date/time, XML, VARBINARY | Seeded DB data | CSV and LOB files are generated and values match DB | Planned |
+| IT-MS-RT-001 | RoundTrip | `execute_正常ケース_ロード後にダンプする_件数と全列値が一致すること` | Same as IT-MS-LDR-001 + IT-MS-DMP-001 | Load fixture then dumped output | Input and dumped data match by row/column normalization rules | Planned |
 
 ## Excluded Types
 

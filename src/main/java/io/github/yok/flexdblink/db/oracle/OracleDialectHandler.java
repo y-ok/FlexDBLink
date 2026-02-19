@@ -1,9 +1,11 @@
-package io.github.yok.flexdblink.db;
+package io.github.yok.flexdblink.db.oracle;
 
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
+import io.github.yok.flexdblink.db.DbDialectHandler;
+import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
@@ -1085,8 +1087,10 @@ public class OracleDialectHandler implements DbDialectHandler {
     /**
      * Parses a timestamp-like string into {@link java.sql.Timestamp}.
      *
-     * Normalization: replaces {@code 'T'} with space and {@code '/'} with {@code '-'}. Tries, in
-     * order:
+     * <p>
+     * Normalization: replaces {@code 'T'} with space and {@code '/'} with {@code '-'}. <br>
+     * Tries, inorder:
+     * </p>
      * <ol>
      * <li>{@code yyyy-MM-dd HH:mm:ss Z}</li>
      * <li>{@code yyyy-MM-dd HH:mm:ss[.fraction]±HH:MM}</li>

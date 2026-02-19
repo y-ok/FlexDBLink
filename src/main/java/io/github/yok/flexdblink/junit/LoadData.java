@@ -11,6 +11,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
  * Annotation to automatically load CSV/LOB data at test execution time and roll back after each
  * test.
  *
+ * <p>
  * This annotation can be placed on a test class or on individual test methods.<br>
  * Data files are automatically discovered and loaded from:
  * 
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
  * The {@link LoadDataExtension} interprets this annotation and performs the data load.
  * </p>
  *
+ * <p>
  * Typical directory example:
  * 
  * <pre>

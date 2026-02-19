@@ -71,6 +71,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * Single DB: src/test/resources/{pkg}/{TestClass}/{scenario}/input/
  * Multi  DB: src/test/resources/{pkg}/{TestClass}/{scenario}/input/{dbId}/
  * </pre>
+ *
+ * @author Yasuharu.Okawauchi
  */
 @Slf4j
 public class LoadDataExtension
