@@ -1,23 +1,54 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "*"
+  workflow_run:
+    workflows:
+      - Release Gate
+    types:
+      - completed
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish (for example: 0.1.5)"
+        required: true
+        type: string
 
 permissions:
   contents: write
   packages: write
+  actions: read
 
 jobs:
   release:
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 120
+
+    env:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
+      TESTCONTAINERS_RYUK_DISABLED: false
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.tag }}
+          fetch-depth: 0
+
+      - name: Resolve release context
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            echo "TAG_NAME=${{ github.event.workflow_run.head_branch }}" >> "${GITHUB_ENV}"
+            echo "TARGET_SHA=${{ github.event.workflow_run.head_sha }}" >> "${GITHUB_ENV}"
+          else
+            if ! git rev-parse "refs/tags/${{ inputs.tag }}" >/dev/null 2>&1; then
+              echo "::error::GATE_TAG_NOT_FOUND: tag '${{ inputs.tag }}' not found."
+              exit 17
+            fi
+            echo "TAG_NAME=${{ inputs.tag }}" >> "${GITHUB_ENV}"
+            echo "TARGET_SHA=$(git rev-list -n 1 "refs/tags/${{ inputs.tag }}")" >> "${GITHUB_ENV}"
+          fi
 
       - name: Set up JDK 11
         uses: actions/setup-java@v4
@@ -29,6 +60,16 @@ jobs:
           server-username: GITHUB_ACTOR
           server-password: GITHUB_TOKEN
 
+      - name: Run release gate checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ env.TAG_NAME }}
+          TARGET_SHA: ${{ env.TARGET_SHA }}
+          CI_WORKFLOW_FILE: ci.yml
+        run: |
+          chmod +x .github/scripts/release_gate.sh
+          .github/scripts/release_gate.sh
+
       - name: Build and deploy Maven package
         run: mvn -B clean deploy -Dmaven.test.skip=true
         env:
@@ -38,8 +79,8 @@ jobs:
       - name: Create GitHub Release and upload assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
+          tag_name: ${{ env.TAG_NAME }}
+          name: ${{ env.TAG_NAME }}
           generate_release_notes: true
           files: |
             target/FlexDBLink.jar
