@@ -6,13 +6,15 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
+import io.github.yok.flexdblink.util.DateTimeFormatSupport;
+import io.github.yok.flexdblink.util.LobPathConstants;
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
+import java.lang.reflect.Method;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -37,15 +39,19 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.OffsetTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
 import java.time.temporal.ChronoField;
+import java.util.AbstractMap.SimpleEntry;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import oracle.sql.INTERVALDS;
@@ -60,6 +66,7 @@ import org.dbunit.database.DatabaseConnection;
 import org.dbunit.dataset.Column;
 import org.dbunit.dataset.DataSetException;
 import org.dbunit.dataset.IDataSet;
+import org.dbunit.dataset.ITableMetaData;
 import org.dbunit.dataset.csv.CsvDataSet;
 import org.dbunit.dataset.datatype.DataType;
 import org.dbunit.dataset.datatype.IDataTypeFactory;
@@ -78,14 +85,12 @@ import org.dbunit.dataset.datatype.IDataTypeFactory;
 @Slf4j
 public class OracleDialectHandler implements DbDialectHandler {
 
-    // Directory name used to store LOB files
-    private final String lobDirName;
     // Base path used to store LOB files
     private final Path baseLobDir;
     // Date/time normalization utility
-    private final OracleDateTimeFormatUtil dateTimeFormatter;
+    private final DateTimeFormatSupport dateTimeFormatter;
     // Per-table metadata cache
-    private final Map<String, org.dbunit.dataset.ITableMetaData> tableMetaMap = new HashMap<>();
+    private final Map<String, ITableMetaData> tableMetaMap = new HashMap<>();
     // Per-table JDBC metadata cache used as fallback when DBUnit metadata is insufficient
     private final Map<String, Map<String, JdbcColumnSpec>> jdbcColumnSpecMap = new HashMap<>();
     // Factory that applies common DBUnit settings
@@ -229,7 +234,7 @@ public class OracleDialectHandler implements DbDialectHandler {
             while (rs.next()) {
                 String colName = rs.getString("COLUMN_NAME");
                 short keySeq = rs.getShort("KEY_SEQ");
-                pkList.add(new java.util.AbstractMap.SimpleEntry<>(keySeq, colName));
+                pkList.add(new SimpleEntry<>(keySeq, colName));
             }
         }
 
@@ -248,7 +253,7 @@ public class OracleDialectHandler implements DbDialectHandler {
      *
      * @param dbConn DBUnit {@link DatabaseConnection}
      * @param dumpConfig dump.exclude-tables configuration
-     * @param dbUnitConfig dbunit.lobDirName/dataTypeFactoryMode/preDirName configuration
+     * @param dbUnitConfig dbunit.dataTypeFactoryMode/preDirName configuration
      * @param configFactory {@link DbUnitConfigFactory} (for common DBUnit configuration)
      * @param dateTimeFormatter date/time formatter utility
      * @param pathsConfig data-path → load/dump path configuration
@@ -256,15 +261,14 @@ public class OracleDialectHandler implements DbDialectHandler {
      */
     public OracleDialectHandler(DatabaseConnection dbConn, DumpConfig dumpConfig,
             DbUnitConfig dbUnitConfig, DbUnitConfigFactory configFactory,
-            OracleDateTimeFormatUtil dateTimeFormatter, PathsConfig pathsConfig) throws Exception {
+            DateTimeFormatSupport dateTimeFormatter, PathsConfig pathsConfig) throws Exception {
         this.configFactory = configFactory;
         this.dateTimeFormatter = dateTimeFormatter;
         this.pathsConfig = pathsConfig;
 
         // Build LOB directory path
-        this.lobDirName = dbUnitConfig.getLobDirName();
         Path dumpBase = Paths.get(pathsConfig.getDump());
-        this.baseLobDir = dumpBase.resolve(lobDirName);
+        this.baseLobDir = dumpBase.resolve(LobPathConstants.DIRECTORY_NAME);
 
         // Determine current schema
         Connection jdbcConn = dbConn.getConnection();
@@ -392,33 +396,33 @@ public class OracleDialectHandler implements DbDialectHandler {
         int sqlType = resolved.sqlType;
         try {
             switch (sqlType) {
-                case java.sql.Types.DECIMAL:
-                case java.sql.Types.NUMERIC:
+                case Types.DECIMAL:
+                case Types.NUMERIC:
                     return new BigDecimal(str);
-                case java.sql.Types.TINYINT:
-                case java.sql.Types.INTEGER:
-                case java.sql.Types.SMALLINT:
+                case Types.TINYINT:
+                case Types.INTEGER:
+                case Types.SMALLINT:
                     return Integer.valueOf(str);
-                case java.sql.Types.BIGINT:
+                case Types.BIGINT:
                     return Long.valueOf(str);
-                case java.sql.Types.REAL:
-                case java.sql.Types.FLOAT:
-                case java.sql.Types.DOUBLE:
+                case Types.REAL:
+                case Types.FLOAT:
+                case Types.DOUBLE:
                     return Double.valueOf(str);
-                case java.sql.Types.DATE:
+                case Types.DATE:
                     return parseDate(str, column);
-                case java.sql.Types.TIME:
+                case Types.TIME:
                     return parseTime(str, column);
-                case java.sql.Types.TIME_WITH_TIMEZONE:
+                case Types.TIME_WITH_TIMEZONE:
                     return parseOffsetTime(str, column);
-                case java.sql.Types.TIMESTAMP:
-                case java.sql.Types.TIMESTAMP_WITH_TIMEZONE:
+                case Types.TIMESTAMP:
+                case Types.TIMESTAMP_WITH_TIMEZONE:
                     // Oracle JDBC proprietary codes for timestamp with time zone / local time zone.
                 case -101:
                 case -102:
                     return parseTimestamp(str, column);
-                case java.sql.Types.OTHER:
-                case java.sql.Types.JAVA_OBJECT:
+                case Types.OTHER:
+                case Types.JAVA_OBJECT:
                     return parseInterval(sqlType, resolved.sqlTypeName, str);
                 default:
                     break;
@@ -551,7 +555,7 @@ public class OracleDialectHandler implements DbDialectHandler {
     @Override
     public Object readLobFile(String fileRef, String table, String column, File baseDir)
             throws IOException, DataSetException {
-        File lobFile = new File(new File(baseDir, lobDirName), fileRef);
+        File lobFile = new File(new File(baseDir, LobPathConstants.DIRECTORY_NAME), fileRef);
         if (!lobFile.exists()) {
             throw new DataSetException("LOB file not found: " + lobFile.getAbsolutePath());
         }
@@ -591,12 +595,152 @@ public class OracleDialectHandler implements DbDialectHandler {
             return "";
         }
         try {
+            if (isOracleTimestampWithTimeZoneValue(dbValue)) {
+                return formatOracleTimestampWithTimeZone(dbValue, conn);
+            }
             return dateTimeFormatter.formatJdbcDateTime(column, dbValue, conn);
         } catch (Exception e) {
             log.debug("Failed to format DATE/INTERVAL: column={} value={} → fallback to toString()",
                     column, dbValue, e);
             return dbValue.toString();
         }
+    }
+
+    /**
+     * Returns whether value class is Oracle TIMESTAMPTZ/TIMESTAMPLTZ.
+     *
+     * @param value JDBC value
+     * @return {@code true} when Oracle timezone-aware timestamp class is detected
+     */
+    private boolean isOracleTimestampWithTimeZoneValue(Object value) {
+        String className = value.getClass().getName();
+        return "oracle.sql.TIMESTAMPTZ".equals(className)
+                || "oracle.jdbc.OracleTIMESTAMPTZ".equals(className)
+                || "oracle.sql.TIMESTAMPLTZ".equals(className)
+                || "oracle.jdbc.OracleTimestampltz".equals(className);
+    }
+
+    /**
+     * Formats Oracle TIMESTAMPTZ/TIMESTAMPLTZ value into stable textual representation.
+     *
+     * @param value Oracle driver-specific timestamp object
+     * @param connection JDBC connection passed to {@code stringValue(Connection)}
+     * @return normalized timestamp text
+     * @throws Exception when reflective access fails
+     */
+    private String formatOracleTimestampWithTimeZone(Object value, Connection connection)
+            throws Exception {
+        Method method = value.getClass().getMethod("stringValue", Connection.class);
+        String raw = (String) method.invoke(value, connection);
+        return normalizeOracleTimestampWithTimeZone(raw);
+    }
+
+    /**
+     * Normalizes Oracle timezone-aware timestamp text.
+     *
+     * @param raw raw timestamp text
+     * @return normalized timestamp text
+     */
+    private String normalizeOracleTimestampWithTimeZone(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        Matcher offsetMatcher = Pattern.compile(
+                "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})(?:\\.\\d+)? ([+-]\\d{2}):(\\d{2})$")
+                .matcher(trimmed);
+        if (offsetMatcher.matches()) {
+            return offsetMatcher.group(1) + " " + offsetMatcher.group(2) + offsetMatcher.group(3);
+        }
+        Matcher regionMatcher = Pattern.compile(
+                "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})(?:\\.\\d+)? ([A-Za-z_]+/[A-Za-z_]+)$")
+                .matcher(trimmed);
+        if (regionMatcher.matches()) {
+            try {
+                LocalDateTime ldt = LocalDateTime.parse(regionMatcher.group(1), DATE_LITERAL_FMT);
+                String offset = ldt.atZone(ZoneId.of(regionMatcher.group(2))).getOffset().getId()
+                        .replace(":", "");
+                return regionMatcher.group(1) + " " + offset;
+            } catch (DateTimeParseException ex) {
+                log.warn("Failed to resolve region offset in TIMESTAMPTZ: raw='{}'", raw, ex);
+                return trimmed;
+            }
+        }
+        return trimmed.replaceAll("\\.0+$", "");
+    }
+
+    /**
+     * Returns whether dump should treat the SQL type as date/time in Oracle.
+     *
+     * @param sqlType JDBC SQL type code
+     * @param sqlTypeName database-specific SQL type name
+     * @return {@code true} for standard and Oracle-specific temporal types
+     */
+    @Override
+    public boolean isDateTimeTypeForDump(int sqlType, String sqlTypeName) {
+        if (DbDialectHandler.super.isDateTimeTypeForDump(sqlType, sqlTypeName)) {
+            return true;
+        }
+        if (sqlType == -101 || sqlType == -102 || sqlType == Types.TIMESTAMP_WITH_TIMEZONE) {
+            return true;
+        }
+        if (sqlTypeName == null) {
+            return false;
+        }
+        String normalized = sqlTypeName.toUpperCase(Locale.ROOT);
+        return normalized.startsWith("TIMESTAMP WITH TIME ZONE")
+                || normalized.startsWith("TIMESTAMP WITH LOCAL TIME ZONE");
+    }
+
+    /**
+     * Returns whether dump should treat the SQL type as binary in Oracle.
+     *
+     * @param sqlType JDBC SQL type code
+     * @param sqlTypeName database-specific SQL type name
+     * @return {@code true} for standard binary types and Oracle RAW/LONG RAW
+     */
+    @Override
+    public boolean isBinaryTypeForDump(int sqlType, String sqlTypeName) {
+        if (DbDialectHandler.super.isBinaryTypeForDump(sqlType, sqlTypeName)) {
+            return true;
+        }
+        if (sqlTypeName == null) {
+            return false;
+        }
+        String normalized = sqlTypeName.toUpperCase(Locale.ROOT);
+        return "RAW".equals(normalized) || "LONG RAW".equals(normalized);
+    }
+
+    /**
+     * Returns whether dump should use raw JDBC text for Oracle INTERVAL columns.
+     *
+     * @param columnName column name
+     * @param sqlType JDBC SQL type
+     * @param sqlTypeName database-specific SQL type name
+     * @return {@code true} when the SQL type is Oracle INTERVAL
+     */
+    @Override
+    public boolean shouldUseRawTemporalValueForDump(String columnName, int sqlType,
+            String sqlTypeName) {
+        return isIntervalSqlTypeName(sqlTypeName);
+    }
+
+    /**
+     * Normalizes raw Oracle INTERVAL text for CSV dump output.
+     *
+     * @param columnName column name
+     * @param rawValue raw JDBC string value
+     * @return normalized interval text
+     */
+    @Override
+    public String normalizeRawTemporalValueForDump(String columnName, String rawValue) {
+        if (rawValue == null) {
+            return "";
+        }
+        if (isDaySecondIntervalColumn(columnName)) {
+            return rawValue.replaceAll("\\.0+$", "");
+        }
+        return rawValue;
     }
 
     /**
@@ -643,6 +787,111 @@ public class OracleDialectHandler implements DbDialectHandler {
             LocalDateTime ldt = LocalDateTime.parse(str, DATE_LITERAL_FMT);
             return Timestamp.valueOf(ldt);
         }
+    }
+
+    /**
+     * Returns whether row comparison should use raw DB string values for Oracle INTERVAL columns.
+     *
+     * @param sqlTypeName database-specific SQL type name
+     * @return {@code true} when SQL type is Oracle INTERVAL
+     */
+    @Override
+    public boolean shouldUseRawValueForComparison(String sqlTypeName) {
+        return isIntervalSqlTypeName(sqlTypeName);
+    }
+
+    /**
+     * Normalizes Oracle INTERVAL values for row comparison.
+     *
+     * @param columnName column name
+     * @param sqlTypeName database-specific SQL type name
+     * @param value target value
+     * @return normalized value
+     */
+    @Override
+    public String normalizeValueForComparison(String columnName, String sqlTypeName, String value) {
+        if (value == null) {
+            return null;
+        }
+        if (!isIntervalSqlTypeName(sqlTypeName)) {
+            return value;
+        }
+        String upper = sqlTypeName.toUpperCase(Locale.ROOT);
+        if (upper.contains("YEAR")) {
+            return normalizeYearMonthInterval(value);
+        }
+        return normalizeDaySecondInterval(value);
+    }
+
+    /**
+     * Returns whether the SQL type name represents Oracle INTERVAL.
+     *
+     * @param sqlTypeName SQL type name
+     * @return {@code true} for INTERVAL types
+     */
+    private boolean isIntervalSqlTypeName(String sqlTypeName) {
+        if (sqlTypeName == null) {
+            return false;
+        }
+        return sqlTypeName.toUpperCase(Locale.ROOT).contains("INTERVAL");
+    }
+
+    /**
+     * Returns whether the column is treated as INTERVAL DAY TO SECOND fixture column.
+     *
+     * @param columnName column name
+     * @return {@code true} when DS interval naming convention is matched
+     */
+    private boolean isDaySecondIntervalColumn(String columnName) {
+        if (columnName == null) {
+            return false;
+        }
+        return "INTERVAL_DS_COL".equalsIgnoreCase(columnName)
+                || "IV_DS_COL".equalsIgnoreCase(columnName);
+    }
+
+    /**
+     * Normalizes INTERVAL DAY TO SECOND text to {@code +DD HH:MM:SS} style.
+     *
+     * @param raw raw INTERVAL text
+     * @return normalized text
+     */
+    private String normalizeDaySecondInterval(String raw) {
+        Pattern pattern = Pattern.compile("([+-]?)(\\d+)\\s+(\\d+):(\\d+):(\\d+)(?:\\.\\d+)?");
+        Matcher matcher = pattern.matcher(raw.trim());
+        if (matcher.matches()) {
+            String sign = matcher.group(1);
+            if (!"-".equals(sign)) {
+                sign = "+";
+            }
+            String days = String.format("%02d", Integer.parseInt(matcher.group(2)));
+            String hours = String.format("%02d", Integer.parseInt(matcher.group(3)));
+            String minutes = String.format("%02d", Integer.parseInt(matcher.group(4)));
+            String seconds = String.format("%02d", Integer.parseInt(matcher.group(5)));
+            return sign + days + " " + hours + ":" + minutes + ":" + seconds;
+        }
+        return raw.trim();
+    }
+
+    /**
+     * Normalizes INTERVAL YEAR TO MONTH text to {@code +YY-MM} style.
+     *
+     * @param raw raw INTERVAL text
+     * @return normalized text
+     */
+    private String normalizeYearMonthInterval(String raw) {
+        Pattern pattern = Pattern.compile("([+-]?)(\\d+)-(\\d+)");
+        Matcher matcher = pattern.matcher(raw.trim());
+        if (matcher.matches()) {
+            String sign = matcher.group(1);
+            if (!"-".equals(sign)) {
+                sign = "+";
+            }
+            String years = String.format("%02d", Integer.parseInt(matcher.group(2)));
+            String months = String.format("%02d", Integer.parseInt(matcher.group(3)));
+            return sign + years + "-" + months;
+        }
+        return raw.trim();
     }
 
     /**

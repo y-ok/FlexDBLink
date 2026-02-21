@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doThrow;
@@ -35,6 +36,7 @@ import java.sql.Types;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import org.apache.commons.csv.CSVFormat;
@@ -48,6 +50,7 @@ class DataDumperTest {
 
     @TempDir
     Path tempDir;
+
     @Test
     void buildSortIndices_正常ケース_主キー列ありを指定する_主キー順インデックスが返ること() throws Exception {
         DataDumper dumper = createDumper();
@@ -111,16 +114,6 @@ class DataDumperTest {
         keyMap.put("UNUSED", "X");
         Object actual = method.invoke(dumper, "lob_{ID}.bin", keyMap);
         assertEquals("lob_9.bin", actual);
-    }
-
-    @Test
-    void isOracleIntervalColumn_正常ケース_既知列名を指定する_trueが返ること() throws Exception {
-        DataDumper dumper = createDumper();
-        Method method = DataDumper.class.getDeclaredMethod("isOracleIntervalColumn", String.class);
-        method.setAccessible(true);
-        assertEquals(true, method.invoke(dumper, "INTERVAL_YM_COL"));
-        assertEquals(true, method.invoke(dumper, "INTERVAL_DS_COL"));
-        assertEquals(false, method.invoke(dumper, "OTHER"));
     }
 
     @Test
@@ -779,6 +772,10 @@ class DataDumperTest {
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         when(filePatternConfig.getPatternsForTable("TINTERVAL")).thenReturn(Collections.emptyMap());
+        when(dialectHandler.shouldUseRawTemporalValueForDump("INTERVAL_DS_COL", Types.VARCHAR,
+                "INTERVAL DAY TO SECOND")).thenReturn(true);
+        when(dialectHandler.normalizeRawTemporalValueForDump("INTERVAL_DS_COL", "1 00:00:00.0"))
+                .thenReturn("1 00:00:00");
 
         Connection conn = mock(Connection.class);
         when(conn.getCatalog()).thenReturn(null);
@@ -796,9 +793,10 @@ class DataDumperTest {
         when(md.getColumnCount()).thenReturn(1);
         when(md.getColumnLabel(1)).thenReturn("INTERVAL_DS_COL");
         when(md.getColumnType(1)).thenReturn(Types.VARCHAR);
+        when(md.getColumnTypeName(1)).thenReturn("INTERVAL DAY TO SECOND");
         when(rs.next()).thenReturn(true, false);
-        when(rs.getObject(1)).thenReturn("1 00:00:00");
-        when(rs.getString(1)).thenReturn("1 00:00:00");
+        when(rs.getObject(1)).thenReturn("1 00:00:00.0");
+        when(rs.getString(1)).thenReturn("1 00:00:00.0");
 
         Path dbDirPath = Files.createDirectories(tempDir.resolve("db_interval"));
         Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
@@ -905,8 +903,7 @@ class DataDumperTest {
         Object rawTime = new Object();
         when(rs.getObject(1)).thenReturn(rawTime);
         when(rs.getTime(1)).thenReturn(null);
-        when(dialectHandler.formatDateTimeColumn("TIME_COL", rawTime, conn))
-                .thenReturn("12:34:56");
+        when(dialectHandler.formatDateTimeColumn("TIME_COL", rawTime, conn)).thenReturn("12:34:56");
 
         Path dbDirPath = Files.createDirectories(tempDir.resolve("db_time"));
         Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
@@ -1377,7 +1374,7 @@ class DataDumperTest {
         when(filePatternConfig.getPatternsForTable("TPATTERN_EMPTY"))
                 .thenReturn(Collections.singletonMap("BLOB_COL", "blob_{ID}.bin"));
         when(filePatternConfig.getPattern("TPATTERN_EMPTY", "BLOB_COL"))
-                .thenReturn(Optional.of("blob_{ID}.bin"), Optional.empty());
+                .thenReturn(Optional.of("blob_{ID}.bin")).thenReturn(Optional.empty());
 
         Connection conn = mock(Connection.class);
         when(conn.getCatalog()).thenReturn(null);
@@ -1736,7 +1733,7 @@ class DataDumperTest {
         dumpConfig.setExcludeTables(List.of());
 
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> createDialectHandlerMock());
+                e -> createDialectHandlerMock());
 
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class)) {
@@ -1776,7 +1773,7 @@ class DataDumperTest {
         when(dialectHandler.createDbUnitConnection(conn, "APP")).thenReturn(dbConn);
 
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> dialectHandler);
+                e -> dialectHandler);
 
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class)) {
@@ -1867,8 +1864,8 @@ class DataDumperTest {
         when(dialect.createDbUnitConnection(eq(conn), eq("APP")))
                 .thenReturn(mock(org.dbunit.database.DatabaseConnection.class));
 
-        DataDumper dumper = new DataDumper(pathsConfig, config, filePatternConfig, dumpConfig,
-                e -> "APP", e -> dialect);
+        DataDumper dumper =
+                new DataDumper(pathsConfig, config, filePatternConfig, dumpConfig, e -> dialect);
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:execok", "u", "p"))
@@ -1895,7 +1892,7 @@ class DataDumperTest {
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(List.of());
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> createDialectHandlerMock());
+                e -> createDialectHandlerMock());
         try (MockedStatic<ErrorHandler> handler =
                 org.mockito.Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any(), any())).thenAnswer(inv -> {
@@ -1957,7 +1954,7 @@ class DataDumperTest {
         when(rs.next()).thenReturn(false);
         when(dialect.createDbUnitConnection(conn, "APP")).thenReturn(dbConn);
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> dialect);
+                e -> dialect);
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:emptytarget", "u", "p"))
@@ -1993,7 +1990,7 @@ class DataDumperTest {
         when(rs.next()).thenReturn(false);
         when(dialect.createDbUnitConnection(conn, "APP")).thenReturn(dbConn);
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> dialect);
+                e -> dialect);
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:nulltarget", "u", "p"))
@@ -2030,7 +2027,7 @@ class DataDumperTest {
         when(rs.next()).thenReturn(false);
         when(dialect.createDbUnitConnection(conn, "APP")).thenReturn(dbConn);
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> dialect);
+                e -> dialect);
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class);
                 MockedStatic<ErrorHandler> handler =
@@ -2108,8 +2105,8 @@ class DataDumperTest {
         when(dialect.quoteIdentifier(any())).thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         when(dialect.createDbUnitConnection(eq(conn), eq("APP")))
                 .thenReturn(mock(org.dbunit.database.DatabaseConnection.class));
-        DataDumper dumper = new DataDumper(pathsConfig, config, filePatternConfig, dumpConfig,
-                e -> "APP", e -> dialect);
+        DataDumper dumper =
+                new DataDumper(pathsConfig, config, filePatternConfig, dumpConfig, e -> dialect);
         try (MockedStatic<DriverManager> driverManager =
                 org.mockito.Mockito.mockStatic(DriverManager.class);
                 MockedStatic<ErrorHandler> handler =
@@ -2137,7 +2134,7 @@ class DataDumperTest {
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(List.of());
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
-                e -> "APP", e -> createDialectHandlerMock());
+                e -> createDialectHandlerMock());
         try (MockedStatic<ErrorHandler> handler =
                 org.mockito.Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any(), any())).thenAnswer(inv -> null);
@@ -2169,6 +2166,7 @@ class DataDumperTest {
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(invocation -> "\"" + invocation.getArgument(0) + "\"");
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         try {
             when(dialectHandler.formatDbValueForCsv(nullable(String.class), any()))
                     .thenAnswer(invocation -> {
@@ -2186,6 +2184,36 @@ class DataDumperTest {
                         }
                         return value.toString();
                     });
+            when(dialectHandler.isDateTimeTypeForDump(anyInt(), nullable(String.class)))
+                    .thenAnswer(invocation -> {
+                        int sqlType = invocation.getArgument(0);
+                        String typeName = invocation.getArgument(1);
+                        if (sqlType == Types.DATE || sqlType == Types.TIME
+                                || sqlType == Types.TIMESTAMP || sqlType == -101 || sqlType == -102
+                                || sqlType == Types.TIMESTAMP_WITH_TIMEZONE) {
+                            return true;
+                        }
+                        if (typeName == null) {
+                            return false;
+                        }
+                        String normalized = typeName.toUpperCase(Locale.ROOT);
+                        return normalized.contains("TIMESTAMP") || normalized.contains("DATE")
+                                || normalized.contains("TIME");
+                    });
+            when(dialectHandler.isBinaryTypeForDump(anyInt(), nullable(String.class)))
+                    .thenAnswer(invocation -> {
+                        int sqlType = invocation.getArgument(0);
+                        String typeName = invocation.getArgument(1);
+                        if (sqlType == Types.BINARY || sqlType == Types.VARBINARY
+                                || sqlType == Types.LONGVARBINARY) {
+                            return true;
+                        }
+                        if (typeName == null) {
+                            return false;
+                        }
+                        String normalized = typeName.toUpperCase(Locale.ROOT);
+                        return "RAW".equals(normalized) || "LONG RAW".equals(normalized);
+                    });
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to stub formatDbValueForCsv", e);
         }
@@ -2199,6 +2227,6 @@ class DataDumperTest {
         when(dumpConfig.getExcludeTables()).thenReturn(Collections.emptyList());
 
         return new DataDumper(pathsConfig, connectionConfig, filePatternConfig, dumpConfig,
-                e -> "APP", e -> createDialectHandlerMock());
+                e -> createDialectHandlerMock());
     }
 }

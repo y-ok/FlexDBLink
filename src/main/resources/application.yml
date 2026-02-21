@@ -2,7 +2,6 @@ data-path: /absolute/path/to/project-root
 
 dbunit:
   dataTypeFactoryMode: ORACLE
-  lob-dir-name: files
   pre-dir-name: pre
   csv:
     format:

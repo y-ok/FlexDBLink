@@ -1,0 +1,26 @@
+# <type>: <subject>
+#
+# type 一覧（scope無し）
+# - feat: 機能追加
+# - fix: バグ修正
+# - refactor: 仕様変更なしの内部改善
+# - perf: 性能改善
+# - test: テスト追加/修正
+# - docs: ドキュメントのみ
+# - build: ビルド/依存/設定（pom, plugin 等）
+# - ci: CI設定（GitHub Actions等）
+# - chore: 雑務（生成物更新、設定調整、軽微な整理）
+# - style: フォーマットのみ（空白/インデント等、意味変化なし）
+# - revert: 取り消し
+#
+# 例:
+# feat: add YAML-driven dump configuration
+# fix: prevent NPE when roleIds is empty
+#
+# Why:
+# What:
+# How:
+# Test:
+#
+# Refs: #
+# BREAKING CHANGE:

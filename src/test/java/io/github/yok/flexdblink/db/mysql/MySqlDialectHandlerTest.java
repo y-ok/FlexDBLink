@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,7 +19,7 @@ import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
+import io.github.yok.flexdblink.util.DateTimeFormatUtil;
 import java.io.StringReader;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -31,6 +32,7 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.Date;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.SQLXML;
 import java.sql.Statement;
 import java.sql.Time;
@@ -127,10 +129,9 @@ public class MySqlDialectHandlerTest {
 
     @Test
     void formatDbValueForCsv_正常ケース_日時型を指定する_フォーマッタ経由の文字列が返ること() throws Exception {
-        OracleDateTimeFormatUtil formatter = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         when(formatter.formatJdbcDateTime(eq("TS_COL"), any(), eq(null))).thenReturn("fmt");
-        MySqlDialectHandler handler =
-                createHandler(formatter, mock(DbUnitConfigFactory.class));
+        MySqlDialectHandler handler = createHandler(formatter, mock(DbUnitConfigFactory.class));
         assertEquals("fmt",
                 handler.formatDbValueForCsv("TS_COL", Timestamp.valueOf("2026-02-15 01:02:03")));
     }
@@ -138,8 +139,7 @@ public class MySqlDialectHandlerTest {
     @Test
     void formatDbValueForCsv_正常ケース_YEAR列にDateを指定する_年のみの文字列が返ること() throws Exception {
         MySqlDialectHandler handler = createHandler();
-        assertEquals("2026",
-                handler.formatDbValueForCsv("YEAR_COL", Date.valueOf("2026-01-01")));
+        assertEquals("2026", handler.formatDbValueForCsv("YEAR_COL", Date.valueOf("2026-01-01")));
         assertEquals("2026", handler.formatDbValueForCsv("YEAR_COL", "2026-01-01"));
         assertEquals("2026", handler.formatDbValueForCsv("YEAR_COL", "2026"));
     }
@@ -166,22 +166,20 @@ public class MySqlDialectHandlerTest {
 
     @Test
     void formatDateTimeColumn_正常ケース_ミリ秒ゼロを含む日時文字列を指定する_末尾の000が除去された値が返ること() throws Exception {
-        OracleDateTimeFormatUtil formatter = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         when(formatter.formatJdbcDateTime(eq("TS_COL"), any(), eq(null)))
                 .thenReturn("2026-02-15 01:02:03.000");
-        MySqlDialectHandler handler =
-                createHandler(formatter, mock(DbUnitConfigFactory.class));
+        MySqlDialectHandler handler = createHandler(formatter, mock(DbUnitConfigFactory.class));
         assertEquals("2026-02-15 01:02:03", handler.formatDateTimeColumn("TS_COL",
                 Timestamp.valueOf("2026-02-15 01:02:03"), null));
     }
 
     @Test
     void formatDateTimeColumn_正常ケース_タイムゾーン付きミリ秒ゼロを指定する_末尾の000が除去された値が返ること() throws Exception {
-        OracleDateTimeFormatUtil formatter = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         when(formatter.formatJdbcDateTime(eq("TSZ_COL"), any(), eq(null)))
                 .thenReturn("2026-02-15 01:02:03.000+0900");
-        MySqlDialectHandler handler =
-                createHandler(formatter, mock(DbUnitConfigFactory.class));
+        MySqlDialectHandler handler = createHandler(formatter, mock(DbUnitConfigFactory.class));
         assertEquals("2026-02-15 01:02:03+0900", handler.formatDateTimeColumn("TSZ_COL",
                 Timestamp.valueOf("2026-02-15 01:02:03"), null));
     }
@@ -253,15 +251,51 @@ public class MySqlDialectHandlerTest {
     }
 
     @Test
-    void getColumnTypeName_正常ケース_型情報が存在しない_nullが返ること() throws Exception {
+    void getColumnTypeName_異常ケース_型情報が存在しない_結果セットがクローズされSQLExceptionが送出されること() throws Exception {
         MySqlDialectHandler handler = createHandler();
+
         Connection conn = mock(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         ResultSet rs = mock(ResultSet.class);
+
         when(conn.getMetaData()).thenReturn(meta);
         when(meta.getColumns(null, "public", "t1", "c1")).thenReturn(rs);
         when(rs.next()).thenReturn(false);
-        assertNull(handler.getColumnTypeName(conn, "public", "t1", "c1"));
+
+        assertThrows(SQLException.class,
+                () -> handler.getColumnTypeName(conn, "public", "t1", "c1"));
+
+        verify(rs).close();
+    }
+
+    @Test
+    void getColumnTypeName_異常ケース_getString呼び出しでSQLExceptionが発生する_SQLExceptionが送出されること()
+            throws Exception {
+        MySqlDialectHandler handler = createHandler();
+
+        Connection conn = mock(Connection.class);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        ResultSet rs = mock(ResultSet.class);
+
+        when(conn.getMetaData()).thenReturn(meta);
+        when(meta.getColumns(null, "public", "t1", "c1")).thenReturn(rs);
+        when(rs.next()).thenReturn(true);
+        doThrow(new SQLException("get type failed")).when(rs).getString("TYPE_NAME");
+
+        assertThrows(SQLException.class,
+                () -> handler.getColumnTypeName(conn, "public", "t1", "c1"));
+    }
+
+    @Test
+    void getColumnTypeName_異常ケース_getColumns呼び出しでSQLExceptionが発生する_SQLExceptionが送出されること()
+            throws Exception {
+        MySqlDialectHandler handler = createHandler();
+        Connection conn = mock(Connection.class);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        doThrow(new SQLException("getColumns failed")).when(meta).getColumns(null, "public", "t1", "c1");
+        assertThrows(SQLException.class,
+                () -> handler.getColumnTypeName(conn, "public", "t1", "c1"));
     }
 
     @Test
@@ -355,7 +389,7 @@ public class MySqlDialectHandlerTest {
 
     @Test
     void createDbUnitConnection_正常ケース_DBUnit設定を行う_設定ファクトリが呼び出されること() throws Exception {
-        OracleDateTimeFormatUtil formatter = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         DbUnitConfigFactory factory = mock(DbUnitConfigFactory.class);
         MySqlDialectHandler handler = createHandler(formatter, factory);
         Connection jdbc = mock(Connection.class);
@@ -449,7 +483,7 @@ public class MySqlDialectHandlerTest {
     @Test
     void convertCsvValueToDbType_異常ケース_不正hexを指定する_DataSetExceptionが送出されること() throws Exception {
         MySqlDialectHandler handler = createHandler();
-        putTableMetaBySqlType(handler, "t1", "blob_col", Types.BINARY, "bytea");
+        putTableMetaBySqlType(handler, "t1", "blob_col", Types.BLOB, "blob");
         assertThrows(DataSetException.class,
                 () -> handler.convertCsvValueToDbType("t1", "blob_col", "XYZ"));
     }
@@ -482,7 +516,7 @@ public class MySqlDialectHandlerTest {
         MySqlDialectHandler handler = createHandler();
         putTableMetaBySqlType(handler, "t1", "d1", Types.OTHER, "date");
         putTableMetaBySqlType(handler, "t1", "t1", Types.OTHER, "time");
-        putTableMetaBySqlType(handler, "t1", "z1", Types.OTHER, "timestamptz");
+        putTableMetaBySqlType(handler, "t1", "z1", Types.OTHER, "timestamp");
         assertInstanceOf(java.sql.Date.class,
                 handler.convertCsvValueToDbType("t1", "d1", "2026-02-15"));
         assertInstanceOf(Time.class, handler.convertCsvValueToDbType("t1", "t1", "01:02:03"));
@@ -655,8 +689,8 @@ public class MySqlDialectHandlerTest {
                 new Class<?>[] {int.class, String.class}, Types.DOUBLE, "float8"));
         assertTrue((boolean) invokePrivate(handler, "isDateTimeType",
                 new Class<?>[] {int.class, String.class}, Types.TIMESTAMP, "timestamp"));
-        assertTrue((boolean) invokePrivate(handler, "isByteaType",
-                new Class<?>[] {int.class, String.class}, Types.BINARY, "bytea"));
+        assertTrue((boolean) invokePrivate(handler, "isBinaryLobType",
+                new Class<?>[] {int.class, String.class}, Types.BINARY, "binary"));
         assertTrue((boolean) invokePrivate(handler, "isLobType",
                 new Class<?>[] {int.class, String.class}, Types.CLOB, "text"));
         assertTrue((boolean) invokePrivate(handler, "isUuidType",
@@ -723,9 +757,9 @@ public class MySqlDialectHandlerTest {
     }
 
     @Test
-    void private_異常ケース_parseByteaで不正HEXを指定する_DataSetExceptionが送出されること() throws Exception {
+    void private_異常ケース_parseBinaryHexで不正HEXを指定する_DataSetExceptionが送出されること() throws Exception {
         MySqlDialectHandler handler = createHandler();
-        Method m = MySqlDialectHandler.class.getDeclaredMethod("parseBytea", String.class,
+        Method m = MySqlDialectHandler.class.getDeclaredMethod("parseBinaryHex", String.class,
                 String.class, String.class);
         m.setAccessible(true);
         Exception ex = assertThrows(Exception.class, () -> m.invoke(handler, "xyz", "t1", "c1"));
@@ -735,8 +769,8 @@ public class MySqlDialectHandlerTest {
     @Test
     void private_正常ケース_isUnknownDbUnitTypeを呼び出す_期待真偽値が返ること() throws Exception {
         MySqlDialectHandler handler = createHandler();
-        Method m = MySqlDialectHandler.class.getDeclaredMethod("isUnknownDbUnitType",
-                DataType.class);
+        Method m =
+                MySqlDialectHandler.class.getDeclaredMethod("isUnknownDbUnitType", DataType.class);
         m.setAccessible(true);
         DataType unknownName = mock(DataType.class);
         DataType otherType = mock(DataType.class);
@@ -769,14 +803,13 @@ public class MySqlDialectHandlerTest {
 
     @Test
     void constructor_正常ケース_getSchemaで例外が発生する_catalogで初期化されること() throws Exception {
-        OracleDateTimeFormatUtil formatter = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
         PathsConfig pathsConfig = mock(PathsConfig.class);
         when(pathsConfig.getDataPath()).thenReturn(tempDir.toString());
         when(pathsConfig.getDump()).thenReturn(tempDir.resolve("dump").toString());
 
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setLobDirName("files");
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(new ArrayList<>());
 
@@ -795,8 +828,8 @@ public class MySqlDialectHandlerTest {
         when(rsTables.next()).thenReturn(false);
         when(dbConn.createDataSet()).thenReturn(dataSet);
 
-        MySqlDialectHandler handler = new MySqlDialectHandler(dbConn, dumpConfig,
-                dbUnitConfig, configFactory, formatter, pathsConfig);
+        MySqlDialectHandler handler = new MySqlDialectHandler(dbConn, dumpConfig, dbUnitConfig,
+                configFactory, formatter, pathsConfig);
         assertNotNull(handler);
     }
 
@@ -859,8 +892,8 @@ public class MySqlDialectHandlerTest {
         Files.createDirectories(lob.getParent());
         Files.writeString(lob, "hello", StandardCharsets.UTF_8);
 
-        Method method = MySqlDialectHandler.class.getDeclaredMethod("loadLobFromFile",
-                String.class, String.class, String.class, int.class, String.class, DataType.class);
+        Method method = MySqlDialectHandler.class.getDeclaredMethod("loadLobFromFile", String.class,
+                String.class, String.class, int.class, String.class, DataType.class);
         method.setAccessible(true);
         Object actual =
                 method.invoke(handler, "t.txt", "t1", "c1", Types.CLOB, "text", DataType.CLOB);
@@ -874,8 +907,8 @@ public class MySqlDialectHandlerTest {
         Files.createDirectories(lob.getParent());
         Files.writeString(lob, "x", StandardCharsets.UTF_8);
 
-        Method method = MySqlDialectHandler.class.getDeclaredMethod("loadLobFromFile",
-                String.class, String.class, String.class, int.class, String.class, DataType.class);
+        Method method = MySqlDialectHandler.class.getDeclaredMethod("loadLobFromFile", String.class,
+                String.class, String.class, int.class, String.class, DataType.class);
         method.setAccessible(true);
         Exception ex = assertThrows(Exception.class, () -> method.invoke(handler, "n.txt", "t1",
                 "c1", Types.INTEGER, "int4", DataType.INTEGER));
@@ -904,7 +937,7 @@ public class MySqlDialectHandlerTest {
         assertFalse((boolean) invokePrivate(handler, "isUuidType",
                 new Class<?>[] {int.class, String.class}, Types.OTHER, "jsonb"));
 
-        assertTrue((boolean) invokePrivate(handler, "isDateTimeType",
+        assertFalse((boolean) invokePrivate(handler, "isDateTimeType",
                 new Class<?>[] {int.class, String.class}, Types.OTHER, "timestamp with time zone"));
         assertFalse((boolean) invokePrivate(handler, "isDateTimeType",
                 new Class<?>[] {int.class, String.class}, Types.INTEGER, "int4"));
@@ -1094,8 +1127,8 @@ public class MySqlDialectHandlerTest {
         Files.createDirectories(lob.getParent());
         Files.write(lob, new byte[] {0x01, 0x02});
 
-        Method method = MySqlDialectHandler.class.getDeclaredMethod("loadLobFromFile",
-                String.class, String.class, String.class, int.class, String.class, DataType.class);
+        Method method = MySqlDialectHandler.class.getDeclaredMethod("loadLobFromFile", String.class,
+                String.class, String.class, int.class, String.class, DataType.class);
         method.setAccessible(true);
         Object actual =
                 method.invoke(handler, "b.bin", "t1", "c1", Types.BINARY, "bytea", DataType.BINARY);
@@ -1105,8 +1138,8 @@ public class MySqlDialectHandlerTest {
     @Test
     void private_異常ケース_loadLobFromFileで存在しないファイルを指定する_DataSetExceptionが送出されること() throws Exception {
         MySqlDialectHandler handler = createHandler();
-        Method method = MySqlDialectHandler.class.getDeclaredMethod("loadLobFromFile",
-                String.class, String.class, String.class, int.class, String.class, DataType.class);
+        Method method = MySqlDialectHandler.class.getDeclaredMethod("loadLobFromFile", String.class,
+                String.class, String.class, int.class, String.class, DataType.class);
         method.setAccessible(true);
 
         Exception ex = assertThrows(Exception.class, () -> method.invoke(handler, "missing.bin",
@@ -1120,8 +1153,8 @@ public class MySqlDialectHandlerTest {
         Path dir = tempDir.resolve("dump").resolve("files").resolve("as_dir");
         Files.createDirectories(dir);
 
-        Method method = MySqlDialectHandler.class.getDeclaredMethod("loadLobFromFile",
-                String.class, String.class, String.class, int.class, String.class, DataType.class);
+        Method method = MySqlDialectHandler.class.getDeclaredMethod("loadLobFromFile", String.class,
+                String.class, String.class, int.class, String.class, DataType.class);
         method.setAccessible(true);
 
         Exception ex = assertThrows(Exception.class, () -> method.invoke(handler, "as_dir", "t1",
@@ -1168,10 +1201,10 @@ public class MySqlDialectHandlerTest {
                 new Class<?>[] {int.class, String.class}, Types.INTEGER, "date"));
         assertTrue((boolean) invokePrivate(handler, "isDateTimeType",
                 new Class<?>[] {int.class, String.class}, Types.INTEGER, "time"));
-        assertTrue((boolean) invokePrivate(handler, "isDateTimeType",
+        assertFalse((boolean) invokePrivate(handler, "isDateTimeType",
                 new Class<?>[] {int.class, String.class}, Types.INTEGER, "timestamptz"));
-        assertTrue((boolean) invokePrivate(handler, "isByteaType",
-                new Class<?>[] {int.class, String.class}, Types.INTEGER, "bytea"));
+        assertTrue((boolean) invokePrivate(handler, "isBinaryLobType",
+                new Class<?>[] {int.class, String.class}, Types.INTEGER, "bit"));
         assertTrue((boolean) invokePrivate(handler, "isLobType",
                 new Class<?>[] {int.class, String.class}, Types.BLOB, "unknown"));
         assertFalse((boolean) invokePrivate(handler, "isTextLikeType",
@@ -1192,11 +1225,11 @@ public class MySqlDialectHandlerTest {
                 new Class<?>[] {int.class, String.class}, Types.REAL, "int"));
         assertTrue((boolean) invokePrivate(handler, "isRealType",
                 new Class<?>[] {int.class, String.class}, Types.FLOAT, "int"));
-        assertFalse((boolean) invokePrivate(handler, "isByteaType",
+        assertFalse((boolean) invokePrivate(handler, "isBinaryLobType",
                 new Class<?>[] {int.class, String.class}, Types.INTEGER, "int"));
-        assertTrue((boolean) invokePrivate(handler, "isByteaType",
+        assertTrue((boolean) invokePrivate(handler, "isBinaryLobType",
                 new Class<?>[] {int.class, String.class}, Types.INTEGER, "bit"));
-        assertFalse((boolean) invokePrivate(handler, "isHexBinarySqlType",
+        assertTrue((boolean) invokePrivate(handler, "isHexBinarySqlType",
                 new Class<?>[] {int.class, String.class}, Types.BINARY, "bytea"));
         assertTrue((boolean) invokePrivate(handler, "isHexBinarySqlType",
                 new Class<?>[] {int.class, String.class}, Types.BINARY, "binary"));
@@ -1215,9 +1248,9 @@ public class MySqlDialectHandlerTest {
     }
 
     @Test
-    void private_正常ケース_parseByteaを呼び出す_接頭辞付きHEXがデコードされること() throws Exception {
+    void private_正常ケース_parseBinaryHexを呼び出す_接頭辞付きHEXがデコードされること() throws Exception {
         MySqlDialectHandler handler = createHandler();
-        Method method = MySqlDialectHandler.class.getDeclaredMethod("parseBytea", String.class,
+        Method method = MySqlDialectHandler.class.getDeclaredMethod("parseBinaryHex", String.class,
                 String.class, String.class);
         method.setAccessible(true);
         Object bytes = method.invoke(handler, "\\x4142", "t1", "c1");
@@ -1226,11 +1259,10 @@ public class MySqlDialectHandlerTest {
 
     @Test
     void formatDbValueForCsv_正常ケース_日付時刻型を複数指定する_フォーマッタ結果が返ること() throws Exception {
-        OracleDateTimeFormatUtil formatter = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         when(formatter.formatJdbcDateTime(eq("D_COL"), any(), eq(null))).thenReturn("d");
         when(formatter.formatJdbcDateTime(eq("ODT_COL"), any(), eq(null))).thenReturn("odt");
-        MySqlDialectHandler handler =
-                createHandler(formatter, mock(DbUnitConfigFactory.class));
+        MySqlDialectHandler handler = createHandler(formatter, mock(DbUnitConfigFactory.class));
 
         assertEquals("d", handler.formatDbValueForCsv("D_COL", Date.valueOf("2026-02-15")));
         assertEquals("odt", handler.formatDbValueForCsv("ODT_COL",
@@ -1243,7 +1275,6 @@ public class MySqlDialectHandlerTest {
         pathsConfig.setDataPath(tempDir.toString());
 
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setLobDirName("files");
 
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(new ArrayList<>());
@@ -1264,21 +1295,20 @@ public class MySqlDialectHandlerTest {
         when(dbConn.createDataSet()).thenReturn(dataSet);
 
         MySqlDialectHandler handler = new MySqlDialectHandler(dbConn, dumpConfig, dbUnitConfig,
-                mock(DbUnitConfigFactory.class), mock(OracleDateTimeFormatUtil.class), pathsConfig);
+                mock(DbUnitConfigFactory.class), mock(DateTimeFormatUtil.class), pathsConfig);
         assertNotNull(handler);
     }
 
     private MySqlDialectHandler createHandler() throws Exception {
-        return createHandler(mock(OracleDateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+        return createHandler(mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
     }
 
-    private MySqlDialectHandler createHandler(OracleDateTimeFormatUtil formatter,
+    private MySqlDialectHandler createHandler(DateTimeFormatUtil formatter,
             DbUnitConfigFactory configFactory) throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
 
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setLobDirName("files");
 
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(new ArrayList<>());
@@ -1297,12 +1327,12 @@ public class MySqlDialectHandlerTest {
         when(rsTables.next()).thenReturn(false);
         when(dbConn.createDataSet()).thenReturn(dataSet);
 
-        return new MySqlDialectHandler(dbConn, dumpConfig, dbUnitConfig, configFactory,
-                formatter, pathsConfig);
+        return new MySqlDialectHandler(dbConn, dumpConfig, dbUnitConfig, configFactory, formatter,
+                pathsConfig);
     }
 
-    private void putTableMetaBySqlType(MySqlDialectHandler handler, String table,
-            String column, int sqlType, String sqlTypeName) throws Exception {
+    private void putTableMetaBySqlType(MySqlDialectHandler handler, String table, String column,
+            int sqlType, String sqlTypeName) throws Exception {
         Column col = mock(Column.class);
         when(col.getColumnName()).thenReturn(column);
         DataType dt = mock(DataType.class);

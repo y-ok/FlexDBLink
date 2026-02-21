@@ -9,6 +9,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import java.lang.reflect.Method;
 import java.sql.Clob;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -145,8 +146,8 @@ class CustomOracleDataTypeFactoryTest {
 
     @Test
     void equalsIgnoreCase_正常ケース_nullと値を比較する_falseが返ること() throws Exception {
-        java.lang.reflect.Method method = CustomOracleDataTypeFactory.class
-                .getDeclaredMethod("equalsIgnoreCase", String.class, String.class);
+        Method method = CustomOracleDataTypeFactory.class.getDeclaredMethod("equalsIgnoreCase",
+                String.class, String.class);
         method.setAccessible(true);
 
         boolean bothNull = (boolean) method.invoke(null, null, null);

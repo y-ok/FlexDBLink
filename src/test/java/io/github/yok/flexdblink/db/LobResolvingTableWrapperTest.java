@@ -1,6 +1,7 @@
 package io.github.yok.flexdblink.db;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
@@ -100,6 +101,18 @@ class LobResolvingTableWrapperTest {
                 new LobResolvingTableWrapper(delegate, new File("."), dialectHandler);
         Object actual = wrapper.getValue(0, "NUM");
         assertEquals(5, actual);
+    }
+
+    @Test
+    void getValue_正常ケース_null値を指定する_nullが返ること() throws Exception {
+        ITable delegate = mock(ITable.class);
+        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(delegate.getValue(0, "NULLABLE_COL")).thenReturn(null);
+
+        LobResolvingTableWrapper wrapper =
+                new LobResolvingTableWrapper(delegate, new File("."), dialectHandler);
+        Object actual = wrapper.getValue(0, "NULLABLE_COL");
+        assertNull(actual);
     }
 }
 

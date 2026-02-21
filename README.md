@@ -13,7 +13,7 @@ CLI によるバッチ投入・取得はもちろん、JUnit 5 拡張機能を�
 
 ---
 
-**FlexDBLink** is a powerful yet lightweight tool designed to **streamline database test data management**.
+**FlexDBLink** is a powerful yet lightweight tool to **manage DB test data as text**.
 It enables seamless **round-trips between DB and structured files** (CSV/JSON/YAML/XML), making it effortless to load datasets into your database or dump them back into files for inspection and reuse.
 Even large **LOBs (BLOB/CLOB)** are handled intuitively through external file references, so you can reproduce production-like data with ease.
 
@@ -422,7 +422,6 @@ data-path: /absolute/path/to/project-root
 
 dbunit:
   dataTypeFactoryMode: ORACLE
-  lob-dir-name: files
   pre-dir-name: pre
   csv:
     format:
@@ -462,7 +461,7 @@ dump:
 **主な項目**
 
 * `data-path` (**必須**) — CSV と外部ファイル（LOB）の **ベース絶対パス**。`load/`, `dump/`, `files/` をここから解決。
-* `dbunit.*` — 方言・CSV フォーマット・DBUnit 設定。`lob-dir-name` は **`files`** を推奨。
+* `dbunit.*` — 方言・CSV フォーマット・DBUnit 設定。LOB ディレクトリは **`files` 固定**です。
 * `connections[]` — CLI が対象とする接続。`id` は `--target`、および `load/<scenario>/<DB_ID>/` と対応。
 * `file-patterns` — **ダンプ**時の LOB 出力ファイル名テンプレート（同一行の `{列名}` で置換）。
 * `dump.exclude-tables` — ダンプ対象外テーブル（例: `flyway_schema_history`）。
@@ -472,7 +471,7 @@ dump:
 **Key items**
 
 * `data-path` (**required**) — **Base absolute path** for CSVs and external (LOB) files. `load/`, `dump/`, and `files/` are resolved from here.
-* `dbunit.*` — Dialect, CSV format, and DBUnit settings. It’s recommended to set `lob-dir-name` to **`files`**.
+* `dbunit.*` — Dialect, CSV format, and DBUnit settings. The LOB directory is fixed to **`files`**.
 * `connections[]` — Connections targeted by the CLI. Each `id` maps to `--target` and to `load/<scenario>/<DB_ID>/`.
 * `file-patterns` — LOB output filename templates used during **dump** (placeholders like `{columnName}` are replaced using values from the same row).
 * `dump.exclude-tables` — Tables to exclude from dumping (e.g., `flyway_schema_history`).

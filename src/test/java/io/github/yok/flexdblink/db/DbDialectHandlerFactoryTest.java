@@ -1,9 +1,9 @@
 package io.github.yok.flexdblink.db;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -20,7 +20,7 @@ import io.github.yok.flexdblink.db.mysql.MySqlDialectHandler;
 import io.github.yok.flexdblink.db.oracle.OracleDialectHandler;
 import io.github.yok.flexdblink.db.postgresql.PostgresqlDialectHandler;
 import io.github.yok.flexdblink.db.sqlserver.SqlServerDialectHandler;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
+import io.github.yok.flexdblink.util.DateTimeFormatUtil;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -65,7 +65,7 @@ class DbDialectHandlerFactoryTest {
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
-        OracleDateTimeFormatUtil dateTimeFormatUtil = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil dateTimeFormatUtil = mock(DateTimeFormatUtil.class);
         DbDialectHandlerFactory factory = new DbDialectHandlerFactory(dbUnitConfig, dumpConfig,
                 pathsConfig, dateTimeFormatUtil, configFactory);
 
@@ -105,7 +105,7 @@ class DbDialectHandlerFactoryTest {
         dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.ORACLE);
         DbDialectHandlerFactory factory =
                 new DbDialectHandlerFactory(dbUnitConfig, new DumpConfig(), new PathsConfig(),
-                        mock(OracleDateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+                        mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
 
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setUrl("jdbc:mock");
@@ -128,7 +128,7 @@ class DbDialectHandlerFactoryTest {
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
-        OracleDateTimeFormatUtil dateTimeFormatUtil = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil dateTimeFormatUtil = mock(DateTimeFormatUtil.class);
         DbDialectHandlerFactory factory = new DbDialectHandlerFactory(dbUnitConfig, dumpConfig,
                 pathsConfig, dateTimeFormatUtil, configFactory);
 
@@ -151,9 +151,9 @@ class DbDialectHandlerFactoryTest {
                             when(mock.getDataTypeFactory()).thenReturn(dataTypeFactory);
                         })) {
 
-            driverManagerMock.when(() -> DriverManager
-                    .getConnection("jdbc:sqlserver://localhost:1433;databaseName=testdb", "app",
-                            "pw"))
+            driverManagerMock
+                    .when(() -> DriverManager.getConnection(
+                            "jdbc:sqlserver://localhost:1433;databaseName=testdb", "app", "pw"))
                     .thenReturn(jdbc);
 
             DbDialectHandler actual = factory.create(entry);
@@ -171,7 +171,7 @@ class DbDialectHandlerFactoryTest {
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
-        OracleDateTimeFormatUtil dateTimeFormatUtil = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil dateTimeFormatUtil = mock(DateTimeFormatUtil.class);
         DbDialectHandlerFactory factory = new DbDialectHandlerFactory(dbUnitConfig, dumpConfig,
                 pathsConfig, dateTimeFormatUtil, configFactory);
 
@@ -194,9 +194,8 @@ class DbDialectHandlerFactoryTest {
                             when(mock.getDataTypeFactory()).thenReturn(dataTypeFactory);
                         })) {
 
-            driverManagerMock
-                    .when(() -> DriverManager.getConnection("jdbc:mysql://localhost:3306/testdb",
-                            "app", "pw"))
+            driverManagerMock.when(() -> DriverManager
+                    .getConnection("jdbc:mysql://localhost:3306/testdb", "app", "pw"))
                     .thenReturn(jdbc);
 
             DbDialectHandler actual = factory.create(entry);
@@ -214,7 +213,7 @@ class DbDialectHandlerFactoryTest {
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
-        OracleDateTimeFormatUtil dateTimeFormatUtil = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil dateTimeFormatUtil = mock(DateTimeFormatUtil.class);
         DbDialectHandlerFactory factory = new DbDialectHandlerFactory(dbUnitConfig, dumpConfig,
                 pathsConfig, dateTimeFormatUtil, configFactory);
 
@@ -237,8 +236,9 @@ class DbDialectHandlerFactoryTest {
                             when(mock.getDataTypeFactory()).thenReturn(dataTypeFactory);
                         })) {
 
-            driverManagerMock.when(() -> DriverManager
-                    .getConnection("jdbc:postgresql://localhost:5432/testdb", "app", "pw"))
+            driverManagerMock
+                    .when(() -> DriverManager
+                            .getConnection("jdbc:postgresql://localhost:5432/testdb", "app", "pw"))
                     .thenReturn(jdbc);
 
             DbDialectHandler actual = factory.create(entry);
@@ -257,7 +257,7 @@ class DbDialectHandlerFactoryTest {
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
-        OracleDateTimeFormatUtil dateTimeFormatUtil = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil dateTimeFormatUtil = mock(DateTimeFormatUtil.class);
         DbDialectHandlerFactory factory = new DbDialectHandlerFactory(dbUnitConfig, dumpConfig,
                 pathsConfig, dateTimeFormatUtil, configFactory);
 
@@ -276,13 +276,13 @@ class DbDialectHandlerFactoryTest {
                         });
                 MockedConstruction<OracleDialectHandler> handlerMock =
                         mockConstruction(OracleDialectHandler.class, (mock, context) -> {
-                            when(mock.getDataTypeFactory())
-                                    .thenAnswer(invocation -> sneakyThrow(new DataSetException("x")));
+                            when(mock.getDataTypeFactory()).thenAnswer(
+                                    invocation -> sneakyThrow(new DataSetException("x")));
                         })) {
             driverManagerMock.when(() -> DriverManager.getConnection("jdbc:mock", "app", "pw"))
                     .thenReturn(jdbc);
-            IllegalStateException ex = assertThrows(IllegalStateException.class,
-                    () -> factory.create(entry));
+            IllegalStateException ex =
+                    assertThrows(IllegalStateException.class, () -> factory.create(entry));
             assertEquals("Failed to initialize DBUnit dataset", ex.getMessage());
             assertTrue(ex.getCause() instanceof DataSetException);
         }
@@ -296,7 +296,7 @@ class DbDialectHandlerFactoryTest {
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
-        OracleDateTimeFormatUtil dateTimeFormatUtil = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil dateTimeFormatUtil = mock(DateTimeFormatUtil.class);
         DbDialectHandlerFactory factory = new DbDialectHandlerFactory(dbUnitConfig, dumpConfig,
                 pathsConfig, dateTimeFormatUtil, configFactory);
 
@@ -334,7 +334,7 @@ class DbDialectHandlerFactoryTest {
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
-        OracleDateTimeFormatUtil dateTimeFormatUtil = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil dateTimeFormatUtil = mock(DateTimeFormatUtil.class);
         DbDialectHandlerFactory factory = new DbDialectHandlerFactory(dbUnitConfig, dumpConfig,
                 pathsConfig, dateTimeFormatUtil, configFactory);
 
@@ -343,8 +343,8 @@ class DbDialectHandlerFactoryTest {
         entry.setUser("app");
         entry.setPassword("pw");
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> factory.create(entry));
+        IllegalStateException ex =
+                assertThrows(IllegalStateException.class, () -> factory.create(entry));
         assertEquals("Failed to create DbDialectHandler", ex.getMessage());
         assertTrue(ex.getCause() instanceof IllegalArgumentException);
     }
@@ -355,7 +355,7 @@ class DbDialectHandlerFactoryTest {
         dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.MYSQL);
         DbDialectHandlerFactory factory =
                 new DbDialectHandlerFactory(dbUnitConfig, new DumpConfig(), new PathsConfig(),
-                        mock(OracleDateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+                        mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
 
         java.lang.reflect.Method method = DbDialectHandlerFactory.class
                 .getDeclaredMethod("resolveMySqlDatabase", String.class);
@@ -377,7 +377,7 @@ class DbDialectHandlerFactoryTest {
         dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.SQLSERVER);
         DbDialectHandlerFactory factory =
                 new DbDialectHandlerFactory(dbUnitConfig, new DumpConfig(), new PathsConfig(),
-                        mock(OracleDateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+                        mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
 
         java.lang.reflect.Method method = DbDialectHandlerFactory.class
                 .getDeclaredMethod("resolveSqlServerSchema", String.class);

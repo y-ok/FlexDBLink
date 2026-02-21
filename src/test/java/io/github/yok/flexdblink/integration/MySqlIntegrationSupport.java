@@ -11,7 +11,7 @@ import io.github.yok.flexdblink.core.DataDumper;
 import io.github.yok.flexdblink.core.DataLoader;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
+import io.github.yok.flexdblink.util.DateTimeFormatUtil;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -97,7 +97,7 @@ final class MySqlIntegrationSupport {
         dumpConfig.setExcludeTables(List.of("flyway_schema_history"));
 
         FilePatternConfig filePatternConfig = filePatternConfig();
-        OracleDateTimeFormatUtil dateTimeUtil = dateTimeUtil();
+        DateTimeFormatUtil dateTimeUtil = dateTimeUtil();
         DbDialectHandlerFactory factory =
                 dialectFactory(dbUnitConfig, dumpConfig, pathsConfig, dateTimeUtil);
 
@@ -253,7 +253,6 @@ final class MySqlIntegrationSupport {
         DbUnitConfig cfg = new DbUnitConfig();
         cfg.setDataTypeFactoryMode(DataTypeFactoryMode.MYSQL);
         cfg.setPreDirName("pre");
-        cfg.setLobDirName("files");
         return cfg;
     }
 
@@ -273,15 +272,15 @@ final class MySqlIntegrationSupport {
      * Oracle 用クラス名ですが、CSV の日時正規化ロジックとして共通利用します。
      * </p>
      *
-     * @return OracleDateTimeFormatUtil
+     * @return DateTimeFormatUtil
      */
-    static OracleDateTimeFormatUtil dateTimeUtil() {
+    static DateTimeFormatUtil dateTimeUtil() {
         CsvDateTimeFormatProperties props = new CsvDateTimeFormatProperties();
         props.setDate("yyyy-MM-dd");
         props.setTime("HH:mm:ss");
         props.setDateTime("yyyy-MM-dd HH:mm:ss");
         props.setDateTimeWithMillis("yyyy-MM-dd HH:mm:ss.SSS");
-        return new OracleDateTimeFormatUtil(props);
+        return new DateTimeFormatUtil(props);
     }
 
     /**
@@ -294,7 +293,7 @@ final class MySqlIntegrationSupport {
      * @return DbDialectHandlerFactory
      */
     static DbDialectHandlerFactory dialectFactory(DbUnitConfig dbUnitConfig, DumpConfig dumpConfig,
-            PathsConfig pathsConfig, OracleDateTimeFormatUtil dateTimeUtil) {
+            PathsConfig pathsConfig, DateTimeFormatUtil dateTimeUtil) {
         return new DbDialectHandlerFactory(dbUnitConfig, dumpConfig, pathsConfig, dateTimeUtil,
                 new DbUnitConfigFactory());
     }
@@ -381,29 +380,20 @@ final class MySqlIntegrationSupport {
         /**
          * DataLoader を生成します。
          *
-         * <p>
-         * MySQL のスキーマは {@code testdb} 固定として扱います。
-         * </p>
-         *
          * @return DataLoader
          */
         DataLoader newLoader() {
-            return new DataLoader(pathsConfig, connectionConfig, entry -> "testdb",
-                    dialectFactory::create, dbUnitConfig, dumpConfig);
+            return new DataLoader(pathsConfig, connectionConfig, dialectFactory::create, dbUnitConfig, dumpConfig);
         }
 
         /**
          * DataDumper を生成します。
          *
-         * <p>
-         * MySQL のスキーマは {@code testdb} 固定として扱います。
-         * </p>
-         *
          * @return DataDumper
          */
         DataDumper newDumper() {
             return new DataDumper(pathsConfig, connectionConfig, filePatternConfig, dumpConfig,
-                    entry -> "testdb", dialectFactory::create);
+                    dialectFactory::create);
         }
     }
 }

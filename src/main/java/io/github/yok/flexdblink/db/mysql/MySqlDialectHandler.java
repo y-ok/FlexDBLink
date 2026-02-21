@@ -6,7 +6,8 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
+import io.github.yok.flexdblink.util.DateTimeFormatSupport;
+import io.github.yok.flexdblink.util.LobPathConstants;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -75,7 +76,7 @@ import org.slf4j.LoggerFactory;
  * <ul>
  * <li>Format JDBC/DBUnit values (numbers, date/time, UUID, JSON, LOB) for CSV output.</li>
  * <li>Convert CSV strings back into JDBC-bindable values when loading.</li>
- * <li>Resolve LOB file references ("file:...") under {@code dump/<lobDirName>}.</li>
+ * <li>Resolve LOB file references ("file:...") under {@code dump/files}.</li>
  * <li>Cache DBUnit and JDBC metadata at construction time, honoring
  * {@code dump.exclude-tables}.</li>
  * </ul>
@@ -85,10 +86,9 @@ import org.slf4j.LoggerFactory;
  * </p>
  *
  * <ul>
- * <li>For {@code bytea} (BLOB-like) columns, a CSV cell must be either:
+ * <li>For binary columns ({@code BLOB}/{@code VARBINARY}/{@code BIT}), a CSV cell must be either:
  * <ul>
- * <li>{@code file:<relative-path>} to read bytes from
- * {@code dump/<lobDirName>/<relative-path>}</li>
+ * <li>{@code file:<relative-path>} to read bytes from {@code dump/files/<relative-path>}</li>
  * <li>{@code \x...} or plain hex string to be decoded into {@code byte[]}</li>
  * </ul>
  * </li>
@@ -101,12 +101,10 @@ import org.slf4j.LoggerFactory;
 @Slf4j
 public class MySqlDialectHandler implements DbDialectHandler {
 
-    // Directory name used to store LOB files
-    private final String lobDirName;
-    // Base path used to store LOB files (dump/<lobDirName>)
+    // Base path used to store LOB files (dump/files)
     private final Path baseLobDir;
-    // Date/time normalization utility (shared with Oracle implementation)
-    private final OracleDateTimeFormatUtil dateTimeFormatter;
+    // Date/time normalization utility shared via DateTimeFormatSupport
+    private final DateTimeFormatSupport dateTimeFormatter;
     // Per-table DBUnit metadata cache
     private final Map<String, org.dbunit.dataset.ITableMetaData> tableMetaMap = new HashMap<>();
     // Per-table JDBC metadata cache (fallback when DBUnit metadata is insufficient)
@@ -136,21 +134,20 @@ public class MySqlDialectHandler implements DbDialectHandler {
                     DateTimeFormatter.BASIC_ISO_DATE, DateTimeFormatter.ofPattern("yyyy.MM.dd"),
                     DateTimeFormatter.ofPattern("yyyy年M月d日", Locale.JAPANESE)};
     private static final Set<String> TEXT_LIKE_TYPE_NAMES =
-            new HashSet<>(List.of("char", "varchar", "character", "character varying", "bpchar",
-                    "tinytext", "text", "mediumtext", "longtext", "enum", "set", "json", "xml"));
+            new HashSet<>(List.of("char", "varchar", "character", "character varying", "tinytext",
+                    "text", "mediumtext", "longtext", "enum", "set", "json", "xml"));
     private static final Set<String> BOOLEAN_TYPE_NAMES =
             new HashSet<>(List.of("bool", "boolean", "tinyint(1)"));
     private static final Set<String> INTEGER_TYPE_NAMES =
-            new HashSet<>(List.of("tinyint", "smallint", "mediumint", "int", "integer", "int4"));
-    private static final Set<String> BIGINT_TYPE_NAMES = new HashSet<>(List.of("bigint", "int8"));
+            new HashSet<>(List.of("tinyint", "smallint", "mediumint", "int", "integer"));
+    private static final Set<String> BIGINT_TYPE_NAMES = new HashSet<>(List.of("bigint"));
     private static final Set<String> NUMERIC_TYPE_NAMES =
             new HashSet<>(List.of("numeric", "decimal"));
-    private static final Set<String> REAL_TYPE_NAMES =
-            new HashSet<>(List.of("float", "real", "float4"));
+    private static final Set<String> REAL_TYPE_NAMES = new HashSet<>(List.of("float", "real"));
     private static final Set<String> DOUBLE_TYPE_NAMES =
-            new HashSet<>(List.of("double", "float8", "double precision"));
-    private static final Set<String> DATE_TIME_TYPE_NAMES = new HashSet<>(List.of("date", "time",
-            "datetime", "timestamp", "year", "timestamptz", "timestamp with time zone"));
+            new HashSet<>(List.of("double", "double precision"));
+    private static final Set<String> DATE_TIME_TYPE_NAMES =
+            new HashSet<>(List.of("date", "time", "datetime", "timestamp", "year"));
     private static final Set<Integer> CLOB_SQL_TYPES = Set.of(Types.CLOB, Types.NCLOB);
     private static final Set<Integer> NUMERIC_SQL_TYPES = Set.of(Types.NUMERIC, Types.DECIMAL);
     private static final Set<Integer> BINARY_SQL_TYPES =
@@ -206,7 +203,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
      *
      * @param dbConn DBUnit {@link DatabaseConnection}
      * @param dumpConfig dump.exclude-tables configuration
-     * @param dbUnitConfig dbunit.lobDirName configuration
+     * @param dbUnitConfig dbunit configuration
      * @param configFactory {@link DbUnitConfigFactory} (for common DBUnit configuration)
      * @param dateTimeFormatter date/time formatter utility
      * @param pathsConfig data-path/load/dump path configuration
@@ -214,14 +211,13 @@ public class MySqlDialectHandler implements DbDialectHandler {
      */
     public MySqlDialectHandler(DatabaseConnection dbConn, DumpConfig dumpConfig,
             DbUnitConfig dbUnitConfig, DbUnitConfigFactory configFactory,
-            OracleDateTimeFormatUtil dateTimeFormatter, PathsConfig pathsConfig) throws Exception {
+            DateTimeFormatSupport dateTimeFormatter, PathsConfig pathsConfig) throws Exception {
         this.configFactory = configFactory;
         this.dateTimeFormatter = dateTimeFormatter;
         this.pathsConfig = pathsConfig;
 
-        this.lobDirName = dbUnitConfig.getLobDirName();
         Path dumpBase = Paths.get(pathsConfig.getDump());
-        this.baseLobDir = dumpBase.resolve(lobDirName);
+        this.baseLobDir = dumpBase.resolve(LobPathConstants.DIRECTORY_NAME);
 
         Connection jdbcConn = dbConn.getConnection();
         String schema;
@@ -251,22 +247,21 @@ public class MySqlDialectHandler implements DbDialectHandler {
      * @param schema schema name
      * @param table table name
      * @param column column name
-     * @return SQL type name, or null if not found
+     * @return SQL type name
      * @throws SQLException when metadata retrieval fails
      */
     @Override
     public String getColumnTypeName(Connection jdbc, String schema, String table, String column)
             throws SQLException {
         DatabaseMetaData meta = jdbc.getMetaData();
-        ResultSet rs = meta.getColumns(null, schema, table, column);
-        try {
+        try (ResultSet rs = meta.getColumns(null, schema, table, column)) {
             if (rs.next()) {
                 return rs.getString("TYPE_NAME");
+            } else {
+                throw new SQLException(String.format("Column metadata not found: %s.%s.%s", schema,
+                        table, column));
             }
-        } finally {
-            rs.close();
         }
-        return null;
     }
 
     /**
@@ -319,9 +314,9 @@ public class MySqlDialectHandler implements DbDialectHandler {
      * <ul>
      * <li>boolean: "true/false", "t/f", "1/0"</li>
      * <li>numeric: integer/bigint/numeric/decimal/real/double</li>
-     * <li>date/time/timestamp/timestamptz: flexible parsing (ISO + common variants)</li>
+     * <li>date/time/datetime/timestamp/year: flexible parsing (ISO + common variants)</li>
      * <li>uuid: {@link UUID}</li>
-     * <li>bytea: {@code file:} reference or {@code \x...}/hex string → {@code byte[]}</li>
+     * <li>binary/blob: {@code file:} reference or {@code \x...}/hex string → {@code byte[]}</li>
      * <li>json/jsonb/inet/cidr/macaddr: kept as string (JDBC binds as text)</li>
      * </ul>
      *
@@ -376,11 +371,11 @@ public class MySqlDialectHandler implements DbDialectHandler {
             if (isUuidType(sqlType, typeName)) {
                 return UUID.fromString(str);
             }
-            if (isByteaType(sqlType, typeName)) {
+            if (isBinaryLobType(sqlType, typeName)) {
                 if (isHexBinarySqlType(sqlType, typeName)) {
                     return str;
                 }
-                return parseBytea(str, table, column);
+                return parseBinaryHex(str, table, column);
             }
             if (isYearType(sqlType, typeName, column)) {
                 return Integer.valueOf(str);
@@ -598,28 +593,28 @@ public class MySqlDialectHandler implements DbDialectHandler {
      * Reads a LOB file and converts it into a JDBC-bindable object.
      *
      * <p>
-     * {@code bytea} returns {@code byte[]}. Others return UTF-8 string.
+     * Binary/blob types return {@code byte[]}. Others return UTF-8 string.
      * </p>
      *
      * @param fileRef file name
      * @param table table name
      * @param column column name
      * @param baseDir base directory where LOB files are stored
-     * @return {@code byte[]} for bytea, otherwise UTF-8 string
+     * @return {@code byte[]} for binary/blob, otherwise UTF-8 string
      * @throws IOException if file reading fails
      * @throws DataSetException if metadata cannot be resolved
      */
     @Override
     public Object readLobFile(String fileRef, String table, String column, File baseDir)
             throws IOException, DataSetException {
-        File lobFile = new File(new File(baseDir, lobDirName), fileRef);
+        File lobFile = new File(new File(baseDir, LobPathConstants.DIRECTORY_NAME), fileRef);
         if (!lobFile.exists()) {
             throw new DataSetException("LOB file not found: " + lobFile.getAbsolutePath());
         }
         ResolvedColumnSpec resolved = resolveColumnSpec(table, column);
         String typeName = normalizeTypeName(resolved.typeName);
 
-        if (isByteaType(resolved.sqlType, typeName)) {
+        if (isBinaryLobType(resolved.sqlType, typeName)) {
             return Files.readAllBytes(lobFile.toPath());
         }
         return Files.readString(lobFile.toPath(), StandardCharsets.UTF_8);
@@ -636,7 +631,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Formats date/time values as CSV strings using {@link OracleDateTimeFormatUtil}.
+     * Formats date/time values as CSV strings using the shared formatter abstraction.
      *
      * <p>
      * This keeps date/time formatting consistent across dialect handlers.
@@ -945,7 +940,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
      * LOB-like definition in this handler:
      * </p>
      * <ul>
-     * <li>{@code bytea}</li>
+     * <li>{@code BLOB}</li>
      * <li>{@code text}</li>
      * <li>JDBC {@link Types#BLOB}/{@link Types#CLOB}</li>
      * </ul>
@@ -1017,8 +1012,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
      * Detects LOB columns used in CSV by scanning actual CSV values for {@code file:} references.
      *
      * <p>
-     * This follows the same rule as the Oracle handler: a column is treated as LOB iff at least one
-     * row contains {@code file:...} in that column.
+     * A column is treated as LOB if at least one row has a value starting with {@code file:}.
      * </p>
      *
      * @param csvDirPath CSV base directory
@@ -1273,7 +1267,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
      * @param sqlType JDBC SQL type
      * @param typeName normalized database type name
      * @param dataType DBUnit data type (may be null)
-     * @return {@code byte[]} for bytea, or UTF-8 string for text-like types
+     * @return {@code byte[]} for binary/blob, or UTF-8 string for text-like types
      * @throws DataSetException if file is missing, unreadable, or type is unsupported
      */
     private Object loadLobFromFile(String fileName, String table, String column, int sqlType,
@@ -1284,7 +1278,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
         }
 
         try {
-            if (isByteaType(sqlType, typeName)) {
+            if (isBinaryLobType(sqlType, typeName)) {
                 return Files.readAllBytes(lobFile.toPath());
             }
             if (isTextLikeType(sqlType, typeName, dataType)) {
@@ -1364,7 +1358,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Parses bytea CSV input into {@code byte[]}.
+     * Parses binary hex CSV input into {@code byte[]}.
      *
      * <p>
      * Supported forms:
@@ -1380,7 +1374,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
      * @return decoded byte array
      * @throws DataSetException if hex decoding fails
      */
-    private byte[] parseBytea(String str, String table, String column) throws DataSetException {
+    private byte[] parseBinaryHex(String str, String table, String column) throws DataSetException {
         String normalized = str;
         if (normalized.toLowerCase(Locale.ROOT).startsWith("\\x")) {
             normalized = normalized.substring(2);
@@ -1389,7 +1383,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
         try {
             return Hex.decodeHex(normalized.toCharArray());
         } catch (DecoderException e) {
-            throw new DataSetException("Failed to decode bytea hex. table=" + table + " column="
+            throw new DataSetException("Failed to decode binary hex. table=" + table + " column="
                     + column + " value=" + str, e);
         }
     }
@@ -1589,13 +1583,9 @@ public class MySqlDialectHandler implements DbDialectHandler {
     /**
      * Returns whether the given column type represents a 32-bit integer.
      *
-     * <p>
-     * MySQL {@code integer} is also known as {@code int4}.
-     * </p>
-     *
      * @param sqlType JDBC SQL type code
      * @param typeName normalized MySQL type name (lower-cased)
-     * @return {@code true} if the type is int4/integer
+     * @return {@code true} if the type is integer
      */
     private boolean isIntegerType(int sqlType, String typeName) {
         if (sqlType == Types.INTEGER) {
@@ -1607,13 +1597,9 @@ public class MySqlDialectHandler implements DbDialectHandler {
     /**
      * Returns whether the given column type represents a 64-bit integer.
      *
-     * <p>
-     * MySQL {@code bigint} is also known as {@code int8}.
-     * </p>
-     *
      * @param sqlType JDBC SQL type code
      * @param typeName normalized MySQL type name (lower-cased)
-     * @return {@code true} if the type is int8/bigint
+     * @return {@code true} if the type is bigint
      */
     private boolean isBigIntType(int sqlType, String typeName) {
         if (sqlType == Types.BIGINT) {
@@ -1643,13 +1629,9 @@ public class MySqlDialectHandler implements DbDialectHandler {
     /**
      * Returns whether the given column type represents a single-precision floating point number.
      *
-     * <p>
-     * MySQL {@code real} is also known as {@code float4}.
-     * </p>
-     *
      * @param sqlType JDBC SQL type code
      * @param typeName normalized MySQL type name (lower-cased)
-     * @return {@code true} if the type is real/float4
+     * @return {@code true} if the type is real/float
      */
     private boolean isRealType(int sqlType, String typeName) {
         if (sqlType == Types.REAL || sqlType == Types.FLOAT) {
@@ -1661,13 +1643,9 @@ public class MySqlDialectHandler implements DbDialectHandler {
     /**
      * Returns whether the given column type represents a double-precision floating point number.
      *
-     * <p>
-     * MySQL {@code double precision} is also known as {@code float8}.
-     * </p>
-     *
      * @param sqlType JDBC SQL type code
      * @param typeName normalized MySQL type name (lower-cased)
-     * @return {@code true} if the type is float8/double precision
+     * @return {@code true} if the type is double/double precision
      */
     private boolean isDoubleType(int sqlType, String typeName) {
         if (sqlType == Types.DOUBLE) {
@@ -1684,9 +1662,6 @@ public class MySqlDialectHandler implements DbDialectHandler {
      * @return {@code true} for BINARY/VARBINARY/LONGVARBINARY
      */
     private boolean isHexBinarySqlType(int sqlType, String typeName) {
-        if ("bytea".equals(typeName)) {
-            return false;
-        }
         return sqlType == Types.BINARY || sqlType == Types.VARBINARY
                 || sqlType == Types.LONGVARBINARY;
     }
@@ -1695,8 +1670,8 @@ public class MySqlDialectHandler implements DbDialectHandler {
      * Returns whether the given column type represents a date/time value.
      *
      * <p>
-     * MySQL supports {@code date}, {@code time}, {@code timestamp} and {@code timestamptz}
-     * ({@code timestamp with time zone}).
+     * MySQL supports {@code date}, {@code time}, {@code datetime}, {@code timestamp}, and
+     * {@code year}.
      * </p>
      *
      * @param sqlType JDBC SQL type code
@@ -1726,20 +1701,20 @@ public class MySqlDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Returns whether the given column type represents {@code bytea} (binary) data.
+     * Returns whether the given column type represents binary data.
      *
      * <p>
-     * MySQL binary columns are typically {@code bytea}. Depending on the JDBC driver, the reported
-     * JDBC type may be {@code BINARY}/{@code VARBINARY}/{@code LONGVARBINARY}.
+     * MySQL binary columns are typically reported as {@code BLOB}/{@code BINARY}/{@code VARBINARY}
+     * types.
      * </p>
      *
      * @param sqlType JDBC SQL type code
      * @param typeName normalized MySQL type name (lower-cased)
-     * @return {@code true} if the type is bytea/binary
+     * @return {@code true} if the type is binary/blob
      */
-    private boolean isByteaType(int sqlType, String typeName) {
+    private boolean isBinaryLobType(int sqlType, String typeName) {
         if (typeName.endsWith("blob") || "binary".equals(typeName) || "varbinary".equals(typeName)
-                || "bit".equals(typeName) || "bytea".equals(typeName)) {
+                || "bit".equals(typeName)) {
             return true;
         }
         return BINARY_SQL_TYPES.contains(sqlType);
@@ -1749,7 +1724,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
      * Returns whether the given column type should be treated as a LOB for file-based handling.
      *
      * <p>
-     * In MySQL, {@code bytea} is treated as a binary LOB, and {@code text} is treated as a
+     * In MySQL, binary/blob types are treated as binary LOBs, and {@code text} is treated as a
      * character LOB. Also treats JDBC {@code CLOB}/{@code BLOB} as LOB when drivers report them.
      * </p>
      *
@@ -1758,7 +1733,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
      * @return {@code true} if the type is treated as a LOB
      */
     private boolean isLobType(int sqlType, String typeName) {
-        if (isByteaType(sqlType, typeName)) {
+        if (isBinaryLobType(sqlType, typeName)) {
             return true;
         }
         if ("text".equals(typeName)) {

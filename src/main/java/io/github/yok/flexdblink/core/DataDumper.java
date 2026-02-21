@@ -9,6 +9,7 @@ import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.util.CsvUtils;
 import io.github.yok.flexdblink.util.ErrorHandler;
+import io.github.yok.flexdblink.util.LobPathConstants;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStreamWriter;
@@ -39,7 +40,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.csv.CSVFormat;
@@ -72,7 +72,6 @@ import org.dbunit.database.DatabaseConnection;
  * @author Yasuharu.Okawauchi
  */
 @Slf4j
-@RequiredArgsConstructor
 public class DataDumper {
 
     // Base output directory for dump (mapped from application.yml's dump path via PathsConfig)
@@ -86,14 +85,30 @@ public class DataDumper {
 
     private final DumpConfig dumpConfig;
 
-    // Function to resolve schema name from ConnectionConfig.Entry
-    private final Function<ConnectionConfig.Entry, String> schemaNameResolver;
-
     // Factory function to obtain a DB dialect handler
     // Input : ConnectionConfig.Entry
     // Output: corresponding DbDialectHandler
     private final Function<ConnectionConfig.Entry, DbDialectHandler> dialectFactory;
     private static final Set<Integer> LOB_SQL_TYPES = Set.of(Types.BLOB, Types.CLOB, Types.NCLOB);
+
+    /**
+     * Creates dumper using dialect-based schema resolution.
+     *
+     * @param pathsConfig path settings
+     * @param connectionConfig connection settings
+     * @param filePatternConfig file pattern settings
+     * @param dumpConfig dump settings
+     * @param dialectFactory dialect handler factory
+     */
+    public DataDumper(PathsConfig pathsConfig, ConnectionConfig connectionConfig,
+            FilePatternConfig filePatternConfig, DumpConfig dumpConfig,
+            Function<ConnectionConfig.Entry, DbDialectHandler> dialectFactory) {
+        this.pathsConfig = pathsConfig;
+        this.connectionConfig = connectionConfig;
+        this.filePatternConfig = filePatternConfig;
+        this.dumpConfig = dumpConfig;
+        this.dialectFactory = dialectFactory;
+    }
 
     /**
      * Dumps CSV and BLOB/CLOB files for each table according to the specified scenario and target
@@ -148,7 +163,7 @@ public class DataDumper {
                     DbDialectHandler dialectHandler = dialectFactory.apply(entry);
 
                     // Configure DBUnit connection
-                    String schema = schemaNameResolver.apply(entry);
+                    String schema = dialectHandler.resolveSchema(entry);
                     DatabaseConnection dbConn = dialectHandler.createDbUnitConnection(conn, schema);
 
                     // --- Get and filter table list ---
@@ -218,7 +233,7 @@ public class DataDumper {
     private File[] prepareDbOutputDirs(File scenarioDir, String dbId) {
         File dbDir = new File(scenarioDir, dbId);
         ensureDirectoryExists(dbDir, "Failed to create DB output directory");
-        File filesDir = new File(dbDir, "files");
+        File filesDir = new File(dbDir, LobPathConstants.DIRECTORY_NAME);
         ensureDirectoryExists(filesDir, "Failed to create 'files' directory");
         return new File[] {dbDir, filesDir};
     }
@@ -362,14 +377,11 @@ public class DataDumper {
                     String columnName = md.getColumnLabel(i);
                     Object val = rs.getObject(i);
                     String cell;
-                    // RAW / LONG RAW / VARBINARY → hex string
-                    if ("RAW".equalsIgnoreCase(typeNm) || "LONG RAW".equalsIgnoreCase(typeNm)
-                            || sqlType == Types.BINARY || sqlType == Types.VARBINARY
-                            || sqlType == Types.LONGVARBINARY) {
+                    // Binary columns → hex string
+                    if (dialectHandler.isBinaryTypeForDump(sqlType, typeNm)) {
                         byte[] bytes = rs.getBytes(i);
                         cell = (bytes == null) ? "" : Hex.encodeHexString(bytes).toUpperCase();
-                    } else if (sqlType == Types.DATE || sqlType == Types.TIME
-                            || sqlType == Types.TIMESTAMP || sqlType == -101 || sqlType == -102) {
+                    } else if (dialectHandler.isDateTimeTypeForDump(sqlType, typeNm)) {
                         Object temporalValue = val;
                         if ("DATE".equalsIgnoreCase(typeNm) || sqlType == Types.DATE) {
                             Object typed = rs.getDate(i);
@@ -474,7 +486,7 @@ public class DataDumper {
      * @param filesDir directory for BLOB/CLOB files
      * @param resolver utility for resolving file names
      * @param schema schema name
-     * @param dialectHandler implementation of DbDialectHandler (incl. OracleDialectHandler)
+     * @param dialectHandler implementation of DbDialectHandler
      * @return dump result (CSV row count + number of files written)
      * @throws Exception on SQL or file I/O error
      */
@@ -555,12 +567,12 @@ public class DataDumper {
                     Object raw = rs.getObject(i);
                     String cell;
 
-                    // DATE/TIMESTAMP/INTERVAL types
-                    if (isOracleIntervalColumn(col)) {
-                        cell = formatOracleIntervalForDump(col, rs.getString(i));
+                    // DATE/TIMESTAMP and dialect-specific temporal types
+                    if (dialectHandler.shouldUseRawTemporalValueForDump(col, type, typeName)) {
+                        cell = dialectHandler.normalizeRawTemporalValueForDump(col,
+                                rs.getString(i));
 
-                    } else if (type == Types.DATE || type == Types.TIME || type == Types.TIMESTAMP
-                            || type == -101 || type == -102) {
+                    } else if (dialectHandler.isDateTimeTypeForDump(type, typeName)) {
                         Object temporalValue = raw;
                         if ("DATE".equalsIgnoreCase(typeName) || type == Types.DATE) {
                             Object typed = rs.getDate(i);
@@ -597,8 +609,7 @@ public class DataDumper {
                                 + col + "\" in file-patterns.");
 
                         // RAW/BINARY family
-                    } else if (type == Types.BINARY || type == Types.VARBINARY
-                            || type == Types.LONGVARBINARY) {
+                    } else if (dialectHandler.isBinaryTypeForDump(type, typeName)) {
                         byte[] bytes = rs.getBytes(i);
                         cell = (bytes == null) ? ""
                                 : BaseEncoding.base16().upperCase().encode(bytes);
@@ -670,38 +681,6 @@ public class DataDumper {
      */
     private boolean isLobSqlType(int sqlType) {
         return LOB_SQL_TYPES.contains(sqlType);
-    }
-
-    /**
-     * Determines whether the column name corresponds to an Oracle INTERVAL type.
-     * <ul>
-     * <li>INTERVAL_YM_COL</li>
-     * <li>INTERVAL_DS_COL</li>
-     * </ul>
-     *
-     * @param col column name to check
-     * @return {@code true} if it looks like an INTERVAL column name; {@code false} otherwise
-     */
-    private boolean isOracleIntervalColumn(String col) {
-        return "INTERVAL_YM_COL".equalsIgnoreCase(col) || "INTERVAL_DS_COL".equalsIgnoreCase(col)
-                || "IV_YM_COL".equalsIgnoreCase(col) || "IV_DS_COL".equalsIgnoreCase(col);
-    }
-
-    /**
-     * Formats Oracle INTERVAL text in the same style accepted by load fixtures.
-     *
-     * @param col column name
-     * @param value raw JDBC string
-     * @return formatted interval text
-     */
-    private String formatOracleIntervalForDump(String col, String value) {
-        if (value == null) {
-            return "";
-        }
-        if ("INTERVAL_DS_COL".equalsIgnoreCase(col) || "IV_DS_COL".equalsIgnoreCase(col)) {
-            return value.replaceAll("\\.0+$", "");
-        }
-        return value;
     }
 
     /**

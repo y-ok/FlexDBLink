@@ -1,28 +1,24 @@
 package io.github.yok.flexdblink.util;
 
 import io.github.yok.flexdblink.config.CsvDateTimeFormatProperties;
-import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
-import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 /**
- * Utility for normalizing Oracle JDBC date/time/interval values into CSV-friendly strings.
+ * Utility for normalizing JDBC date/time/interval values into CSV-friendly strings.
  *
  * <p>
- * This class focuses on values retrieved through the Oracle JDBC driver (e.g.,
- * {@code oracle.sql.TIMESTAMPTZ}, {@code oracle.sql.TIMESTAMPLTZ}) and standard JDBC types
- * ({@link java.sql.Date}, {@link java.sql.Time}, {@link java.sql.Timestamp}). It formats them into
- * stable, locale-independent strings suitable for deterministic CSV exports.
+ * This class formats standard JDBC temporal types ({@link java.sql.Date}, {@link java.sql.Time},
+ * {@link java.sql.Timestamp}) and, when present, vendor-specific temporal objects obtained through
+ * JDBC drivers. It produces stable, locale-independent strings suitable for deterministic CSV
+ * exports.
  * </p>
  *
  * <p>
@@ -32,10 +28,6 @@ import org.springframework.stereotype.Component;
  *
  * <h3>Special handling</h3>
  * <ul>
- * <li><strong>TIMESTAMPTZ / TIMESTAMPLTZ</strong>: uses the driver's
- * {@code stringValue(Connection)} and normalizes zone suffixes to {@code +HHmm} (removing a colon)
- * or resolves region IDs (e.g. {@code Asia/Tokyo}) to a fixed numeric offset at the given
- * instant.</li>
  * <li><strong>INTERVAL YEAR TO MONTH</strong>: normalized to {@code [+|-]YY-MM} (zero-padded).</li>
  * <li><strong>INTERVAL DAY TO SECOND</strong>: normalized to {@code [+|-]DD HH:MM:SS} (zero-padded;
  * fractional seconds dropped).</li>
@@ -53,7 +45,7 @@ import org.springframework.stereotype.Component;
  */
 @Slf4j
 @Component
-public class OracleDateTimeFormatUtil {
+public class DateTimeFormatUtil implements DateTimeFormatSupport {
 
     // Date format (e.g. {@code yyyy-MM-dd})
     private final DateTimeFormatter dateFormatter;
@@ -61,8 +53,6 @@ public class OracleDateTimeFormatUtil {
     private final DateTimeFormatter timeFormatter;
     // Timestamp format with milliseconds (e.g. {@code yyyy-MM-dd HH:mm:ss.SSS})
     private final DateTimeFormatter dateTimeMillisFormatter;
-    // Timestamp format without milliseconds (e.g. {@code yyyy-MM-dd HH:mm:ss})
-    private final DateTimeFormatter dateTimeFormatter;
 
     /**
      * Creates a new formatter using the provided CSV date/time patterns.
@@ -70,11 +60,10 @@ public class OracleDateTimeFormatUtil {
      * @param props format patterns for date, time, timestamp(with/without millis)
      * @throws IllegalArgumentException if any pattern is invalid
      */
-    public OracleDateTimeFormatUtil(CsvDateTimeFormatProperties props) {
+    public DateTimeFormatUtil(CsvDateTimeFormatProperties props) {
         this.dateFormatter = DateTimeFormatter.ofPattern(props.getDate());
         this.timeFormatter = DateTimeFormatter.ofPattern(props.getTime());
         this.dateTimeMillisFormatter = DateTimeFormatter.ofPattern(props.getDateTimeWithMillis());
-        this.dateTimeFormatter = DateTimeFormatter.ofPattern(props.getDateTime());
     }
 
     /**
@@ -84,9 +73,6 @@ public class OracleDateTimeFormatUtil {
      * Behaviors:
      * </p>
      * <ul>
-     * <li>{@code oracle.sql.TIMESTAMPTZ}/{@code TIMESTAMPLTZ} (or their {@code oracle.jdbc.*}
-     * cousins): resolve to a string via {@code stringValue(Connection)} and normalize timezone
-     * suffix.</li>
      * <li>{@link Timestamp}: formatted with {@link #dateTimeMillisFormatter}.</li>
      * <li>{@link Date}: formatted with {@link #dateFormatter}.</li>
      * <li>{@link Time}: formatted with {@link #timeFormatter}.</li>
@@ -106,9 +92,8 @@ public class OracleDateTimeFormatUtil {
      * </ul>
      *
      * @param colName column name (case-insensitive; used for special handling)
-     * @param value JDBC value retrieved from Oracle
-     * @param conn JDBC connection used only when the Oracle type requires it (e.g. TIMESTAMPTZ
-     *        stringValue)
+     * @param value JDBC temporal value
+     * @param conn JDBC connection (reserved for future extension)
      * @return normalized string for CSV output, or {@code null} if {@code value} is {@code null}
      */
     public String formatJdbcDateTime(String colName, Object value, Connection conn) {
@@ -118,19 +103,7 @@ public class OracleDateTimeFormatUtil {
 
         String normalized;
         try {
-            String className = value.getClass().getName();
-            if ("oracle.sql.TIMESTAMPTZ".equals(className)
-                    || "oracle.jdbc.OracleTIMESTAMPTZ".equals(className)
-                    || "oracle.sql.TIMESTAMPLTZ".equals(className)
-                    || "oracle.jdbc.OracleTimestampltz".equals(className)) {
-
-                // Call TIMESTAMPTZ/TIMESTAMPLTZ#stringValue(Connection) reflectively to avoid hard
-                // dependency
-                Method m = value.getClass().getMethod("stringValue", Connection.class);
-                String raw = (String) m.invoke(value, conn);
-                normalized = normalizeTimestampTz(raw);
-
-            } else if (value instanceof Timestamp) {
+            if (value instanceof Timestamp) {
                 normalized = ((Timestamp) value).toLocalDateTime().format(dateTimeMillisFormatter);
 
             } else if (value instanceof Date) {
@@ -171,53 +144,10 @@ public class OracleDateTimeFormatUtil {
             return normalized;
 
         } catch (Exception ex) {
-            log.warn("Failed to normalize Oracle temporal value: colName={}, value={}", colName,
-                    value, ex);
+            log.warn("Failed to normalize temporal value: colName={}, value={}", colName, value,
+                    ex);
             return value.toString();
         }
-    }
-
-    /**
-     * Normalizes an Oracle TIMESTAMPTZ/TIMESTAMPLTZ string.
-     *
-     * <ul>
-     * <li>If the suffix is a numeric offset {@code +HH:MM}, convert to {@code +HHMM}.</li>
-     * <li>If the suffix is a region ID (e.g., {@code Area/Location}), resolve it at the given
-     * instant to a numeric offset and render as {@code +HHMM}.</li>
-     * <li>Strip redundant trailing {@code .0}.</li>
-     * </ul>
-     *
-     * @param raw raw string from {@code stringValue(Connection)}
-     * @return normalized string (never null unless input is null)
-     */
-    private String normalizeTimestampTz(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        String s = raw.trim();
-        // yyyy-MM-dd HH:mm:ss[.fraction] +HH:MM -> yyyy-MM-dd HH:mm:ss +HHMM
-        Matcher m1 = Pattern.compile(
-                "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})(?:\\.\\d+)? ([+-]\\d{2}):(\\d{2})$")
-                .matcher(s);
-        if (m1.matches()) {
-            return m1.group(1) + " " + m1.group(2) + m1.group(3);
-        }
-        // yyyy-MM-dd HH:mm:ss[.fraction] Region/Zone -> resolve to +HHMM
-        Matcher m2 = Pattern.compile(
-                "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})(?:\\.\\d+)? ([A-Za-z_]+/[A-Za-z_]+)$")
-                .matcher(s);
-        if (m2.matches()) {
-            try {
-                LocalDateTime ldt = LocalDateTime.parse(m2.group(1), dateTimeFormatter);
-                String offset =
-                        ldt.atZone(ZoneId.of(m2.group(2))).getOffset().getId().replace(":", "");
-                return m2.group(1) + " " + offset;
-            } catch (DateTimeParseException e) {
-                log.warn("Failed to resolve region offset in TIMESTAMPTZ: raw='{}'", raw, e);
-                return s;
-            }
-        }
-        return s.replaceAll("\\.0+$", "");
     }
 
     /**

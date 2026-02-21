@@ -1,6 +1,7 @@
 package io.github.yok.flexdblink.junit;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.config.CsvDateTimeFormatProperties;
 import io.github.yok.flexdblink.config.DbUnitConfig;
@@ -9,9 +10,9 @@ import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.core.DataLoader;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
+import io.github.yok.flexdblink.util.DateTimeFormatUtil;
 import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.LogPathUtil;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -221,7 +222,7 @@ public class LoadDataExtension
 
         DbUnitConfigFactory configFactory = new DbUnitConfigFactory();
         ConnectionConfig connectionConfig = new ConnectionConfig();
-        OracleDateTimeFormatUtil dateTimeUtil = new OracleDateTimeFormatUtil(dtProps);
+        DateTimeFormatUtil dateTimeUtil = new DateTimeFormatUtil(dtProps);
 
         // Resolve paths
         Path classRoot = trc.getClassRoot();
@@ -246,11 +247,8 @@ public class LoadDataExtension
         DbDialectHandlerFactory handlerFactory = new DbDialectHandlerFactory(dbUnitConfig,
                 dumpConfig, pathsConfig, dateTimeUtil, configFactory);
 
-        DataLoader loader = new DataLoader(pathsConfig, connectionConfig,
-                entry -> Optional.ofNullable(entry.getUser()).map(u -> u.toUpperCase(Locale.ROOT))
-                        .orElseThrow(() -> new IllegalStateException(
-                                "Failed to resolve schema: user is undefined")),
-                handlerFactory::create, dbUnitConfig, dumpConfig);
+        DataLoader loader = new DataLoader(pathsConfig, connectionConfig, handlerFactory::create,
+                dbUnitConfig, dumpConfig);
 
         // Mode detection
         boolean multi = dbNamesAttr != null && dbNamesAttr.length > 0;
@@ -535,7 +533,7 @@ public class LoadDataExtension
         if (records.isEmpty()) {
             return;
         }
-        List<TxRecord> rev = com.google.common.collect.Lists.reverse(records);
+        List<TxRecord> rev = Lists.reverse(records);
         for (TxRecord r : rev) {
             try {
                 r.tm.rollback(r.status);

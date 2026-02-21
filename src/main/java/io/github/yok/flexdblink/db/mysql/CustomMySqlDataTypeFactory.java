@@ -20,9 +20,9 @@ import org.dbunit.ext.mysql.MySqlDataTypeFactory;
  * Custom {@link org.dbunit.dataset.datatype.IDataTypeFactory} implementation for MySQL.
  *
  * <p>
- * DBUnit's default MySQL factory may treat {@code xml} as unsupported and drop the column
- * from metadata. This implementation maps {@code xml}/{@link Types#SQLXML} to
- * {@link DataType#VARCHAR} so CSV load/dump can handle XML columns as plain text.
+ * DBUnit's default MySQL factory may treat {@code xml} as unsupported and drop the column from
+ * metadata. This implementation maps {@code xml}/{@link Types#SQLXML} to {@link DataType#VARCHAR}
+ * so CSV load/dump can handle XML columns as plain text.
  * </p>
  *
  * @author Yasuharu.Okawauchi

@@ -4,16 +4,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import org.apache.commons.codec.DecoderException;
-import org.apache.commons.codec.binary.Hex;
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLXML;
 import java.sql.Types;
+import org.apache.commons.codec.DecoderException;
+import org.apache.commons.codec.binary.Hex;
 import org.dbunit.dataset.ITable;
 import org.dbunit.dataset.datatype.DataType;
 import org.junit.jupiter.api.Test;
@@ -106,8 +107,7 @@ class CustomMySqlDataTypeFactoryTest {
     }
 
     @Test
-    void createDataType_正常ケース_VARBINARY型に0x接頭辞付きHEX文字列を設定する_setBytesが呼ばれること()
-            throws Exception {
+    void createDataType_正常ケース_VARBINARY型に0x接頭辞付きHEX文字列を設定する_setBytesが呼ばれること() throws Exception {
         CustomMySqlDataTypeFactory factory = new CustomMySqlDataTypeFactory();
         DataType binaryType = factory.createDataType(Types.VARBINARY, "varbinary");
         PreparedStatement statement = mock(PreparedStatement.class);
@@ -119,8 +119,7 @@ class CustomMySqlDataTypeFactoryTest {
     }
 
     @Test
-    void createDataType_正常ケース_BINARY型に非HEX文字列を設定する_UTF8バイトでsetBytesが呼ばれること()
-            throws Exception {
+    void createDataType_正常ケース_BINARY型に非HEX文字列を設定する_UTF8バイトでsetBytesが呼ばれること() throws Exception {
         CustomMySqlDataTypeFactory factory = new CustomMySqlDataTypeFactory();
         DataType binaryType = factory.createDataType(Types.BINARY, "binary");
         PreparedStatement statement = mock(PreparedStatement.class);
@@ -128,7 +127,7 @@ class CustomMySqlDataTypeFactoryTest {
         binaryType.setSqlValue("text-bytes", 3, statement);
 
         verify(statement).setBytes(eq(3),
-                argThat(v -> matches(v, "text-bytes".getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+                argThat(v -> matches(v, "text-bytes".getBytes(StandardCharsets.UTF_8))));
     }
 
     @Test
@@ -165,21 +164,18 @@ class CustomMySqlDataTypeFactoryTest {
     }
 
     @Test
-    void createDataType_正常ケース_BINARY型にバックスラッシュx接頭辞付きHEXを設定する_setBytesが呼ばれること()
-            throws Exception {
+    void createDataType_正常ケース_BINARY型にバックスラッシュx接頭辞付きHEXを設定する_setBytesが呼ばれること() throws Exception {
         CustomMySqlDataTypeFactory factory = new CustomMySqlDataTypeFactory();
         DataType binaryType = factory.createDataType(Types.BINARY, "binary");
         PreparedStatement statement = mock(PreparedStatement.class);
 
         binaryType.setSqlValue("\\x414243", 7, statement);
 
-        verify(statement).setBytes(eq(7),
-                argThat(v -> matches(v, new byte[] {0x41, 0x42, 0x43})));
+        verify(statement).setBytes(eq(7), argThat(v -> matches(v, new byte[] {0x41, 0x42, 0x43})));
     }
 
     @Test
-    void createDataType_正常ケース_BINARY型に奇数長HEX文字列を設定する_UTF8バイトでsetBytesが呼ばれること()
-            throws Exception {
+    void createDataType_正常ケース_BINARY型に奇数長HEX文字列を設定する_UTF8バイトでsetBytesが呼ばれること() throws Exception {
         CustomMySqlDataTypeFactory factory = new CustomMySqlDataTypeFactory();
         DataType binaryType = factory.createDataType(Types.BINARY, "binary");
         PreparedStatement statement = mock(PreparedStatement.class);
@@ -187,12 +183,11 @@ class CustomMySqlDataTypeFactoryTest {
         binaryType.setSqlValue("ABC", 8, statement);
 
         verify(statement).setBytes(eq(8),
-                argThat(v -> matches(v, "ABC".getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+                argThat(v -> matches(v, "ABC".getBytes(StandardCharsets.UTF_8))));
     }
 
     @Test
-    void createDataType_正常ケース_BINARY型でHEXデコード例外が発生する_UTF8バイトでsetBytesが呼ばれること()
-            throws Exception {
+    void createDataType_正常ケース_BINARY型でHEXデコード例外が発生する_UTF8バイトでsetBytesが呼ばれること() throws Exception {
         CustomMySqlDataTypeFactory factory = new CustomMySqlDataTypeFactory();
         DataType binaryType = factory.createDataType(Types.BINARY, "binary");
         PreparedStatement statement = mock(PreparedStatement.class);
@@ -203,7 +198,7 @@ class CustomMySqlDataTypeFactoryTest {
         }
 
         verify(statement).setBytes(eq(9),
-                argThat(v -> matches(v, "4142".getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+                argThat(v -> matches(v, "4142".getBytes(StandardCharsets.UTF_8))));
     }
 
     private static boolean matches(byte[] actual, byte[] expected) {

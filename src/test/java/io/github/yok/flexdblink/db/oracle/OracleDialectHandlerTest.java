@@ -13,6 +13,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -21,7 +22,7 @@ import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
+import io.github.yok.flexdblink.util.DateTimeFormatUtil;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.StringReader;
@@ -36,6 +37,7 @@ import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
+import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -43,10 +45,17 @@ import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import net.bytebuddy.ByteBuddy;
+import net.bytebuddy.description.modifier.Visibility;
+import net.bytebuddy.dynamic.loading.ClassLoadingStrategy;
+import net.bytebuddy.implementation.FieldAccessor;
+import net.bytebuddy.implementation.MethodCall;
 import org.dbunit.database.DatabaseConfig;
 import org.dbunit.database.DatabaseConnection;
 import org.dbunit.dataset.Column;
@@ -65,6 +74,9 @@ public class OracleDialectHandlerTest {
 
     @TempDir
     Path tempDir;
+
+    private static final Map<String, Class<?>> ORACLE_TEMPORAL_CLASS_CACHE =
+            new ConcurrentHashMap<>();
 
     @Test
     void quoteIdentifier_正常ケース_識別子を引用符で囲む_ダブルクォート付き文字列であること() throws Exception {
@@ -226,14 +238,14 @@ public class OracleDialectHandlerTest {
     void parseDateTimeValue_正常ケース_日付のみを指定する_Dateが返ること() throws Exception {
         OracleDialectHandler handler = createHandler();
         Object parsed = handler.parseDateTimeValue("COL", "2026-02-15");
-        assertEquals(java.sql.Date.class, parsed.getClass());
+        assertEquals(Date.class, parsed.getClass());
     }
 
     @Test
     void parseDateTimeValue_正常ケース_時刻を指定する_Timeが返ること() throws Exception {
         OracleDialectHandler handler = createHandler();
         Object parsed = handler.parseDateTimeValue("COL", "01:02:03");
-        assertEquals(java.sql.Time.class, parsed.getClass());
+        assertEquals(Time.class, parsed.getClass());
     }
 
     @Test
@@ -261,7 +273,7 @@ public class OracleDialectHandlerTest {
     @Test
     void formatDateTimeColumn_正常ケース_フォーマッタが成功する_フォーマット値が返ること() throws Exception {
         OracleDialectHandler handler = createHandler();
-        OracleDateTimeFormatUtil formatter = extractFormatter(handler);
+        DateTimeFormatUtil formatter = extractFormatter(handler);
         when(formatter.formatJdbcDateTime(eq("COL"), eq("X"), any())).thenReturn("FORMATTED");
         assertEquals("FORMATTED", handler.formatDateTimeColumn("COL", "X", mock(Connection.class)));
     }
@@ -269,10 +281,32 @@ public class OracleDialectHandlerTest {
     @Test
     void formatDateTimeColumn_正常ケース_フォーマッタが失敗する_toString値が返ること() throws Exception {
         OracleDialectHandler handler = createHandler();
-        OracleDateTimeFormatUtil formatter = extractFormatter(handler);
+        DateTimeFormatUtil formatter = extractFormatter(handler);
         doThrow(new RuntimeException("x")).when(formatter).formatJdbcDateTime(eq("COL"), eq("X"),
                 any());
         assertEquals("X", handler.formatDateTimeColumn("COL", "X", mock(Connection.class)));
+    }
+
+    @Test
+    void formatDateTimeColumn_正常ケース_OracleTIMESTAMPTZ形式を指定する_数値オフセット付き文字列が返ること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        Object oracleValue = newDynamicOracleTemporalObject("oracle.jdbc.OracleTIMESTAMPTZ",
+                "2020-01-01 12:34:56 +09:00");
+        String actual = handler.formatDateTimeColumn("COL", oracleValue, mock(Connection.class));
+        assertEquals("2020-01-01 12:34:56 +0900", actual);
+    }
+
+    @Test
+    public void formatDateTimeColumn_正常ケース_OracleTimestampltz形式を指定する_数値オフセット付き文字列が返ること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+
+        Object oracleValue = newDynamicOracleTemporalObject("oracle.jdbc.OracleTimestampltz",
+                "2020-01-01 12:34:56 +09:00");
+
+        String actual = handler.formatDateTimeColumn("COL", oracleValue, mock(Connection.class));
+
+        assertEquals("2020-01-01 12:34:56 +0900", actual);
     }
 
     @Test
@@ -628,9 +662,8 @@ public class OracleDialectHandlerTest {
                 new Column("BLOB_COL", DataType.BLOB), new Column("CLOB_COL", DataType.CLOB),
                 new Column("TXT", DataType.VARCHAR)});
 
-        try (MockedConstruction<org.dbunit.dataset.csv.CsvDataSet> ignored =
-                org.mockito.Mockito.mockConstruction(org.dbunit.dataset.csv.CsvDataSet.class,
-                        (mock, context) -> when(mock.getTable("TBL")).thenReturn(table))) {
+        try (MockedConstruction<CsvDataSet> ignored = mockConstruction(CsvDataSet.class,
+                (mock, context) -> when(mock.getTable("TBL")).thenReturn(table))) {
             Column[] actual = handler.getLobColumns(csvDir, "TBL");
             assertEquals(2, actual.length);
             assertEquals("BLOB_COL", actual[0].getColumnName());
@@ -676,10 +709,8 @@ public class OracleDialectHandlerTest {
         Column lob1 = mock(Column.class);
         Column lob2 = mock(Column.class);
         Column extra = new Column("EXTRA", DataType.VARCHAR);
-        org.dbunit.dataset.datatype.DataType blobLike =
-                mock(org.dbunit.dataset.datatype.DataType.class);
-        org.dbunit.dataset.datatype.DataType clobLike =
-                mock(org.dbunit.dataset.datatype.DataType.class);
+        DataType blobLike = mock(DataType.class);
+        DataType clobLike = mock(DataType.class);
         when(blobLike.getSqlType()).thenReturn(Types.BLOB);
         when(clobLike.getSqlType()).thenReturn(Types.CLOB);
         when(lob1.getColumnName()).thenReturn("LOB1");
@@ -704,11 +735,11 @@ public class OracleDialectHandlerTest {
 
         putTableMeta(handler, "TBL", "D_COL", DataType.DATE);
         Object d = handler.convertCsvValueToDbType("TBL", "D_COL", "2026/02/15");
-        assertEquals(java.sql.Date.class, d.getClass());
+        assertEquals(Date.class, d.getClass());
 
         putTableMeta(handler, "TBL", "T_COL", DataType.TIME);
         Object t = handler.convertCsvValueToDbType("TBL", "T_COL", "010203");
-        assertEquals(java.sql.Time.class, t.getClass());
+        assertEquals(Time.class, t.getClass());
 
         putTableMeta(handler, "TBL", "TS_COL", DataType.TIMESTAMP);
         Object ts = handler.convertCsvValueToDbType("TBL", "TS_COL", "2026-02-15T01:02:03");
@@ -928,7 +959,7 @@ public class OracleDialectHandlerTest {
         Timestamp ts = (Timestamp) actual;
 
         // Timestamp は Instant ベースで入るので、同じ Instant で比較する
-        Timestamp expected = Timestamp.from(java.time.OffsetDateTime.parse(input).toInstant());
+        Timestamp expected = Timestamp.from(OffsetDateTime.parse(input).toInstant());
         assertEquals(expected.getTime(), ts.getTime());
     }
 
@@ -1033,7 +1064,6 @@ public class OracleDialectHandlerTest {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setLobDirName("files");
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(null);
 
@@ -1059,7 +1089,7 @@ public class OracleDialectHandlerTest {
         when(dataSet.getTableMetaData("TBL1")).thenReturn(tableMetaData);
 
         OracleDialectHandler handler = new OracleDialectHandler(dbConn, dumpConfig, dbUnitConfig,
-                mock(DbUnitConfigFactory.class), mock(OracleDateTimeFormatUtil.class), pathsConfig);
+                mock(DbUnitConfigFactory.class), mock(DateTimeFormatUtil.class), pathsConfig);
         assertNotNull(handler);
     }
 
@@ -1068,7 +1098,6 @@ public class OracleDialectHandlerTest {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setLobDirName("files");
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(List.of("tbl1"));
 
@@ -1094,7 +1123,7 @@ public class OracleDialectHandlerTest {
         when(dataSet.getTableMetaData("TBL2")).thenReturn(tbl2Meta);
 
         OracleDialectHandler handler = new OracleDialectHandler(dbConn, dumpConfig, dbUnitConfig,
-                mock(DbUnitConfigFactory.class), mock(OracleDateTimeFormatUtil.class), pathsConfig);
+                mock(DbUnitConfigFactory.class), mock(DateTimeFormatUtil.class), pathsConfig);
 
         assertNotNull(handler);
         verify(dataSet, never()).getTableMetaData("TBL1");
@@ -1111,7 +1140,6 @@ public class OracleDialectHandlerTest {
         when(pathsConfig.getDump()).thenReturn(tempDir.resolve("dump").toString());
 
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setLobDirName("files");
 
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(new ArrayList<>());
@@ -1126,7 +1154,7 @@ public class OracleDialectHandlerTest {
         when(dbConn.getConnection()).thenReturn(jdbc);
 
         // ★ getSchema() が落ちるケース
-        when(jdbc.getSchema()).thenThrow(new java.sql.SQLException("schema not supported"));
+        when(jdbc.getSchema()).thenThrow(new SQLException("schema not supported"));
         when(jdbc.getMetaData()).thenReturn(meta);
         when(meta.getUserName()).thenReturn("app_user");
 
@@ -1141,7 +1169,7 @@ public class OracleDialectHandlerTest {
         when(dbConn.createDataSet()).thenReturn(dataSet);
 
         OracleDialectHandler handler = new OracleDialectHandler(dbConn, dumpConfig, dbUnitConfig,
-                mock(DbUnitConfigFactory.class), mock(OracleDateTimeFormatUtil.class), pathsConfig);
+                mock(DbUnitConfigFactory.class), mock(DateTimeFormatUtil.class), pathsConfig);
 
         assertNotNull(handler);
 
@@ -1153,12 +1181,11 @@ public class OracleDialectHandlerTest {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setLobDirName("files");
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(new ArrayList<>());
 
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
-        OracleDateTimeFormatUtil formatter = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
 
         DatabaseConnection initialDbConn = mock(DatabaseConnection.class);
         Connection initJdbc = mock(Connection.class);
@@ -1267,7 +1294,7 @@ public class OracleDialectHandlerTest {
 
         Object ym = method.invoke(handler, -103, "OTHER", "1-2");
         Object ds = method.invoke(handler, -104, "OTHER", "1 01:02:03");
-        Object other = method.invoke(handler, java.sql.Types.OTHER, "OTHER", "x");
+        Object other = method.invoke(handler, Types.OTHER, "OTHER", "x");
 
         assertEquals("oracle.sql.INTERVALYM", ym.getClass().getName());
         assertEquals("oracle.sql.INTERVALDS", ds.getClass().getName());
@@ -1283,7 +1310,7 @@ public class OracleDialectHandlerTest {
 
         Object ym = method.invoke(handler, -103, null, "1-2");
         Object ds = method.invoke(handler, -104, null, "1 01:02:03");
-        Object other = method.invoke(handler, java.sql.Types.OTHER, null, "x");
+        Object other = method.invoke(handler, Types.OTHER, null, "x");
 
         assertEquals("oracle.sql.INTERVALYM", ym.getClass().getName());
         assertEquals("oracle.sql.INTERVALDS", ds.getClass().getName());
@@ -1507,11 +1534,97 @@ public class OracleDialectHandlerTest {
         assertEquals("SELECT 1 FROM DUAL FOR UPDATE", handler.applyForUpdate("SELECT 1 FROM DUAL"));
     }
 
+    @Test
+    void shouldUseRawValueForComparison_正常ケース_sqlTypeNameがINTERVALである_trueが返ること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        assertTrue(handler.shouldUseRawValueForComparison("INTERVAL DAY TO SECOND"));
+        assertFalse(handler.shouldUseRawValueForComparison("VARCHAR2"));
+        assertFalse(handler.shouldUseRawValueForComparison(null));
+    }
+
+    @Test
+    void normalizeValueForComparison_正常ケース_引数に応じてINTERVAL正規化する_期待形式に整形されること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+
+        assertNull(handler.normalizeValueForComparison("COL", "INTERVAL YEAR TO MONTH", null));
+        assertEquals("abc", handler.normalizeValueForComparison("COL", "VARCHAR2", "abc"));
+        assertEquals("+01-02",
+                handler.normalizeValueForComparison("COL", "INTERVAL YEAR TO MONTH", "1-2"));
+        assertEquals("-01-02",
+                handler.normalizeValueForComparison("COL", "INTERVAL YEAR TO MONTH", "-1-2"));
+        assertEquals("+01 02:03:04", handler.normalizeValueForComparison("COL",
+                "INTERVAL DAY TO SECOND", "1 2:3:4.999"));
+        assertEquals("-01 02:03:04",
+                handler.normalizeValueForComparison("COL", "INTERVAL DAY TO SECOND", "-1 2:3:4"));
+        assertEquals("bad",
+                handler.normalizeValueForComparison("COL", "INTERVAL DAY TO SECOND", " bad "));
+    }
+
+    @Test
+    void isDaySecondIntervalColumn_正常ケース_列名規約を判定する_規約列のみtrueであること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        Method method = OracleDialectHandler.class.getDeclaredMethod("isDaySecondIntervalColumn",
+                String.class);
+        method.setAccessible(true);
+
+        assertTrue((boolean) method.invoke(handler, "INTERVAL_DS_COL"));
+        assertTrue((boolean) method.invoke(handler, "iv_ds_col"));
+        assertFalse((boolean) method.invoke(handler, "INTERVAL_YM_COL"));
+        assertFalse((boolean) method.invoke(handler, (String) null));
+    }
+
+    @Test
+    void normalizeDaySecondInterval_正常ケース_入力形式を判定して整形する_符号とゼロ埋めが適用されること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        Method method = OracleDialectHandler.class.getDeclaredMethod("normalizeDaySecondInterval",
+                String.class);
+        method.setAccessible(true);
+
+        assertEquals("+01 02:03:04", method.invoke(handler, "1 2:3:4.5"));
+        assertEquals("-01 02:03:04", method.invoke(handler, "-1 2:3:4"));
+        assertEquals("raw-text", method.invoke(handler, " raw-text "));
+    }
+
+    @Test
+    void normalizeYearMonthInterval_正常ケース_入力形式を判定して整形する_符号とゼロ埋めが適用されること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        Method method = OracleDialectHandler.class.getDeclaredMethod("normalizeYearMonthInterval",
+                String.class);
+        method.setAccessible(true);
+
+        assertEquals("+01-02", method.invoke(handler, "1-2"));
+        assertEquals("-01-02", method.invoke(handler, "-1-2"));
+        assertEquals("raw-text", method.invoke(handler, " raw-text "));
+    }
+
+    @Test
+    void isDateTimeTypeForDump_正常ケース_oracle固有時刻型を指定する_trueが返ること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        assertTrue(handler.isDateTimeTypeForDump(Types.DATE, "DATE"));
+        assertTrue(handler.isDateTimeTypeForDump(-101, "TIMESTAMP WITH TIME ZONE"));
+        assertTrue(handler.isDateTimeTypeForDump(-102, "TIMESTAMP WITH LOCAL TIME ZONE"));
+        assertTrue(handler.isDateTimeTypeForDump(Types.TIMESTAMP_WITH_TIMEZONE,
+                "TIMESTAMP WITH TIME ZONE"));
+        assertTrue(handler.isDateTimeTypeForDump(Types.OTHER, "TIMESTAMP WITH TIME ZONE"));
+        assertTrue(handler.isDateTimeTypeForDump(Types.OTHER, "TIMESTAMP WITH LOCAL TIME ZONE"));
+        assertFalse(handler.isDateTimeTypeForDump(Types.VARCHAR, "VARCHAR2"));
+        assertFalse(handler.isDateTimeTypeForDump(Types.OTHER, null));
+    }
+
+    @Test
+    void isBinaryTypeForDump_正常ケース_raw系型名を指定する_trueが返ること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        assertTrue(handler.isBinaryTypeForDump(Types.BINARY, "BINARY"));
+        assertTrue(handler.isBinaryTypeForDump(Types.OTHER, "RAW"));
+        assertTrue(handler.isBinaryTypeForDump(Types.OTHER, "LONG RAW"));
+        assertFalse(handler.isBinaryTypeForDump(Types.VARCHAR, "VARCHAR2"));
+        assertFalse(handler.isBinaryTypeForDump(Types.OTHER, null));
+    }
+
     private OracleDialectHandler createHandler() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setLobDirName("files");
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(new ArrayList<>());
 
@@ -1530,7 +1643,7 @@ public class OracleDialectHandlerTest {
         when(dbConn.createDataSet()).thenReturn(dataSet);
 
         return new OracleDialectHandler(dbConn, dumpConfig, dbUnitConfig,
-                mock(DbUnitConfigFactory.class), mock(OracleDateTimeFormatUtil.class), pathsConfig);
+                mock(DbUnitConfigFactory.class), mock(DateTimeFormatUtil.class), pathsConfig);
     }
 
     private void putTableMeta(OracleDialectHandler handler, String table, String column,
@@ -1550,11 +1663,10 @@ public class OracleDialectHandlerTest {
         putMethod.invoke(mapObj, table.toUpperCase(), tableMetaData);
     }
 
-    private OracleDateTimeFormatUtil extractFormatter(OracleDialectHandler handler)
-            throws Exception {
+    private DateTimeFormatUtil extractFormatter(OracleDialectHandler handler) throws Exception {
         Field f = OracleDialectHandler.class.getDeclaredField("dateTimeFormatter");
         f.setAccessible(true);
-        return (OracleDateTimeFormatUtil) f.get(handler);
+        return (DateTimeFormatUtil) f.get(handler);
     }
 
     private void putTableMetaBySqlType(OracleDialectHandler handler, String table, String column,
@@ -1595,12 +1707,210 @@ public class OracleDialectHandlerTest {
             jdbcMap.put(table.toUpperCase(), perTable);
         }
 
-        Class<?> specClass =
-                Class.forName("io.github.yok.flexdblink.db.oracle.OracleDialectHandler$JdbcColumnSpec");
+        Class<?> specClass = Class
+                .forName("io.github.yok.flexdblink.db.oracle.OracleDialectHandler$JdbcColumnSpec");
         Constructor<?> constructor = specClass.getDeclaredConstructor(int.class, String.class);
         constructor.setAccessible(true);
 
         Object spec = constructor.newInstance(sqlType, sqlTypeName);
         perTable.put(column.toUpperCase(), spec);
+    }
+
+    @Test
+    public void getPrimaryKeyColumns_正常ケース_主キーが存在しない_空リストが返ること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        Connection conn = mock(Connection.class);
+        DatabaseMetaData metaData = mock(DatabaseMetaData.class);
+        ResultSet rs = mock(ResultSet.class);
+
+        when(conn.getMetaData()).thenReturn(metaData);
+        when(metaData.getPrimaryKeys(null, "APP", "TBL")).thenReturn(rs);
+        when(rs.next()).thenReturn(false);
+
+        List<String> actual = handler.getPrimaryKeyColumns(conn, "APP", "TBL");
+        assertEquals(List.of(), actual);
+    }
+
+    @Test
+    public void formatDateTimeColumn_正常ケース_OracleTIMESTAMPTZでrawがnull_nullが返ること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+
+        Object oracleValue = newDynamicOracleTemporalObject("oracle.jdbc.OracleTIMESTAMPTZ", null);
+
+        String actual = handler.formatDateTimeColumn("COL", oracleValue, mock(Connection.class));
+        assertNull(actual);
+    }
+
+    @Test
+    public void formatDateTimeColumn_正常ケース_OracleTIMESTAMPTZでリージョン形式を指定する_数値オフセットへ変換されること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+
+        Object oracleValue = newDynamicOracleTemporalObject("oracle.jdbc.OracleTIMESTAMPTZ",
+                "2026-02-15 01:02:03 Asia/Tokyo");
+
+        String actual = handler.formatDateTimeColumn("COL", oracleValue, mock(Connection.class));
+        assertEquals("2026-02-15 01:02:03 +0900", actual);
+    }
+
+    @Test
+    public void formatDateTimeColumn_異常ケース_OracleTIMESTAMPTZでリージョン形式だが日付が不正_trimmedが返ること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+
+        Object oracleValue = newDynamicOracleTemporalObject("oracle.jdbc.OracleTIMESTAMPTZ",
+                " 2026-13-15 01:02:03 Asia/Tokyo ");
+
+        String actual = handler.formatDateTimeColumn("COL", oracleValue, mock(Connection.class));
+        assertEquals("2026-13-15 01:02:03 Asia/Tokyo", actual);
+    }
+
+    @Test
+    public void normalizeRawTemporalValueForDump_正常ケース_rawがnull_空文字が返ること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        assertEquals("", handler.normalizeRawTemporalValueForDump("COL", null));
+    }
+
+    @Test
+    public void normalizeRawTemporalValueForDump_正常ケース_DaySecond規約列_末尾のdot0が削除されること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+        assertEquals("1 02:03:04",
+                handler.normalizeRawTemporalValueForDump("INTERVAL_DS_COL", "1 02:03:04.0"));
+        assertEquals("1 02:03:04",
+                handler.normalizeRawTemporalValueForDump("IV_DS_COL", "1 02:03:04.000"));
+    }
+
+    @Test
+    public void normalizeRawTemporalValueForDump_正常ケース_DaySecond規約列以外_そのまま返ること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        assertEquals("1 02:03:04.0",
+                handler.normalizeRawTemporalValueForDump("OTHER_COL", "1 02:03:04.0"));
+    }
+
+    @Test
+    public void shouldUseRawTemporalValueForDump_正常ケース_sqlTypeNameがINTERVALの時true_nullや非INTERVALはfalseであること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+
+        assertTrue(handler.shouldUseRawTemporalValueForDump("COL", Types.OTHER,
+                "INTERVAL DAY TO SECOND"));
+        assertFalse(handler.shouldUseRawTemporalValueForDump("COL", Types.OTHER, "VARCHAR2"));
+        assertFalse(handler.shouldUseRawTemporalValueForDump("COL", Types.OTHER, null));
+    }
+
+    @Test
+    public void readLobFile_正常ケース_DBUnitに列が無いがJDBCメタでBLOB判定できる_bytesが返ること() throws Exception {
+
+        // PathsConfig は dump setter が無いケースがあるため mock で合わせる
+        PathsConfig pathsConfig = mock(PathsConfig.class);
+        when(pathsConfig.getDataPath()).thenReturn(tempDir.toString());
+        when(pathsConfig.getDump()).thenReturn(tempDir.resolve("dump").toString());
+
+        DbUnitConfig dbUnitConfig = new DbUnitConfig();
+        DumpConfig dumpConfig = new DumpConfig();
+        dumpConfig.setExcludeTables(new ArrayList<>());
+
+        DatabaseConnection dbConn = mock(DatabaseConnection.class);
+        Connection jdbc = mock(Connection.class);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        ResultSet rsTables = mock(ResultSet.class);
+        ResultSet rsColumns = mock(ResultSet.class);
+        IDataSet dataSet = mock(IDataSet.class);
+
+        when(dbConn.getConnection()).thenReturn(jdbc);
+        when(jdbc.getSchema()).thenReturn("APP");
+        when(jdbc.getMetaData()).thenReturn(meta);
+
+        // 対象テーブルを1つ返す
+        when(meta.getTables(eq(null), eq("APP"), eq("%"), any(String[].class)))
+                .thenReturn(rsTables);
+        when(rsTables.next()).thenReturn(true, false);
+        when(rsTables.getString("TABLE_NAME")).thenReturn("TBL");
+
+        // JDBCメタ: BLOB_COL を返す
+        when(meta.getColumns(eq(null), eq("APP"), eq("TBL"), eq("%"))).thenReturn(rsColumns);
+        when(rsColumns.next()).thenReturn(true, false);
+        when(rsColumns.getString("COLUMN_NAME")).thenReturn("BLOB_COL");
+        when(rsColumns.getInt("DATA_TYPE")).thenReturn(Types.BLOB);
+        when(rsColumns.getString("TYPE_NAME")).thenReturn("BLOB");
+
+        // DBUnitメタ: BLOB_COL を含めない（IDのみ）
+        ITableMetaData md = mock(ITableMetaData.class);
+        when(md.getColumns()).thenReturn(new Column[] {new Column("ID", DataType.INTEGER)});
+        when(dbConn.createDataSet()).thenReturn(dataSet);
+        when(dataSet.getTableMetaData("TBL")).thenReturn(md);
+
+        OracleDialectHandler handler = new OracleDialectHandler(dbConn, dumpConfig, dbUnitConfig,
+                mock(DbUnitConfigFactory.class), mock(DateTimeFormatUtil.class), pathsConfig);
+
+        // baseDir/files 配下に LOB ファイルを作成
+        File baseDir = tempDir.toFile();
+        File filesDir = new File(baseDir, "files");
+        Files.createDirectories(filesDir.toPath());
+        Files.write(new File(filesDir, "a.bin").toPath(), new byte[] {0x01, 0x02, 0x03});
+
+        Object actual = handler.readLobFile("a.bin", "TBL", "BLOB_COL", baseDir);
+
+        assertArrayEquals(new byte[] {0x01, 0x02, 0x03}, (byte[]) actual);
+    }
+
+    @Test
+    public void hasNotNullLobColumn_異常ケース_closeでSQLExceptionが発生する_SQLExceptionが再スローされること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+        Connection conn = mock(Connection.class);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        ResultSet rs = mock(ResultSet.class);
+
+        when(conn.getMetaData()).thenReturn(meta);
+        when(meta.getColumns(null, "APP", "TBL", null)).thenReturn(rs);
+
+        // 走査はすぐ終わる
+        when(rs.next()).thenReturn(false);
+
+        // finally の close で例外
+        doThrow(new SQLException("rs-close-error")).when(rs).close();
+
+        SQLException ex = assertThrows(SQLException.class, () -> handler.hasNotNullLobColumn(conn,
+                "APP", "TBL", new Column[] {new Column("CLOB_COL", DataType.CLOB)}));
+        assertEquals("rs-close-error", ex.getMessage());
+    }
+
+    /**
+     * Builds a runtime class with a specific Oracle JDBC-like FQCN and a
+     * {@code stringValue(Connection)} method.
+     *
+     * @param className fully qualified class name to expose through {@code getClass().getName()}
+     * @param rawValue return value of {@code stringValue(Connection)}
+     * @return instantiated dynamic object
+     * @throws Exception if bytecode generation or class loading fails
+     */
+    private Object newDynamicOracleTemporalObject(String className, String rawValue)
+            throws Exception {
+        Class<?> dynamicClass;
+        try {
+            dynamicClass = ORACLE_TEMPORAL_CLASS_CACHE.computeIfAbsent(className, name -> {
+                try {
+                    return new ByteBuddy().subclass(Object.class).name(name)
+                            .defineField("__raw", String.class, Visibility.PRIVATE)
+                            .defineConstructor(Visibility.PUBLIC).withParameters(String.class)
+                            .intercept(MethodCall.invoke(Object.class.getConstructor())
+                                    .andThen(FieldAccessor.ofField("__raw").setsArgumentAt(0)))
+                            .defineMethod("stringValue", String.class, Visibility.PUBLIC)
+                            .withParameters(Connection.class)
+                            .intercept(FieldAccessor.ofField("__raw")).make()
+                            .load(getClass().getClassLoader(), ClassLoadingStrategy.Default.WRAPPER)
+                            .getLoaded();
+                } catch (Exception e) {
+                    throw new IllegalStateException("failed to build dynamic oracle temporal class",
+                            e);
+                }
+            });
+        } catch (IllegalStateException e) {
+            throw (e.getCause() instanceof Exception) ? (Exception) e.getCause() : e;
+        }
+
+        return dynamicClass.getDeclaredConstructor(String.class).newInstance(rawValue);
     }
 }

@@ -6,7 +6,8 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
+import io.github.yok.flexdblink.util.DateTimeFormatSupport;
+import io.github.yok.flexdblink.util.LobPathConstants;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
@@ -75,7 +76,7 @@ import org.slf4j.LoggerFactory;
  * <ul>
  * <li>Format JDBC/DBUnit values (numbers, date/time, UUID, JSON, LOB) for CSV output.</li>
  * <li>Convert CSV strings back into JDBC-bindable values when loading.</li>
- * <li>Resolve LOB file references ("file:...") under {@code dump/<lobDirName>}.</li>
+ * <li>Resolve LOB file references ("file:...") under {@code dump/files}.</li>
  * <li>Cache DBUnit and JDBC metadata at construction time, honoring
  * {@code dump.exclude-tables}.</li>
  * </ul>
@@ -87,8 +88,7 @@ import org.slf4j.LoggerFactory;
  * <ul>
  * <li>For {@code bytea} (BLOB-like) columns, a CSV cell must be either:
  * <ul>
- * <li>{@code file:<relative-path>} to read bytes from
- * {@code dump/<lobDirName>/<relative-path>}</li>
+ * <li>{@code file:<relative-path>} to read bytes from {@code dump/files/<relative-path>}</li>
  * <li>{@code \x...} or plain hex string to be decoded into {@code byte[]}</li>
  * </ul>
  * </li>
@@ -101,12 +101,10 @@ import org.slf4j.LoggerFactory;
 @Slf4j
 public class PostgresqlDialectHandler implements DbDialectHandler {
 
-    // Directory name used to store LOB files
-    private final String lobDirName;
-    // Base path used to store LOB files (dump/<lobDirName>)
+    // Base path used to store LOB files (dump/files)
     private final Path baseLobDir;
-    // Date/time normalization utility (shared with Oracle implementation)
-    private final OracleDateTimeFormatUtil dateTimeFormatter;
+    // Date/time normalization utility shared via DateTimeFormatSupport
+    private final DateTimeFormatSupport dateTimeFormatter;
     // Per-table DBUnit metadata cache
     private final Map<String, org.dbunit.dataset.ITableMetaData> tableMetaMap = new HashMap<>();
     // Per-table JDBC metadata cache (fallback when DBUnit metadata is insufficient)
@@ -202,7 +200,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      *
      * @param dbConn DBUnit {@link DatabaseConnection}
      * @param dumpConfig dump.exclude-tables configuration
-     * @param dbUnitConfig dbunit.lobDirName configuration
+     * @param dbUnitConfig dbunit configuration
      * @param configFactory {@link DbUnitConfigFactory} (for common DBUnit configuration)
      * @param dateTimeFormatter date/time formatter utility
      * @param pathsConfig data-path/load/dump path configuration
@@ -210,14 +208,13 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      */
     public PostgresqlDialectHandler(DatabaseConnection dbConn, DumpConfig dumpConfig,
             DbUnitConfig dbUnitConfig, DbUnitConfigFactory configFactory,
-            OracleDateTimeFormatUtil dateTimeFormatter, PathsConfig pathsConfig) throws Exception {
+            DateTimeFormatSupport dateTimeFormatter, PathsConfig pathsConfig) throws Exception {
         this.configFactory = configFactory;
         this.dateTimeFormatter = dateTimeFormatter;
         this.pathsConfig = pathsConfig;
 
-        this.lobDirName = dbUnitConfig.getLobDirName();
         Path dumpBase = Paths.get(pathsConfig.getDump());
-        this.baseLobDir = dumpBase.resolve(lobDirName);
+        this.baseLobDir = dumpBase.resolve(LobPathConstants.DIRECTORY_NAME);
 
         Connection jdbcConn = dbConn.getConnection();
         String schema;
@@ -244,22 +241,21 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      * @param schema schema name
      * @param table table name
      * @param column column name
-     * @return SQL type name, or null if not found
+     * @return SQL type name
      * @throws SQLException when metadata retrieval fails
      */
     @Override
     public String getColumnTypeName(Connection jdbc, String schema, String table, String column)
             throws SQLException {
         DatabaseMetaData meta = jdbc.getMetaData();
-        ResultSet rs = meta.getColumns(null, schema, table, column);
-        try {
+        try (ResultSet rs = meta.getColumns(null, schema, table, column)) {
             if (rs.next()) {
                 return rs.getString("TYPE_NAME");
+            } else {
+                throw new SQLException(String.format("Column metadata not found: %s.%s.%s", schema,
+                        table, column));
             }
-        } finally {
-            rs.close();
         }
-        return null;
     }
 
     /**
@@ -541,7 +537,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     @Override
     public Object readLobFile(String fileRef, String table, String column, File baseDir)
             throws IOException, DataSetException {
-        File lobFile = new File(new File(baseDir, lobDirName), fileRef);
+        File lobFile = new File(new File(baseDir, LobPathConstants.DIRECTORY_NAME), fileRef);
         if (!lobFile.exists()) {
             throw new DataSetException("LOB file not found: " + lobFile.getAbsolutePath());
         }
@@ -565,7 +561,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Formats date/time values as CSV strings using {@link OracleDateTimeFormatUtil}.
+     * Formats date/time values as CSV strings using the shared formatter abstraction.
      *
      * <p>
      * This keeps date/time formatting consistent across dialect handlers.
@@ -934,8 +930,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      * Detects LOB columns used in CSV by scanning actual CSV values for {@code file:} references.
      *
      * <p>
-     * This follows the same rule as the Oracle handler: a column is treated as LOB iff at least one
-     * row contains {@code file:...} in that column.
+     * A column is treated as LOB if at least one row has a value starting with {@code file:}.
      * </p>
      *
      * @param csvDirPath CSV base directory

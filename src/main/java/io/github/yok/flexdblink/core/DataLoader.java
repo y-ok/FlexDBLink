@@ -31,8 +31,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
@@ -51,7 +49,7 @@ import org.dbunit.operation.DatabaseOperation;
 
 /**
  * Utility class that loads CSV files and external LOB files via DBUnit and performs data loads
- * (CLEAN_INSERT / UPDATE / INSERT) into Oracle and other RDBMS products.
+ * (CLEAN_INSERT / UPDATE / INSERT) for relational database products through dialect handlers.
  *
  * <p>
  * <strong>Operating modes:</strong>
@@ -121,9 +119,6 @@ public class DataLoader {
     // Holder of JDBC connection settings
     private final ConnectionConfig connectionConfig;
 
-    // Function to resolve schema name from a ConnectionConfig.Entry
-    private final Function<ConnectionConfig.Entry, String> schemaNameResolver;
-
     // Factory function to create a DB dialect handler
     private final Function<ConnectionConfig.Entry, DbDialectHandler> dialectFactory;
 
@@ -144,17 +139,15 @@ public class DataLoader {
      *
      * @param pathsConfig path settings
      * @param connectionConfig connection settings
-     * @param schemaNameResolver schema resolver
      * @param dialectFactory dialect resolver
      * @param dbUnitConfig DBUnit settings
      * @param dumpConfig dump settings
      */
     public DataLoader(PathsConfig pathsConfig, ConnectionConfig connectionConfig,
-            Function<ConnectionConfig.Entry, String> schemaNameResolver,
             Function<ConnectionConfig.Entry, DbDialectHandler> dialectFactory,
             DbUnitConfig dbUnitConfig, DumpConfig dumpConfig) {
-        this(pathsConfig, connectionConfig, schemaNameResolver, dialectFactory, dbUnitConfig,
-                dumpConfig, new OperationExecutor() {
+        this(pathsConfig, connectionConfig, dialectFactory, dbUnitConfig, dumpConfig,
+                new OperationExecutor() {
                     @Override
                     public void cleanInsert(IDatabaseConnection connection, IDataSet dataSet)
                             throws Exception {
@@ -180,19 +173,16 @@ public class DataLoader {
      *
      * @param pathsConfig path settings
      * @param connectionConfig connection settings
-     * @param schemaNameResolver schema resolver
      * @param dialectFactory dialect resolver
      * @param dbUnitConfig DBUnit settings
      * @param dumpConfig dump settings
      * @param operationExecutor executor for DBUnit write operations
      */
     DataLoader(PathsConfig pathsConfig, ConnectionConfig connectionConfig,
-            Function<ConnectionConfig.Entry, String> schemaNameResolver,
             Function<ConnectionConfig.Entry, DbDialectHandler> dialectFactory,
             DbUnitConfig dbUnitConfig, DumpConfig dumpConfig, OperationExecutor operationExecutor) {
         this.pathsConfig = pathsConfig;
         this.connectionConfig = connectionConfig;
-        this.schemaNameResolver = schemaNameResolver;
         this.dialectFactory = dialectFactory;
         this.dbUnitConfig = dbUnitConfig;
         this.dumpConfig = dumpConfig;
@@ -323,7 +313,7 @@ public class DataLoader {
                 DatabaseConnection dbConn = null;
                 try {
                     dbConn = createDbUnitConn(jdbc, entry, dialectHandler);
-                    String schema = schemaNameResolver.apply(entry);
+                    String schema = resolveSchema(entry, dialectHandler);
 
                     for (String table : tables) {
                         // ファイル形式を自動判別して読み込み
@@ -574,8 +564,19 @@ public class DataLoader {
             DbDialectHandler dialectHandler) throws Exception {
 
         dialectHandler.prepareConnection(jdbc);
-        String schema = schemaNameResolver.apply(entry);
+        String schema = resolveSchema(entry, dialectHandler);
         return dialectHandler.createDbUnitConnection(jdbc, schema);
+    }
+
+    /**
+     * Resolves schema by delegating to dialect.
+     *
+     * @param entry connection entry
+     * @param dialectHandler DB dialect handler
+     * @return resolved schema name
+     */
+    private String resolveSchema(ConnectionConfig.Entry entry, DbDialectHandler dialectHandler) {
+        return dialectHandler.resolveSchema(entry);
     }
 
     /**
@@ -636,86 +637,16 @@ public class DataLoader {
     }
 
     /**
-     * Normalizes an INTERVAL DAY TO SECOND string to the CSV dump format {@code +DD HH:MM:SS}.
-     *
-     * <ul>
-     * <li>Sign normalized to leading {@code +} or {@code -} (absent sign becomes {@code +}).</li>
-     * <li>Days (DD) are zero-padded to 2 digits.</li>
-     * <li>Hours (HH), minutes (MM), and seconds (SS) are each zero-padded to 2 digits.</li>
-     * </ul>
-     *
-     * @param raw raw INTERVAL DAY TO SECOND string (e.g., {@code "+00 5:0:0.0"},
-     *        {@code "0 10:2:3"})
-     * @return normalized string (e.g., {@code "+00 05:00:00"})
-     */
-    private String normalizeDaySecondInterval(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        // Pattern: [sign][days] SP [hh]:[mm]:[ss](.fraction)?
-        Pattern p = Pattern.compile("([+-]?)(\\d+)\\s+(\\d+):(\\d+):(\\d+)(?:\\.\\d+)?");
-        Matcher m = p.matcher(raw.trim());
-        if (m.matches()) {
-            // Add "+" if no sign (everything except "-" becomes "+")
-            String sign = m.group(1);
-            if (!"-".equals(sign)) {
-                sign = "+";
-            }
-            String dd = String.format("%02d", Integer.parseInt(m.group(2)));
-            String hh = String.format("%02d", Integer.parseInt(m.group(3)));
-            String mi = String.format("%02d", Integer.parseInt(m.group(4)));
-            String ss = String.format("%02d", Integer.parseInt(m.group(5)));
-            return sign + dd + " " + hh + ":" + mi + ":" + ss;
-        }
-        // Fallback: return trimmed original string
-        return raw.trim();
-    }
-
-    /**
-     * Normalizes an INTERVAL YEAR TO MONTH string to the CSV dump format {@code +YY-MM}.
-     *
-     * <ul>
-     * <li>Sign normalized to leading {@code +} or {@code -} (absent sign becomes {@code +}).</li>
-     * <li>Years (YY) and months (MM) are zero-padded to 2 digits.</li>
-     * </ul>
-     *
-     * @param raw raw INTERVAL YEAR TO MONTH string (e.g., {@code "1-6"}, {@code "+1-06"},
-     *        {@code "-2-3"})
-     * @return normalized string (e.g., {@code "+01-06"}, {@code "-02-03"})
-     */
-    private String normalizeYearMonthInterval(String raw) {
-        if (raw == null) {
-            return null;
-        }
-        // Pattern: [sign][years]-[months]
-        Pattern p = Pattern.compile("([+-]?)(\\d+)-(\\d+)");
-        Matcher m = p.matcher(raw.trim());
-        if (m.matches()) {
-            // Add "+" if no sign (everything except "-" becomes "+")
-            String sign = m.group(1);
-            if (!"-".equals(sign)) {
-                sign = "+";
-            }
-            String yy = String.format("%02d", Integer.parseInt(m.group(2)));
-            String mm = String.format("%02d", Integer.parseInt(m.group(3)));
-            return sign + yy + "-" + mm;
-        }
-        // Fallback: return trimmed original string
-        return raw.trim();
-    }
-
-    /**
      * Determines whether the specified rows in two {@link ITable} instances are “equal for CSV
      * display” across all columns.
      *
      * <ul>
      * <li>CSV-side raw value: {@code toString()} → {@code trimToNull()}.</li>
      * <li>DB-side raw value: {@code toString()} → {@code trimToNull()}.</li>
-     * <li>INTERVAL YEAR TO MONTH / DAY TO SECOND columns are normalized via
-     * {@link #normalizeYearMonthInterval(String)} /
-     * {@link #normalizeDaySecondInterval(String)}.</li>
-     * <li>Others are formatted via {@code dialectHandler.formatDbValueForCsv()} →
-     * {@code trimToNull()}.</li>
+     * <li>Dialect-specific normalization is delegated to
+     * {@code dialectHandler.normalizeValueForComparison(...)}.</li>
+     * <li>Non-raw comparison columns are formatted via {@code dialectHandler.formatDbValueForCsv()}
+     * → {@code trimToNull()}.</li>
      * <li>Returns {@code false} and logs when any mismatch is found.</li>
      * </ul>
      *
@@ -738,9 +669,13 @@ public class DataLoader {
 
         for (Column col : cols) {
             String colName = col.getColumnName();
-            // SQL type name (e.g., "INTERVAL YEAR(2) TO MONTH")
-            String typeName = dialectHandler.getColumnTypeName(jdbc, schema, tableName, colName)
-                    .toUpperCase(Locale.ROOT);
+            // Database-specific SQL type name
+            String typeName = dialectHandler.getColumnTypeName(jdbc, schema, tableName, colName);
+            if (typeName == null) {
+                throw new SQLException(
+                        "SQL type name must not be null: " + tableName + "." + colName);
+            }
+            typeName = typeName.toUpperCase(Locale.ROOT);
 
             // Debug log: type name
             log.debug("Table[{}] Column[{}] Type=[{}]", tableName, colName, typeName);
@@ -759,19 +694,22 @@ public class DataLoader {
             log.debug("Table[{}] Before normalize: csvRow={}, dbRow={}, col={}, csv=[{}], db=[{}]",
                     tableName, csvRow, dbRow, colName, csvCell, dbCell);
 
-            // 3) INTERVAL types always go through normalization
-            if (typeName.contains("INTERVAL")) {
-                if (typeName.contains("YEAR")) {
-                    csvCell = normalizeYearMonthInterval(csvCell);
-                    dbCell = normalizeYearMonthInterval(dbCell);
-                } else {
-                    csvCell = normalizeDaySecondInterval(csvCell);
-                    dbCell = normalizeDaySecondInterval(dbCell);
-                }
-            } else {
-                // 4) Others: format via dialect handler, then trim-to-null
+            boolean rawComparison = dialectHandler.shouldUseRawValueForComparison(typeName);
+            if (!rawComparison) {
+                // 3) Non-raw columns: format via dialect handler, then trim-to-null
                 String formatted = dialectHandler.formatDbValueForCsv(colName, rawDbObj);
                 dbCell = StringUtils.trimToNull(formatted);
+            }
+
+            String normalizedCsv =
+                    dialectHandler.normalizeValueForComparison(colName, typeName, csvCell);
+            if (normalizedCsv != null || csvCell == null) {
+                csvCell = normalizedCsv;
+            }
+            String normalizedDb =
+                    dialectHandler.normalizeValueForComparison(colName, typeName, dbCell);
+            if (normalizedDb != null || dbCell == null) {
+                dbCell = normalizedDb;
             }
 
             // Debug log: values after normalization
@@ -992,7 +930,7 @@ public class DataLoader {
 
             // Create DBUnit connection
             dbConn = createDbUnitConn(jdbc, entry, dialectHandler);
-            String schema = schemaNameResolver.apply(entry);
+            String schema = resolveSchema(entry, dialectHandler);
 
             // Load each table (always "initial load" strategy)
             for (String table : tables) {

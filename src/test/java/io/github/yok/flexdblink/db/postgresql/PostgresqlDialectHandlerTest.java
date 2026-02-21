@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -18,8 +19,10 @@ import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
+import io.github.yok.flexdblink.util.DateTimeFormatUtil;
+import java.io.ByteArrayInputStream;
 import java.io.StringReader;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -31,6 +34,7 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.Date;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.SQLXML;
 import java.sql.Statement;
 import java.sql.Time;
@@ -39,6 +43,7 @@ import java.sql.Types;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -120,7 +125,7 @@ public class PostgresqlDialectHandlerTest {
 
     @Test
     void formatDbValueForCsv_正常ケース_日時型を指定する_フォーマッタ経由の文字列が返ること() throws Exception {
-        OracleDateTimeFormatUtil formatter = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         when(formatter.formatJdbcDateTime(eq("TS_COL"), any(), eq(null))).thenReturn("fmt");
         PostgresqlDialectHandler handler =
                 createHandler(formatter, mock(DbUnitConfigFactory.class));
@@ -144,7 +149,7 @@ public class PostgresqlDialectHandlerTest {
 
     @Test
     void formatDateTimeColumn_正常ケース_ミリ秒ゼロを含む日時文字列を指定する_末尾の000が除去された値が返ること() throws Exception {
-        OracleDateTimeFormatUtil formatter = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         when(formatter.formatJdbcDateTime(eq("TS_COL"), any(), eq(null)))
                 .thenReturn("2026-02-15 01:02:03.000");
         PostgresqlDialectHandler handler =
@@ -155,7 +160,7 @@ public class PostgresqlDialectHandlerTest {
 
     @Test
     void formatDateTimeColumn_正常ケース_タイムゾーン付きミリ秒ゼロを指定する_末尾の000が除去された値が返ること() throws Exception {
-        OracleDateTimeFormatUtil formatter = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         when(formatter.formatJdbcDateTime(eq("TSZ_COL"), any(), eq(null)))
                 .thenReturn("2026-02-15 01:02:03.000+0900");
         PostgresqlDialectHandler handler =
@@ -209,7 +214,7 @@ public class PostgresqlDialectHandlerTest {
     }
 
     @Test
-    void getColumnTypeName_正常ケース_型情報が存在しない_nullが返ること() throws Exception {
+    void getColumnTypeName_異常ケース_型情報が存在しない_SQLExceptionが送出されること() throws Exception {
         PostgresqlDialectHandler handler = createHandler();
         Connection conn = mock(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
@@ -217,7 +222,38 @@ public class PostgresqlDialectHandlerTest {
         when(conn.getMetaData()).thenReturn(meta);
         when(meta.getColumns(null, "public", "t1", "c1")).thenReturn(rs);
         when(rs.next()).thenReturn(false);
-        assertNull(handler.getColumnTypeName(conn, "public", "t1", "c1"));
+        assertThrows(SQLException.class,
+                () -> handler.getColumnTypeName(conn, "public", "t1", "c1"));
+    }
+
+    @Test
+    void getColumnTypeName_異常ケース_getString呼び出しでSQLExceptionが発生する_SQLExceptionが送出されること()
+            throws Exception {
+        PostgresqlDialectHandler handler = createHandler();
+        Connection conn = mock(Connection.class);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        ResultSet rs = mock(ResultSet.class);
+
+        when(conn.getMetaData()).thenReturn(meta);
+        when(meta.getColumns(null, "public", "t1", "c1")).thenReturn(rs);
+        when(rs.next()).thenReturn(true);
+        doThrow(new SQLException("get type failed")).when(rs).getString("TYPE_NAME");
+
+        assertThrows(SQLException.class,
+                () -> handler.getColumnTypeName(conn, "public", "t1", "c1"));
+    }
+
+    @Test
+    void getColumnTypeName_異常ケース_getColumns呼び出しでSQLExceptionが発生する_SQLExceptionが送出されること()
+            throws Exception {
+        PostgresqlDialectHandler handler = createHandler();
+        Connection conn = mock(Connection.class);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        doThrow(new SQLException("getColumns failed")).when(meta).getColumns(null, "public", "t1",
+                "c1");
+        assertThrows(SQLException.class,
+                () -> handler.getColumnTypeName(conn, "public", "t1", "c1"));
     }
 
     @Test
@@ -227,7 +263,7 @@ public class PostgresqlDialectHandlerTest {
                 handler.parseDateTimeValue("tstz_col", "2026-02-15T01:02:03+09:00"));
         assertInstanceOf(Timestamp.class,
                 handler.parseDateTimeValue("ts_col", "2026-02-15 01:02:03.123"));
-        assertInstanceOf(java.sql.Date.class, handler.parseDateTimeValue("date_col", "2026/02/15"));
+        assertInstanceOf(Date.class, handler.parseDateTimeValue("date_col", "2026/02/15"));
         assertInstanceOf(Time.class, handler.parseDateTimeValue("time_col", "010203"));
     }
 
@@ -250,8 +286,8 @@ public class PostgresqlDialectHandlerTest {
         assertArrayEquals(new byte[] {0x01, 0x02}, Files.readAllBytes(p2));
 
         Blob blob = mock(Blob.class);
-        when(blob.getBinaryStream()).thenReturn(
-                new java.io.ByteArrayInputStream("blob".getBytes(StandardCharsets.UTF_8)));
+        when(blob.getBinaryStream())
+                .thenReturn(new ByteArrayInputStream("blob".getBytes(StandardCharsets.UTF_8)));
         Path p3 = tempDir.resolve("a").resolve("b3.bin");
         handler.writeLobFile("public", "t1", blob, p3);
         assertEquals("blob", Files.readString(p3, StandardCharsets.UTF_8));
@@ -297,7 +333,7 @@ public class PostgresqlDialectHandlerTest {
 
     @Test
     void createDbUnitConnection_正常ケース_DBUnit設定を行う_設定ファクトリが呼び出されること() throws Exception {
-        OracleDateTimeFormatUtil formatter = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         DbUnitConfigFactory factory = mock(DbUnitConfigFactory.class);
         PostgresqlDialectHandler handler = createHandler(formatter, factory);
         Connection jdbc = mock(Connection.class);
@@ -424,8 +460,7 @@ public class PostgresqlDialectHandlerTest {
         putTableMetaBySqlType(handler, "t1", "d1", Types.OTHER, "date");
         putTableMetaBySqlType(handler, "t1", "t1", Types.OTHER, "time");
         putTableMetaBySqlType(handler, "t1", "z1", Types.OTHER, "timestamptz");
-        assertInstanceOf(java.sql.Date.class,
-                handler.convertCsvValueToDbType("t1", "d1", "2026-02-15"));
+        assertInstanceOf(Date.class, handler.convertCsvValueToDbType("t1", "d1", "2026-02-15"));
         assertInstanceOf(Time.class, handler.convertCsvValueToDbType("t1", "t1", "01:02:03"));
         assertInstanceOf(Timestamp.class,
                 handler.convertCsvValueToDbType("t1", "z1", "2026-02-15T01:02:03+09:00"));
@@ -670,14 +705,13 @@ public class PostgresqlDialectHandlerTest {
 
     @Test
     void constructor_正常ケース_getSchemaで例外が発生する_publicスキーマで初期化されること() throws Exception {
-        OracleDateTimeFormatUtil formatter = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
         PathsConfig pathsConfig = mock(PathsConfig.class);
         when(pathsConfig.getDataPath()).thenReturn(tempDir.toString());
         when(pathsConfig.getDump()).thenReturn(tempDir.resolve("dump").toString());
 
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setLobDirName("files");
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(new ArrayList<>());
 
@@ -688,7 +722,7 @@ public class PostgresqlDialectHandlerTest {
         IDataSet dataSet = mock(IDataSet.class);
 
         when(dbConn.getConnection()).thenReturn(jdbc);
-        when(jdbc.getSchema()).thenThrow(new java.sql.SQLException("schema-error"));
+        when(jdbc.getSchema()).thenThrow(new SQLException("schema-error"));
         when(jdbc.getMetaData()).thenReturn(meta);
         when(meta.getTables(eq(null), eq("public"), eq("%"), any(String[].class)))
                 .thenReturn(rsTables);
@@ -730,12 +764,11 @@ public class PostgresqlDialectHandlerTest {
         @SuppressWarnings("unchecked")
         Map<String, Map<String, Object>> jdbcMap =
                 (Map<String, Map<String, Object>>) jdbcMapField.get(handler);
-        Class<?> specClass = Class
-                .forName("io.github.yok.flexdblink.db.postgresql.PostgresqlDialectHandler$JdbcColumnSpec");
-        java.lang.reflect.Constructor<?> ctor =
-                specClass.getDeclaredConstructor(int.class, String.class);
+        Class<?> specClass = Class.forName(
+                "io.github.yok.flexdblink.db.postgresql.PostgresqlDialectHandler$JdbcColumnSpec");
+        Constructor<?> ctor = specClass.getDeclaredConstructor(int.class, String.class);
         ctor.setAccessible(true);
-        Map<String, Object> byCol = new java.util.HashMap<>();
+        Map<String, Object> byCol = new HashMap<>();
         byCol.put("c1", ctor.newInstance(Types.VARCHAR, "varchar"));
         jdbcMap.put("t1", byCol);
 
@@ -852,10 +885,9 @@ public class PostgresqlDialectHandlerTest {
         @SuppressWarnings("unchecked")
         Map<String, Map<String, Object>> jdbcMap =
                 (Map<String, Map<String, Object>>) jdbcMapField.get(handler);
-        Class<?> specClass = Class
-                .forName("io.github.yok.flexdblink.db.postgresql.PostgresqlDialectHandler$JdbcColumnSpec");
-        java.lang.reflect.Constructor<?> ctor =
-                specClass.getDeclaredConstructor(int.class, String.class);
+        Class<?> specClass = Class.forName(
+                "io.github.yok.flexdblink.db.postgresql.PostgresqlDialectHandler$JdbcColumnSpec");
+        Constructor<?> ctor = specClass.getDeclaredConstructor(int.class, String.class);
         ctor.setAccessible(true);
         Map<String, Object> byCol = new java.util.HashMap<>();
         byCol.put("c1", ctor.newInstance(Types.BIGINT, "int8"));
@@ -1026,7 +1058,7 @@ public class PostgresqlDialectHandlerTest {
 
     @Test
     void formatDbValueForCsv_正常ケース_日付時刻型を複数指定する_フォーマッタ結果が返ること() throws Exception {
-        OracleDateTimeFormatUtil formatter = mock(OracleDateTimeFormatUtil.class);
+        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         when(formatter.formatJdbcDateTime(eq("D_COL"), any(), eq(null))).thenReturn("d");
         when(formatter.formatJdbcDateTime(eq("ODT_COL"), any(), eq(null))).thenReturn("odt");
         PostgresqlDialectHandler handler =
@@ -1038,16 +1070,15 @@ public class PostgresqlDialectHandlerTest {
     }
 
     private PostgresqlDialectHandler createHandler() throws Exception {
-        return createHandler(mock(OracleDateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+        return createHandler(mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
     }
 
-    private PostgresqlDialectHandler createHandler(OracleDateTimeFormatUtil formatter,
+    private PostgresqlDialectHandler createHandler(DateTimeFormatUtil formatter,
             DbUnitConfigFactory configFactory) throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
 
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setLobDirName("files");
 
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(new ArrayList<>());

@@ -11,7 +11,7 @@ import io.github.yok.flexdblink.core.DataDumper;
 import io.github.yok.flexdblink.core.DataLoader;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
+import io.github.yok.flexdblink.util.DateTimeFormatUtil;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -113,7 +113,7 @@ final class OracleIntegrationSupport {
         DumpConfig dumpConfig = dumpConfig();
         dumpConfig.setExcludeTables(List.of("FLYWAY_SCHEMA_HISTORY"));
         FilePatternConfig filePatternConfig = filePatternConfig();
-        OracleDateTimeFormatUtil dateTimeUtil = dateTimeUtil();
+        DateTimeFormatUtil dateTimeUtil = dateTimeUtil();
         DbDialectHandlerFactory factory =
                 dialectFactory(dbUnitConfig, dumpConfig, pathsConfig, dateTimeUtil);
 
@@ -370,7 +370,6 @@ final class OracleIntegrationSupport {
         DbUnitConfig cfg = new DbUnitConfig();
         cfg.setDataTypeFactoryMode(DataTypeFactoryMode.ORACLE);
         cfg.setPreDirName("pre");
-        cfg.setLobDirName("files");
         return cfg;
     }
 
@@ -384,17 +383,17 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * CSV 日時フォーマット定義に基づいて OracleDateTimeFormatUtil を生成します。
+     * CSV 日時フォーマット定義に基づいて DateTimeFormatUtil を生成します。
      *
-     * @return OracleDateTimeFormatUtil
+     * @return DateTimeFormatUtil
      */
-    static OracleDateTimeFormatUtil dateTimeUtil() {
+    static DateTimeFormatUtil dateTimeUtil() {
         CsvDateTimeFormatProperties props = new CsvDateTimeFormatProperties();
         props.setDate("yyyy-MM-dd");
         props.setTime("HH:mm:ss");
         props.setDateTime("yyyy-MM-dd HH:mm:ss");
         props.setDateTimeWithMillis("yyyy-MM-dd HH:mm:ss.SSS");
-        return new OracleDateTimeFormatUtil(props);
+        return new DateTimeFormatUtil(props);
     }
 
     /**
@@ -403,11 +402,11 @@ final class OracleIntegrationSupport {
      * @param dbUnitConfig DbUnitConfig
      * @param dumpConfig DumpConfig
      * @param pathsConfig PathsConfig
-     * @param dateTimeUtil OracleDateTimeFormatUtil
+     * @param dateTimeUtil DateTimeFormatUtil
      * @return DbDialectHandlerFactory
      */
     static DbDialectHandlerFactory dialectFactory(DbUnitConfig dbUnitConfig, DumpConfig dumpConfig,
-            PathsConfig pathsConfig, OracleDateTimeFormatUtil dateTimeUtil) {
+            PathsConfig pathsConfig, DateTimeFormatUtil dateTimeUtil) {
         return new DbDialectHandlerFactory(dbUnitConfig, dumpConfig, pathsConfig, dateTimeUtil,
                 new DbUnitConfigFactory());
     }
@@ -496,30 +495,21 @@ final class OracleIntegrationSupport {
         /**
          * DataLoader を生成します（Oracle 用）。
          *
-         * <p>
-         * schema 解決は「ユーザ名の大文字」を返す方式です。
-         * </p>
-         *
          * @return DataLoader
          */
         DataLoader newLoader() {
-            return new DataLoader(pathsConfig, connectionConfig,
-                    entry -> entry.getUser().toUpperCase(), dialectFactory::create, dbUnitConfig,
-                    dumpConfig);
+            return new DataLoader(pathsConfig, connectionConfig, dialectFactory::create,
+                    dbUnitConfig, dumpConfig);
         }
 
         /**
          * DataDumper を生成します（Oracle 用）。
          *
-         * <p>
-         * schema 解決は「ユーザ名の大文字」を返す方式です。
-         * </p>
-         *
          * @return DataDumper
          */
         DataDumper newDumper() {
             return new DataDumper(pathsConfig, connectionConfig, filePatternConfig, dumpConfig,
-                    entry -> entry.getUser().toUpperCase(), dialectFactory::create);
+                    dialectFactory::create);
         }
     }
 }

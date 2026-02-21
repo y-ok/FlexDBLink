@@ -5,9 +5,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Configuration class that binds the {@code dbunit} section in {@code application.yml}, such as the
- * DBUnit operation mode and the LOB file directory. Centralizes the behavior of {@code DataLoader}
- * and {@code DataDumper}.
+ * Configuration class that binds the {@code dbunit} section in {@code application.yml}. Centralizes
+ * the behavior of {@code DataLoader} and {@code DataDumper}.
  *
  * <p>
  * <strong>Supported modes:</strong>
@@ -37,11 +36,6 @@ public class DbUnitConfig {
      * </ul>
      */
     private DataTypeFactoryMode dataTypeFactoryMode = DataTypeFactoryMode.ORACLE;
-
-    /**
-     * Directory name that stores LOB files (BLOB/CLOB).
-     */
-    private String lobDirName = "files";
 
     /**
      * Directory name used for initial data loading.

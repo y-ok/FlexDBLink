@@ -146,10 +146,6 @@ public class Main implements CommandLineRunner {
 
         log.info("Mode: {}, Scenario: {}, Target DBs: {}", mode, scenario, targetDbIds);
 
-        // Schema resolver logic
-        Function<ConnectionConfig.Entry, String> schemaResolver =
-                entry -> entry.getUser().toUpperCase();
-
         Function<ConnectionConfig.Entry, DbDialectHandler> dialectHandlerProvider =
                 dialectFactory::create;
 
@@ -158,9 +154,8 @@ public class Main implements CommandLineRunner {
             if ("load".equals(mode)) {
                 log.info("Starting data load. Scenario [{}], Target DBs {}", scenario, targetDbIds);
 
-                new DataLoader(pathsConfig, connectionConfig, schemaResolver,
-                        dialectHandlerProvider, dbUnitConfig, dumpConfig).execute(scenario,
-                                targetDbIds);
+                new DataLoader(pathsConfig, connectionConfig, dialectHandlerProvider, dbUnitConfig,
+                        dumpConfig).execute(scenario, targetDbIds);
 
                 log.info("Data load completed. Scenario [{}]", scenario);
 
@@ -168,7 +163,7 @@ public class Main implements CommandLineRunner {
                 log.info("Starting data dump. Scenario [{}], Target DBs [{}]", scenario,
                         targetDbIds);
                 new DataDumper(pathsConfig, connectionConfig, filePatternConfig, dumpConfig,
-                        schemaResolver, dialectHandlerProvider).execute(scenario, targetDbIds);
+                        dialectHandlerProvider).execute(scenario, targetDbIds);
                 log.info("Data dump completed. Scenario [{}]", scenario);
             }
 

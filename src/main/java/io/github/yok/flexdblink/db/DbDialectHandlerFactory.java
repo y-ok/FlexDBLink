@@ -9,7 +9,7 @@ import io.github.yok.flexdblink.db.mysql.MySqlDialectHandler;
 import io.github.yok.flexdblink.db.oracle.OracleDialectHandler;
 import io.github.yok.flexdblink.db.postgresql.PostgresqlDialectHandler;
 import io.github.yok.flexdblink.db.sqlserver.SqlServerDialectHandler;
-import io.github.yok.flexdblink.util.OracleDateTimeFormatUtil;
+import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -24,9 +24,9 @@ import org.springframework.stereotype.Component;
  * Factory class that creates a {@link DbDialectHandler} according to the database type.
  *
  * <p>
- * The selected handler is based on {@link DbUnitConfig}'s DataTypeFactoryMode. Currently this
- * factory creates an {@link OracleDialectHandler} for the ORACLE mode. In addition, dump-related
- * settings such as {@link DumpConfig#excludeTables} are passed to the handler.
+ * The selected handler is based on {@link DbUnitConfig}'s DataTypeFactoryMode. This factory creates
+ * handlers for Oracle, PostgreSQL, MySQL, and SQL Server modes. In addition, dump-related settings
+ * such as {@link DumpConfig#excludeTables} are passed to each handler.
  * </p>
  *
  * @author Yasuharu.Okawauchi
@@ -36,7 +36,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class DbDialectHandlerFactory {
 
-    // DBUnit settings (includes dataTypeFactoryMode, lobDirName, preDirName)
+    // DBUnit settings (includes dataTypeFactoryMode, preDirName)
     private final DbUnitConfig dbUnitConfig;
 
     // Dump settings (e.g., exclude-tables)
@@ -46,7 +46,7 @@ public class DbDialectHandlerFactory {
     private final PathsConfig pathsConfig;
 
     // Date/time formatter utility for CSV handling
-    private final OracleDateTimeFormatUtil dateTimeFormatter;
+    private final DateTimeFormatSupport dateTimeFormatter;
 
     // Applies common settings to DBUnit's DatabaseConfig
     private final DbUnitConfigFactory configFactory;
@@ -59,6 +59,9 @@ public class DbDialectHandlerFactory {
      * </p>
      * <ul>
      * <li>{@code ORACLE}: instantiate {@link OracleDialectHandler}</li>
+     * <li>{@code POSTGRESQL}: instantiate {@link PostgresqlDialectHandler}</li>
+     * <li>{@code MYSQL}: instantiate {@link MySqlDialectHandler}</li>
+     * <li>{@code SQLSERVER}: instantiate {@link SqlServerDialectHandler}</li>
      * </ul>
      *
      * @param entry connection information (URL, user, password, ID, etc.)

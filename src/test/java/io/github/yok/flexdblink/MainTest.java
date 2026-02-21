@@ -198,15 +198,18 @@ class MainTest {
     }
 
     @Test
-    void run_正常ケース_schemaResolverが大文字変換する_ユーザー名が大文字で返ること() {
+    void run_正常ケース_方言プロバイダがFactoryへ委譲する_ハンドラが返ること() {
         try (MockedConstruction<DataLoader> mocked =
                 mockConstruction(DataLoader.class, (loader, context) -> {
                     @SuppressWarnings("unchecked")
-                    Function<ConnectionConfig.Entry, String> schemaResolver =
-                            (Function<ConnectionConfig.Entry, String>) context.arguments().get(2);
+                    Function<ConnectionConfig.Entry, DbDialectHandler> dialectProvider =
+                            (Function<ConnectionConfig.Entry, DbDialectHandler>) context.arguments()
+                                    .get(2);
                     ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
-                    entry.setUser("scott");
-                    assertEquals("SCOTT", schemaResolver.apply(entry));
+                    entry.setId("dbX");
+                    DbDialectHandler handler = mock(DbDialectHandler.class);
+                    when(dialectFactory.create(entry)).thenReturn(handler);
+                    assertEquals(handler, dialectProvider.apply(entry));
                 })) {
 
             main.run("--load", "myscenario");
@@ -216,24 +219,21 @@ class MainTest {
     }
 
     @Test
-    void run_異常ケース_schemaResolverにnullユーザーを渡す_NullPointerExceptionが送出されること() {
-        ConnectionConfig nullUserConfig = new ConnectionConfig();
-        ConnectionConfig.Entry nullUserEntry = new ConnectionConfig.Entry();
-        nullUserEntry.setId("db1");
-        nullUserConfig.setConnections(Collections.singletonList(nullUserEntry));
-
-        Main sut = new Main(pathsConfig, dbUnitConfig, nullUserConfig, filePatternConfig,
-                dumpConfig, dialectFactory);
-
+    void run_正常ケース_方言プロバイダにnullユーザーEntryを渡す_例外なくハンドラが返ること() {
         try (MockedConstruction<DataLoader> mocked =
                 mockConstruction(DataLoader.class, (loader, context) -> {
                     @SuppressWarnings("unchecked")
-                    Function<ConnectionConfig.Entry, String> schemaResolver =
-                            (Function<ConnectionConfig.Entry, String>) context.arguments().get(2);
+                    Function<ConnectionConfig.Entry, DbDialectHandler> dialectProvider =
+                            (Function<ConnectionConfig.Entry, DbDialectHandler>) context.arguments()
+                                    .get(2);
                     ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
-                    assertThrows(NullPointerException.class, () -> schemaResolver.apply(entry));
+                    entry.setId("db1");
+                    entry.setUser(null);
+                    DbDialectHandler handler = mock(DbDialectHandler.class);
+                    when(dialectFactory.create(entry)).thenReturn(handler);
+                    assertEquals(handler, dialectProvider.apply(entry));
                 })) {
-            sut.run("--load", "myscenario");
+            main.run("--load", "myscenario");
             DataLoader loader = mocked.constructed().get(0);
             verify(loader).execute(eq("myscenario"), eq(List.of("db1")));
         }

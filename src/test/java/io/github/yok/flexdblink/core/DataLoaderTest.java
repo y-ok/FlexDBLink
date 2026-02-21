@@ -100,7 +100,7 @@ class DataLoaderTest {
     @Test
     void operationExecutor_正常ケース_cleanInsertを実行する_デフォルト実装行が通過すること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         DataLoader.OperationExecutor executor = loader.getOperationExecutor();
         IDatabaseConnection connection = mockConnectionForNoOpOperation();
@@ -111,7 +111,7 @@ class DataLoaderTest {
     @Test
     void operationExecutor_正常ケース_updateを実行する_デフォルト実装行が通過すること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         DataLoader.OperationExecutor executor = loader.getOperationExecutor();
         IDatabaseConnection connection = mockConnectionForNoOpOperation();
@@ -122,7 +122,7 @@ class DataLoaderTest {
     @Test
     void operationExecutor_正常ケース_insertを実行する_デフォルト実装行が通過すること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         DataLoader.OperationExecutor executor = loader.getOperationExecutor();
         IDatabaseConnection connection = mockConnectionForNoOpOperation();
@@ -150,12 +150,13 @@ class DataLoaderTest {
         DbUnitConfig dbUnitConfig = mock(DbUnitConfig.class);
         DumpConfig dumpConfig = mock(DumpConfig.class);
 
-        DataLoader loader = new DataLoader(pathsConfig, connectionConfig, e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, connectionConfig,
                 e -> mock(DbDialectHandler.class), dbUnitConfig, dumpConfig);
 
         Connection jdbc = mock(Connection.class);
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         DatabaseConnection expected = mock(DatabaseConnection.class);
         when(dialectHandler.createDbUnitConnection(eq(jdbc), eq("APP"))).thenReturn(expected);
 
@@ -176,11 +177,12 @@ class DataLoaderTest {
         ConnectionConfig connectionConfig = mock(ConnectionConfig.class);
         DbUnitConfig dbUnitConfig = mock(DbUnitConfig.class);
         DumpConfig dumpConfig = mock(DumpConfig.class);
-        DataLoader loader = new DataLoader(pathsConfig, connectionConfig, e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, connectionConfig,
                 e -> mock(DbDialectHandler.class), dbUnitConfig, dumpConfig);
 
         Connection jdbc = mock(Connection.class);
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         when(dialectHandler.quoteIdentifier("APP")).thenReturn("\"APP\"");
         when(dialectHandler.quoteIdentifier("TBL")).thenReturn("\"TBL\"");
         when(dialectHandler.quoteIdentifier("COL_A")).thenReturn("\"COL_A\"");
@@ -236,11 +238,12 @@ class DataLoaderTest {
         DumpConfig dumpConfig = new DumpConfig();
         Connection jdbcConnection = mock(Connection.class);
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         doThrow(new SQLException("prepare failure")).when(dialectHandler)
                 .prepareConnection(jdbcConnection);
 
-        DataLoader loader = new DataLoader(pathsConfig, connectionConfig, e -> "APP",
-                e -> dialectHandler, dbUnitConfig, dumpConfig);
+        DataLoader loader = new DataLoader(pathsConfig, connectionConfig, e -> dialectHandler,
+                dbUnitConfig, dumpConfig);
 
         Path dbDir = tempDir.resolve("load").resolve("pre").resolve("db1");
         Files.createDirectories(dbDir);
@@ -264,42 +267,114 @@ class DataLoaderTest {
     }
 
     @Test
-    void normalizeDaySecondInterval_正常ケース_符号なし時分秒を指定する_正規化文字列が返ること() throws Exception {
-        DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
-                mock(DumpConfig.class));
-        Method method =
-                DataLoader.class.getDeclaredMethod("normalizeDaySecondInterval", String.class);
-        method.setAccessible(true);
-        Object actual = method.invoke(loader, "1 2:3:4.0");
-        assertEquals("+01 02:03:04", actual);
-    }
+    public void execute_異常ケース_シナリオモード_getColumnTypeNameがnull_SQLException分岐を通りロールバックされること()
+            throws Exception {
 
-    @Test
-    void normalizeYearMonthInterval_正常ケース_符号なし年月を指定する_正規化文字列が返ること() throws Exception {
-        DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
-                mock(DumpConfig.class));
-        Method method =
-                DataLoader.class.getDeclaredMethod("normalizeYearMonthInterval", String.class);
-        method.setAccessible(true);
-        Object actual = method.invoke(loader, "2-3");
-        assertEquals("+02-03", actual);
+        // --- ディレクトリ作成（pre は作らない → initial はスキップ、scenario だけ実行させる） ---
+        PathsConfig pathsConfig = new PathsConfig();
+        pathsConfig.setDataPath(tempDir.toString());
+
+        DbUnitConfig dbUnitConfig = new DbUnitConfig();
+        dbUnitConfig.setPreDirName("pre");
+
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setId("db1");
+        entry.setDriverClass("java.lang.String");
+        entry.setUrl("jdbc:mock");
+        entry.setUser("user");
+        entry.setPassword("pass");
+
+        ConnectionConfig connectionConfig = new ConnectionConfig();
+        connectionConfig.setConnections(List.of(entry));
+
+        DumpConfig dumpConfig = new DumpConfig(); // excludeTables は空のまま
+
+        Path scenarioDir = tempDir.resolve("load").resolve("scenario").resolve("db1");
+        Files.createDirectories(scenarioDir);
+        Files.writeString(scenarioDir.resolve("T1.csv"), "C1\nA\n", StandardCharsets.UTF_8);
+        Files.writeString(scenarioDir.resolve("table-ordering.txt"), "T1\n",
+                StandardCharsets.UTF_8);
+
+        // --- モック ---
+        Connection jdbc = mock(Connection.class);
+
+        DatabaseConnection dbConn = mock(DatabaseConnection.class);
+        IDataSet dbDataSet = mock(IDataSet.class);
+        ITable originalDbTable = mock(ITable.class);
+        when(dbConn.createDataSet()).thenReturn(dbDataSet);
+        when(dbDataSet.getTable("T1")).thenReturn(originalDbTable);
+        when(originalDbTable.getRowCount()).thenReturn(1);
+
+        ITable base = mock(ITable.class);
+        ITableMetaData meta = mock(ITableMetaData.class);
+        when(meta.getTableName()).thenReturn("T1");
+        when(meta.getColumns()).thenReturn(new Column[] {new Column("C1", DataType.VARCHAR)});
+        when(base.getTableMetaData()).thenReturn(meta);
+        when(base.getRowCount()).thenReturn(1);
+
+        IDataSet dataSet = mock(IDataSet.class);
+        when(dataSet.getTable("T1")).thenReturn(base);
+
+        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
+        when(dialectHandler.createDbUnitConnection(eq(jdbc), eq("APP"))).thenReturn(dbConn);
+
+        // ★ PKなし → detectDuplicates が rowsEqual（全列比較）へ入る
+        when(dialectHandler.getPrimaryKeyColumns(eq(jdbc), eq("APP"), eq("T1")))
+                .thenReturn(List.of());
+
+        // ★ ここが目的：typeName == null → rowsEqual 内で SQLException を throw
+        when(dialectHandler.getColumnTypeName(eq(jdbc), eq("APP"), eq("T1"), eq("C1")))
+                .thenReturn(null);
+
+        DataLoader loader = new DataLoader(pathsConfig, connectionConfig, e -> dialectHandler,
+                dbUnitConfig, dumpConfig);
+
+        ErrorHandler.disableExitForCurrentThread();
+        try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
+                MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
+
+            driverManager.when(() -> DriverManager.getConnection("jdbc:mock", "user", "pass"))
+                    .thenReturn(jdbc);
+
+            factory.when(() -> DataLoaderFactory.create(scenarioDir.toFile(), "T1"))
+                    .thenReturn(dataSet);
+
+            // public execute() 経由で分岐を踏む
+            assertThrows(IllegalStateException.class, () -> loader.execute("scenario", null));
+        } finally {
+            ErrorHandler.restoreExitForCurrentThread();
+        }
+
+        // rollback される（commit はされない）
+        verify(jdbc).setAutoCommit(false);
+        verify(jdbc).rollback();
+        verify(jdbc, never()).commit();
+
+        // DBUnit 接続は finally で close
+        verify(dbConn).close();
     }
 
     @Test
     void rowsEqual_正常ケース_INTERVAL列が同値である_trueが返ること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
 
         ITable csvTable = mock(ITable.class);
         ITable dbTable = mock(ITable.class);
         Connection jdbc = mock(Connection.class);
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         Column[] cols = new Column[] {new Column("IYM", DataType.VARCHAR)};
         when(dialectHandler.getColumnTypeName(jdbc, "APP", "TBL", "IYM"))
                 .thenReturn("INTERVAL YEAR TO MONTH");
+        when(dialectHandler.shouldUseRawValueForComparison("INTERVAL YEAR TO MONTH"))
+                .thenReturn(true);
+        when(dialectHandler.normalizeValueForComparison("IYM", "INTERVAL YEAR TO MONTH", "+2-3"))
+                .thenReturn("+02-03");
+        when(dialectHandler.normalizeValueForComparison("IYM", "INTERVAL YEAR TO MONTH", "2-3"))
+                .thenReturn("+02-03");
         when(csvTable.getValue(0, "IYM")).thenReturn("+2-3");
         when(dbTable.getValue(0, "IYM")).thenReturn("2-3");
 
@@ -315,13 +390,14 @@ class DataLoaderTest {
     @Test
     void rowsEqual_正常ケース_通常列が不一致である_falseが返ること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
 
         ITable csvTable = mock(ITable.class);
         ITable dbTable = mock(ITable.class);
         Connection jdbc = mock(Connection.class);
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         Column[] cols = new Column[] {new Column("C1", DataType.VARCHAR)};
         when(dialectHandler.getColumnTypeName(jdbc, "APP", "TBL", "C1")).thenReturn("VARCHAR2");
         when(dialectHandler.formatDbValueForCsv("C1", "B")).thenReturn("B");
@@ -340,7 +416,7 @@ class DataLoaderTest {
     @Test
     void detectDuplicates_正常ケース_PK一致行がある_重複マップが返ること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
 
         ITable csvTable = mock(ITable.class);
@@ -369,7 +445,7 @@ class DataLoaderTest {
     @Test
     void detectDuplicates_異常ケース_比較中に例外が起きる_DataSetExceptionが送出されること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
 
         ITable csvTable = mock(ITable.class);
@@ -390,7 +466,7 @@ class DataLoaderTest {
     void executeWithConnection_異常ケース_引数がnullである_IllegalArgumentExceptionが送出されること()
             throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
@@ -405,7 +481,7 @@ class DataLoaderTest {
     @Test
     void executeWithConnection_異常ケース_ディレクトリが存在しない_IllegalStateExceptionが送出されること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
@@ -445,7 +521,7 @@ class DataLoaderTest {
     void ensureTableOrdering_正常ケース_ファイル数一致のorderingが既存である_既存内容が維持されること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
 
@@ -468,7 +544,7 @@ class DataLoaderTest {
     void ensureTableOrdering_正常ケース_ファイル数不一致のorderingが既存である_再生成されること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
 
@@ -488,54 +564,6 @@ class DataLoaderTest {
     }
 
     @Test
-    void normalizeDaySecondInterval_正常ケース_nullを指定する_nullが返ること() throws Exception {
-        DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
-                mock(DumpConfig.class));
-        Method method =
-                DataLoader.class.getDeclaredMethod("normalizeDaySecondInterval", String.class);
-        method.setAccessible(true);
-        Object actual = method.invoke(loader, new Object[] {null});
-        assertEquals(null, actual);
-    }
-
-    @Test
-    void normalizeDaySecondInterval_正常ケース_非対応文字列を指定する_trim済み文字列が返ること() throws Exception {
-        DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
-                mock(DumpConfig.class));
-        Method method =
-                DataLoader.class.getDeclaredMethod("normalizeDaySecondInterval", String.class);
-        method.setAccessible(true);
-        Object actual = method.invoke(loader, "  abc  ");
-        assertEquals("abc", actual);
-    }
-
-    @Test
-    void normalizeYearMonthInterval_正常ケース_nullを指定する_nullが返ること() throws Exception {
-        DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
-                mock(DumpConfig.class));
-        Method method =
-                DataLoader.class.getDeclaredMethod("normalizeYearMonthInterval", String.class);
-        method.setAccessible(true);
-        Object actual = method.invoke(loader, new Object[] {null});
-        assertEquals(null, actual);
-    }
-
-    @Test
-    void normalizeYearMonthInterval_正常ケース_非対応文字列を指定する_trim済み文字列が返ること() throws Exception {
-        DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
-                mock(DumpConfig.class));
-        Method method =
-                DataLoader.class.getDeclaredMethod("normalizeYearMonthInterval", String.class);
-        method.setAccessible(true);
-        Object actual = method.invoke(loader, "  abc  ");
-        assertEquals("abc", actual);
-    }
-
-    @Test
     void deployWithConnection_正常ケース_データセット解決失敗をスキップする_DBUnit接続がクローズされること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
@@ -543,10 +571,11 @@ class DataLoaderTest {
         dumpConfig.setExcludeTables(List.of());
 
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(dialectHandler.createDbUnitConnection(any(), eq("APP"))).thenReturn(dbConn);
 
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> dialectHandler, mock(DbUnitConfig.class), dumpConfig);
 
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
@@ -581,10 +610,11 @@ class DataLoaderTest {
         dumpConfig.setExcludeTables(List.of("t1"));
 
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(dialectHandler.createDbUnitConnection(any(), eq("APP"))).thenReturn(dbConn);
 
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> dialectHandler, mock(DbUnitConfig.class), dumpConfig);
 
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
@@ -616,7 +646,7 @@ class DataLoaderTest {
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(List.of("t1"));
 
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), dumpConfig);
 
         Path dir = tempDir.resolve("all_excluded");
@@ -631,6 +661,7 @@ class DataLoaderTest {
         entry.setPassword("p");
 
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
                 boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
         method.setAccessible(true);
@@ -650,7 +681,7 @@ class DataLoaderTest {
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(List.of());
 
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), dumpConfig);
 
         Path dir = tempDir.resolve("no_dataset_files");
@@ -662,6 +693,7 @@ class DataLoaderTest {
         entry.setPassword("p");
 
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
                 boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
         method.setAccessible(true);
@@ -689,7 +721,7 @@ class DataLoaderTest {
         ConnectionConfig connectionConfig = new ConnectionConfig();
         connectionConfig.setConnections(List.of(db1, db2));
 
-        DataLoader loader = new DataLoader(pathsConfig, connectionConfig, e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, connectionConfig,
                 e -> mock(DbDialectHandler.class), dbUnitConfig, new DumpConfig());
 
         // DBごとのディレクトリは作成しない（deploy内で早期スキップ分岐へ）
@@ -704,7 +736,7 @@ class DataLoaderTest {
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(List.of());
 
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), dumpConfig);
 
         Path dir = tempDir.resolve("empty_ordering");
@@ -721,6 +753,7 @@ class DataLoaderTest {
         entry.setUser("u");
         entry.setPassword("p");
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
 
         try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class)) {
             method.invoke(loader, dir.toFile(), "db1", true, entry, dialectHandler, "err");
@@ -736,7 +769,7 @@ class DataLoaderTest {
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(List.of());
 
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), dumpConfig);
 
         Path dir = tempDir.resolve("driver_error");
@@ -768,7 +801,7 @@ class DataLoaderTest {
     @Test
     void logSummary_正常ケース_サマリ情報が存在する_例外なく完了すること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
 
         java.lang.reflect.Field field = DataLoader.class.getDeclaredField("insertSummary");
@@ -791,11 +824,12 @@ class DataLoaderTest {
     @Test
     void deleteDuplicates_正常ケース_PK列で重複削除する_executeBatchが呼ばれること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
 
         Connection jdbc = mock(Connection.class);
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         when(dialectHandler.quoteIdentifier("APP")).thenReturn("\"APP\"");
         when(dialectHandler.quoteIdentifier("TBL")).thenReturn("\"TBL\"");
         when(dialectHandler.quoteIdentifier("ID")).thenReturn("\"ID\"");
@@ -826,7 +860,7 @@ class DataLoaderTest {
         pathsConfig.setDataPath(tempDir.toString());
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(java.util.Arrays.asList("t2", null));
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), dumpConfig);
 
         Path dir = tempDir.resolve("deploy_initial_success");
@@ -843,6 +877,7 @@ class DataLoaderTest {
         Connection jdbc = mock(Connection.class);
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         when(dialectHandler.createDbUnitConnection(jdbc, "APP")).thenReturn(dbConn);
         when(dialectHandler.getLobColumns(dir, "T1")).thenReturn(new Column[0]);
         when(dialectHandler.countRows(jdbc, "T1")).thenReturn(3);
@@ -882,7 +917,7 @@ class DataLoaderTest {
         pathsConfig.setDataPath(tempDir.toString());
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(List.of());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), dumpConfig);
 
         Path dir = tempDir.resolve("deploy_rollback_fail");
@@ -900,6 +935,7 @@ class DataLoaderTest {
         doThrow(new SQLException("rb fail")).when(jdbc).rollback();
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         when(dialectHandler.createDbUnitConnection(jdbc, "APP")).thenReturn(dbConn);
         when(dialectHandler.getLobColumns(dir, "T1")).thenReturn(new Column[0]);
 
@@ -942,19 +978,27 @@ class DataLoaderTest {
     @Test
     void rowsEqual_正常ケース_DAYSECONDと空白列を比較する_trueが返ること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
 
         ITable csvTable = mock(ITable.class);
         ITable dbTable = mock(ITable.class);
         Connection jdbc = mock(Connection.class);
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         Column[] cols = new Column[] {new Column("IDS", DataType.VARCHAR),
                 new Column("C1", DataType.VARCHAR)};
         when(dialectHandler.getColumnTypeName(jdbc, "APP", "TBL", "IDS"))
                 .thenReturn("INTERVAL DAY TO SECOND");
+        when(dialectHandler.shouldUseRawValueForComparison("INTERVAL DAY TO SECOND"))
+                .thenReturn(true);
+        when(dialectHandler.normalizeValueForComparison("IDS", "INTERVAL DAY TO SECOND", "1 2:3:4"))
+                .thenReturn("+01 02:03:04");
+        when(dialectHandler.normalizeValueForComparison("IDS", "INTERVAL DAY TO SECOND",
+                "+01 02:03:04")).thenReturn("+01 02:03:04");
         when(dialectHandler.getColumnTypeName(jdbc, "APP", "TBL", "C1")).thenReturn("VARCHAR2");
         when(dialectHandler.formatDbValueForCsv("C1", " ")).thenReturn(" ");
+        when(dialectHandler.normalizeValueForComparison("C1", "VARCHAR2", null)).thenReturn(null);
         when(csvTable.getValue(0, "IDS")).thenReturn("1 2:3:4");
         when(dbTable.getValue(0, "IDS")).thenReturn("+01 02:03:04");
         when(csvTable.getValue(0, "C1")).thenReturn(" ");
@@ -973,7 +1017,7 @@ class DataLoaderTest {
     void ensureTableOrdering_異常ケース_書き込み失敗が発生する_ErrorHandler経由で例外が送出されること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
 
@@ -1006,12 +1050,13 @@ class DataLoaderTest {
         dumpConfig.setExcludeTables(java.util.Arrays.asList("t2", null));
 
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(dialectHandler.createDbUnitConnection(any(), eq("APP"))).thenReturn(dbConn);
         when(dialectHandler.getLobColumns(any(), eq("T1"))).thenReturn(new Column[0]);
         when(dialectHandler.countRows(any(), eq("T1"))).thenReturn(2);
 
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> dialectHandler, mock(DbUnitConfig.class), dumpConfig);
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
@@ -1049,7 +1094,7 @@ class DataLoaderTest {
     void deploy_正常ケース_orderingが空白のみである_テーブルなしでスキップされること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
 
         Path dir = tempDir.resolve("ordering_blank_only");
@@ -1079,7 +1124,7 @@ class DataLoaderTest {
     void deploy_正常ケース_シナリオモード重複ありを実行する_削除後にINSERTが実行されること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
 
         Path dir = tempDir.resolve("deploy_scenario");
@@ -1104,6 +1149,7 @@ class DataLoaderTest {
         when(original.getValue(0, "C1")).thenReturn("A");
 
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         when(dialect.createDbUnitConnection(jdbc, "APP")).thenReturn(dbConn);
         when(dialect.getPrimaryKeyColumns(jdbc, "APP", "T1")).thenReturn(List.of());
         when(dialect.getColumnTypeName(jdbc, "APP", "T1", "C1")).thenReturn("VARCHAR2");
@@ -1142,7 +1188,7 @@ class DataLoaderTest {
     @Test
     void detectDuplicates_正常ケース_PK不一致がある_重複に追加されないこと() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         ITable csv = mock(ITable.class);
         ITable db = mock(ITable.class);
@@ -1167,11 +1213,12 @@ class DataLoaderTest {
     @Test
     void deleteDuplicates_異常ケース_SQL例外が発生する_DataSetExceptionが送出されること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         Connection jdbc = mock(Connection.class);
         when(jdbc.prepareStatement(anyString())).thenThrow(new SQLException("x"));
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         when(dialect.quoteIdentifier(anyString()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         ITable original = mock(ITable.class);
@@ -1194,10 +1241,11 @@ class DataLoaderTest {
         PathsConfig paths = new PathsConfig();
         paths.setDataPath(tempDir.toString());
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(dialect.createDbUnitConnection(any(), eq("APP"))).thenReturn(dbConn);
-        DataLoader loader = new DataLoader(paths, mock(ConnectionConfig.class), e -> "APP",
-                e -> dialect, mock(DbUnitConfig.class), new DumpConfig());
+        DataLoader loader = new DataLoader(paths, mock(ConnectionConfig.class), e -> dialect,
+                mock(DbUnitConfig.class), new DumpConfig());
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
         Path dir = tempDir.resolve("exec_with_conn_ok");
@@ -1216,7 +1264,7 @@ class DataLoaderTest {
     void deployWithConnection_異常ケース_無効ディレクトリを直接指定する_IllegalStateExceptionが送出されること()
             throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
                 String.class, ConnectionConfig.Entry.class, Connection.class,
@@ -1235,12 +1283,13 @@ class DataLoaderTest {
         PathsConfig paths = new PathsConfig();
         paths.setDataPath(tempDir.toString());
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(dialect.createDbUnitConnection(any(), anyString())).thenReturn(dbConn);
         doThrow(new RuntimeException("close")).when(dbConn).close();
-        DataLoader loader = new DataLoader(paths, mock(ConnectionConfig.class), e -> {
-            throw new RuntimeException("schema");
-        }, e -> dialect, mock(DbUnitConfig.class), new DumpConfig());
+        when(dialect.resolveSchema(any())).thenThrow(new RuntimeException("schema"));
+        DataLoader loader = new DataLoader(paths, mock(ConnectionConfig.class), e -> dialect,
+                mock(DbUnitConfig.class), new DumpConfig());
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
         Path dir = tempDir.resolve("with_conn_err");
@@ -1267,7 +1316,7 @@ class DataLoaderTest {
     void deploy_正常ケース_初期ロードLOBありNULL許可を実行する_CLEAN_INSERTとUPDATEが実行されること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
 
         Path dir = tempDir.resolve("deploy_initial_lob_nullable");
@@ -1284,6 +1333,7 @@ class DataLoaderTest {
         Connection jdbc = mock(Connection.class);
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         when(dialect.createDbUnitConnection(jdbc, "APP")).thenReturn(dbConn);
         when(dialect.getLobColumns(any(), eq("T1")))
                 .thenReturn(new Column[] {new Column("LOB_COL", DataType.VARCHAR)});
@@ -1316,7 +1366,7 @@ class DataLoaderTest {
     void deploy_正常ケース_シナリオモードPK重複ありを実行する_重複削除が実行されること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
 
         Path dir = tempDir.resolve("deploy_scenario_pk");
@@ -1344,6 +1394,7 @@ class DataLoaderTest {
         when(original.getValue(0, "ID")).thenReturn("1");
 
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         when(dialect.createDbUnitConnection(jdbc, "APP")).thenReturn(dbConn);
         when(dialect.getPrimaryKeyColumns(jdbc, "APP", "T1")).thenReturn(List.of("ID"));
         when(dialect.convertCsvValueToDbType("T1", "ID", "1")).thenReturn("1");
@@ -1376,7 +1427,7 @@ class DataLoaderTest {
     @Test
     void detectDuplicates_正常ケース_PKなし重複がある_重複マップが返ること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         ITable csv = mock(ITable.class);
         ITable db = mock(ITable.class);
@@ -1388,6 +1439,7 @@ class DataLoaderTest {
         when(csv.getValue(0, "C1")).thenReturn("A");
         when(db.getValue(0, "C1")).thenReturn("A");
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         when(dialect.getColumnTypeName(any(), eq("APP"), eq("T1"), eq("C1")))
                 .thenReturn("VARCHAR2");
         when(dialect.formatDbValueForCsv("C1", "A")).thenReturn("A");
@@ -1405,7 +1457,7 @@ class DataLoaderTest {
     @Test
     void deleteDuplicates_正常ケース_重複マップが空である_何も実行されないこと() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         Method method = DataLoader.class.getDeclaredMethod("deleteDuplicates", Connection.class,
                 String.class, String.class, List.class, Column[].class, ITable.class, Map.class,
@@ -1421,7 +1473,7 @@ class DataLoaderTest {
     void ensureTableOrdering_正常ケース_対象がファイルである_生成せず終了すること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
         Path file = tempDir.resolve("not_dir_for_ordering.txt");
         Files.writeString(file, "x", StandardCharsets.UTF_8);
@@ -1435,7 +1487,7 @@ class DataLoaderTest {
     void ensureTableOrdering_正常ケース_ordering読込失敗が発生する_例外なく完了すること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
         Path dir = tempDir.resolve("ordering_read_fail2");
         Files.createDirectories(dir);
@@ -1450,12 +1502,13 @@ class DataLoaderTest {
     @Test
     void rowsEqual_正常ケース_DB値がnullである_trueが返ること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         ITable csv = mock(ITable.class);
         ITable db = mock(ITable.class);
         Connection jdbc = mock(Connection.class);
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         Column[] cols = new Column[] {new Column("C1", DataType.VARCHAR)};
         when(dialect.getColumnTypeName(jdbc, "APP", "T1", "C1")).thenReturn("VARCHAR2");
         when(dialect.formatDbValueForCsv("C1", null)).thenReturn(null);
@@ -1475,6 +1528,7 @@ class DataLoaderTest {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(dialectHandler.createDbUnitConnection(any(), eq("APP"))).thenReturn(dbConn);
         when(dialectHandler.getLobColumns(any(), eq("T1")))
@@ -1482,7 +1536,7 @@ class DataLoaderTest {
         when(dialectHandler.hasNotNullLobColumn(any(), eq("APP"), eq("T1"), any()))
                 .thenReturn(false);
         when(dialectHandler.countRows(any(), eq("T1"))).thenReturn(2);
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> dialectHandler, mock(DbUnitConfig.class), new DumpConfig());
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
@@ -1513,7 +1567,7 @@ class DataLoaderTest {
     void deploy_正常ケース_初期ロードLOBありNOTNULLを実行する_CLEAN_INSERTのみ実行されること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
         Path dir = tempDir.resolve("deploy_initial_lob_notnull");
         Files.createDirectories(dir);
@@ -1527,6 +1581,7 @@ class DataLoaderTest {
         Connection jdbc = mock(Connection.class);
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         when(dialect.createDbUnitConnection(jdbc, "APP")).thenReturn(dbConn);
         when(dialect.getLobColumns(any(), eq("T1")))
                 .thenReturn(new Column[] {new Column("LOB_COL", DataType.VARCHAR)});
@@ -1557,7 +1612,7 @@ class DataLoaderTest {
     void deploy_異常ケース_接続取得に失敗する_ErrorHandler経由で例外が送出されること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
         Path dir = tempDir.resolve("deploy_conn_fail");
         Files.createDirectories(dir);
@@ -1572,6 +1627,7 @@ class DataLoaderTest {
                 boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
         method.setAccessible(true);
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         ErrorHandler.disableExitForCurrentThread();
         try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:fail", "u", "p"))
@@ -1589,7 +1645,7 @@ class DataLoaderTest {
     void deploy_正常ケース_シナリオモードPK重複ありで削除経路を通す_重複削除SQLが準備されること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
         Path dir = tempDir.resolve("deploy_scenario_pk_delete");
         Files.createDirectories(dir);
@@ -1603,6 +1659,7 @@ class DataLoaderTest {
         Connection jdbc = mock(Connection.class);
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         when(dialect.createDbUnitConnection(jdbc, "APP")).thenReturn(dbConn);
         when(dialect.getPrimaryKeyColumns(jdbc, "APP", "T1")).thenReturn(List.of("ID"));
         when(dialect.convertCsvValueToDbType("T1", "ID", "1")).thenReturn("1");
@@ -1650,13 +1707,14 @@ class DataLoaderTest {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(dialect.createDbUnitConnection(any(), eq("APP"))).thenReturn(dbConn);
         doThrow(new RuntimeException("close")).when(dbConn).close();
         doThrow(new RuntimeException("ddl")).when(dialect).logTableDefinition(any(), eq("APP"),
                 eq("T1"), eq("db1"));
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
-                e -> dialect, mock(DbUnitConfig.class), new DumpConfig());
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> dialect,
+                mock(DbUnitConfig.class), new DumpConfig());
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
         Path dir = tempDir.resolve("with_conn_table_error");
@@ -1685,14 +1743,15 @@ class DataLoaderTest {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(dialect.createDbUnitConnection(any(), eq("APP"))).thenReturn(dbConn);
         when(dialect.getLobColumns(any(), eq("T1")))
                 .thenReturn(new Column[] {new Column("LOB_COL", DataType.VARCHAR)});
         when(dialect.hasNotNullLobColumn(any(), eq("APP"), eq("T1"), any())).thenReturn(true);
         when(dialect.countRows(any(), eq("T1"))).thenReturn(1);
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
-                e -> dialect, mock(DbUnitConfig.class), new DumpConfig());
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> dialect,
+                mock(DbUnitConfig.class), new DumpConfig());
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
         Path dir = tempDir.resolve("with_conn_lob_notnull");
@@ -1722,7 +1781,7 @@ class DataLoaderTest {
     void deploy_正常ケース_ErrorHandler呼び出し行を通す_エラーハンドラが呼ばれること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
         Path dir = tempDir.resolve("deploy_errorhandler_line");
         Files.createDirectories(dir);
@@ -1753,7 +1812,7 @@ class DataLoaderTest {
     void ensureTableOrdering_正常ケース_ErrorHandler呼び出し行を通す_エラーハンドラが呼ばれること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
         Path dir = tempDir.resolve("ordering_errorhandler_line");
         Files.createDirectories(dir);
@@ -1778,12 +1837,13 @@ class DataLoaderTest {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(dialect.createDbUnitConnection(any(), eq("APP"))).thenReturn(dbConn);
         doThrow(new RuntimeException("ddl")).when(dialect).logTableDefinition(any(), eq("APP"),
                 eq("T1"), eq("db1"));
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
-                e -> dialect, mock(DbUnitConfig.class), new DumpConfig());
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> dialect,
+                mock(DbUnitConfig.class), new DumpConfig());
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
         Path dir = tempDir.resolve("with_conn_errorhandler_line");
@@ -1817,7 +1877,7 @@ class DataLoaderTest {
         db1.setId("db1");
         ConnectionConfig connectionConfig = new ConnectionConfig();
         connectionConfig.setConnections(List.of(db1));
-        DataLoader loader = new DataLoader(pathsConfig, connectionConfig, e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, connectionConfig,
                 e -> mock(DbDialectHandler.class), dbUnitConfig, new DumpConfig());
         loader.execute("", List.of());
         loader.execute("scenario", null);
@@ -1825,22 +1885,9 @@ class DataLoaderTest {
     }
 
     @Test
-    void normalizeInterval_正常ケース_負符号を指定する_負符号のまま正規化されること() throws Exception {
-        DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
-                mock(DumpConfig.class));
-        Method day = DataLoader.class.getDeclaredMethod("normalizeDaySecondInterval", String.class);
-        day.setAccessible(true);
-        assertEquals("-01 02:03:04", day.invoke(loader, "-1 2:3:4"));
-        Method ym = DataLoader.class.getDeclaredMethod("normalizeYearMonthInterval", String.class);
-        ym.setAccessible(true);
-        assertEquals("-02-03", ym.invoke(loader, "-2-3"));
-    }
-
-    @Test
     void detectDuplicates_正常ケース_PK列null同士を比較する_重複マップが返ること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         ITable csv = mock(ITable.class);
         ITable db = mock(ITable.class);
@@ -1864,7 +1911,7 @@ class DataLoaderTest {
     @Test
     void detectDuplicates_正常ケース_PK列が片側nullである_重複に追加されないこと() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         ITable csv = mock(ITable.class);
         ITable db = mock(ITable.class);
@@ -1889,7 +1936,7 @@ class DataLoaderTest {
     void ensureTableOrdering_正常ケース_xml拡張子を指定する_orderingが生成されること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
         Path dir = tempDir.resolve("ordering_xml");
         Files.createDirectories(dir);
@@ -1905,10 +1952,11 @@ class DataLoaderTest {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(dialect.createDbUnitConnection(any(), eq("APP"))).thenReturn(dbConn);
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
-                e -> dialect, mock(DbUnitConfig.class), null);
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> dialect,
+                mock(DbUnitConfig.class), null);
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
         Path dir = tempDir.resolve("with_conn_null_dump");
@@ -1933,7 +1981,7 @@ class DataLoaderTest {
         pathsConfig.setDataPath(tempDir.toString());
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(null);
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), dumpConfig);
         Path dir = tempDir.resolve("deploy_dump_null");
         Files.createDirectories(dir);
@@ -1947,6 +1995,7 @@ class DataLoaderTest {
         Connection jdbc = mock(Connection.class);
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         when(dialect.createDbUnitConnection(jdbc, "APP")).thenReturn(dbConn);
         when(dialect.getLobColumns(any(), eq("T1"))).thenReturn(new Column[0]);
         when(dialect.countRows(jdbc, "T1")).thenReturn(1);
@@ -1977,10 +2026,11 @@ class DataLoaderTest {
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(null);
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(dialect.createDbUnitConnection(any(), eq("APP"))).thenReturn(dbConn);
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
-                e -> dialect, mock(DbUnitConfig.class), dumpConfig);
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> dialect,
+                mock(DbUnitConfig.class), dumpConfig);
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
         Path dir = tempDir.resolve("with_conn_dump_null");
@@ -2016,8 +2066,9 @@ class DataLoaderTest {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DbDialectHandler dialect = mock(DbDialectHandler.class);
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
-                e -> dialect, mock(DbUnitConfig.class), new DumpConfig());
+        when(dialect.resolveSchema(any())).thenReturn("APP");
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> dialect,
+                mock(DbUnitConfig.class), new DumpConfig());
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
         File dir = new NullListFile(tempDir.toString());
@@ -2035,7 +2086,7 @@ class DataLoaderTest {
         pathsConfig.setDataPath(tempDir.toString());
         DumpConfig dumpConfig = new DumpConfig();
         dumpConfig.setExcludeTables(List.of());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), dumpConfig);
         Path dir = tempDir.resolve("deploy_dump_empty");
         Files.createDirectories(dir);
@@ -2049,6 +2100,7 @@ class DataLoaderTest {
         Connection jdbc = mock(Connection.class);
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         when(dialect.createDbUnitConnection(jdbc, "APP")).thenReturn(dbConn);
         when(dialect.getLobColumns(any(), eq("T1"))).thenReturn(new Column[0]);
         when(dialect.countRows(jdbc, "T1")).thenReturn(1);
@@ -2076,7 +2128,7 @@ class DataLoaderTest {
     void deploy_正常ケース_dumpConfigがnullである_除外条件のnull分岐を通過すること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
-        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> "APP",
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), null);
         Path dir = tempDir.resolve("deploy_dump_null");
         Files.createDirectories(dir);
@@ -2090,6 +2142,7 @@ class DataLoaderTest {
         Connection jdbc = mock(Connection.class);
         DatabaseConnection dbConn = mock(DatabaseConnection.class);
         DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
         when(dialect.createDbUnitConnection(jdbc, "APP")).thenReturn(dbConn);
         when(dialect.getLobColumns(any(), eq("T1"))).thenReturn(new Column[0]);
         when(dialect.countRows(jdbc, "T1")).thenReturn(1);
@@ -2116,7 +2169,7 @@ class DataLoaderTest {
     @Test
     void executeWithConnection_異常ケース_未存在ディレクトリを指定する_存在チェック分岐を通ること() {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
@@ -2128,7 +2181,7 @@ class DataLoaderTest {
     @Test
     void executeWithConnection_異常ケース_存在する通常ファイルを指定する_存在チェック分岐を通ること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
@@ -2141,7 +2194,7 @@ class DataLoaderTest {
     @Test
     void deployWithConnection_異常ケース_未存在ディレクトリを直接指定する_存在チェック分岐を通ること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
                 String.class, ConnectionConfig.Entry.class, Connection.class,
@@ -2157,7 +2210,7 @@ class DataLoaderTest {
     @Test
     void deployWithConnection_異常ケース_存在する通常ファイルを直接指定する_存在チェック分岐を通ること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
-                e -> "APP", e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
         Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
                 String.class, ConnectionConfig.Entry.class, Connection.class,

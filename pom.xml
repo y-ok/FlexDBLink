@@ -6,7 +6,7 @@
 	<artifactId>flexdblink</artifactId>
 	<version>0.1.5</version>
 	<name>FlexDBLink</name>
-	<description>CSV/JSON/YAML/XML ↔ DB loader/dumper with LOB support and JUnit 5 integration.</description>
+	<description>Manage DB test data as text (CSV/JSON/YAML/XML ↔ DB), with LOB files and JUnit 5 + Spring integration for Oracle/PostgreSQL/MySQL/SQL Server.</description>
 	<url>https://github.com/y-ok/FlexDBLink</url>
 	<licenses>
 		<license>
@@ -422,6 +422,10 @@
 							<version>2.7.18</version>
 						</path>
 					</annotationProcessorPaths>
+					<showWarnings>true</showWarnings>
+					<compilerArgs>
+						<arg>-Xlint:unchecked</arg>
+					</compilerArgs>
 				</configuration>
 			</plugin>
 			<plugin>
