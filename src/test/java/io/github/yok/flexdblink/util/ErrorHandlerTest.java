@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.lang.reflect.Constructor;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class ErrorHandlerTest {
@@ -47,8 +48,8 @@ class ErrorHandlerTest {
             System.setErr(originalErr);
         }
         String message = err.toString();
-        org.junit.jupiter.api.Assertions.assertTrue(message.contains("ERROR: boom"));
-        org.junit.jupiter.api.Assertions.assertTrue(message.contains("root"));
+        Assertions.assertTrue(message.contains("ERROR: boom"));
+        Assertions.assertTrue(message.contains("root"));
     }
 
     @Test

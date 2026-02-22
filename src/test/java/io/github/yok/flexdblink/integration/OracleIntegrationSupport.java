@@ -33,14 +33,14 @@ import org.testcontainers.containers.ContainerLaunchException;
 import org.testcontainers.oracle.OracleContainer;
 
 /**
- * Oracle コンテナに対するインテグレーション試験支援ユーティリティです。
+ * Utility class for Oracle integration tests.
  *
  * <p>
- * 本クラスは、Testcontainers で起動した Oracle に対して Flyway を実行し、FlexDBLink の DataLoader / DataDumper
- * を実データに近い条件で動作させるための「試験用ランタイム」を構築します。
+ * Runs Flyway against a Testcontainers-managed Oracle instance and exercises
+ * FlexDBLink (DataLoader / DataDumper) in a production-like configuration.
  * </p>
  *
- * <h2>前提のテストリソース構成</h2>
+ * <h2>Expected test resource layout</h2>
  *
  * <pre>
  * src/test/resources
@@ -51,17 +51,17 @@ import org.testcontainers.oracle.OracleContainer;
  *     └── pre
  *         └── db1
  *             ├── files
- *             │   └── (LOB ファイル群)
+ *             │   └── (LOB files)
  *             ├── IT_TYPED_MAIN.csv
  *             ├── IT_TYPED_AUX.csv
  *             └── table-ordering.txt
  * </pre>
  *
- * <h2>責務</h2>
+ * <h2>Responsibilities</h2>
  * <ul>
- * <li>DB準備：Oracle コンテナ起動と Flyway clean/migrate</li>
- * <li>実行準備：Paths/Connection/DbUnit/Dump/Pattern/DateTime/DialectFactory を組み立て</li>
- * <li>実行：load/dump と CSV 参照ユーティリティの提供</li>
+ * <li>DB setup: start Oracle container and run Flyway clean/migrate</li>
+ * <li>Runtime setup: assemble Paths/Connection/DbUnit/Dump/Pattern/DateTime/DialectFactory</li>
+ * <li>Execution: provide load/dump helpers and CSV utility methods</li>
  * </ul>
  */
 final class OracleIntegrationSupport {
@@ -69,13 +69,14 @@ final class OracleIntegrationSupport {
     private OracleIntegrationSupport() {}
 
     /**
-     * Oracle コンテナを起動し、Flyway を実行して DB を試験可能な状態に初期化します。
+     * Starts the Oracle container and initializes the test schema with Flyway (all migrations).
      *
      * <p>
-     * 既存データが残らないことを担保するため、Flyway の clean → migrate を実行します。
+     * Runs Flyway clean → migrate on every call to ensure the DB is in a clean state
+     * at the start of each test.
      * </p>
      *
-     * @param container Oracle コンテナ
+     * @param container Oracle container
      */
     static void prepareDatabase(OracleContainer container) {
         ensureContainerRunning(container);
@@ -83,10 +84,34 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * インテグレーション試験用ランタイムを構築します。
+     * Initializes the Oracle container without FK constraints.
      *
      * <p>
-     * {@code copyLoadFixtures} が {@code true} の場合、以下のリソースを {@code dataPath/load} にコピーします。
+     * Applies Flyway migrations only up to V2, excluding the V3 FK constraint (FK_AUX_MAIN).
+     * </p>
+     *
+     * @param container Oracle container
+     */
+    static void prepareDatabaseWithoutFk(OracleContainer container) {
+        ensureContainerRunning(container);
+        migrateWithoutFk(container);
+    }
+
+    private static void migrateWithoutFk(OracleContainer container) {
+        Flyway flyway = Flyway
+                .configure().cleanDisabled(false).dataSource(container.getJdbcUrl(),
+                        container.getUsername(), container.getPassword())
+                .locations("classpath:db/migration/oracle").target("2").load();
+        flyway.clean();
+        flyway.migrate();
+    }
+
+    /**
+     * Assembles the runtime required to run an integration test.
+     *
+     * <p>
+     * When {@code copyLoadFixtures} is {@code true}, the following resources are copied to
+     * {@code dataPath/load}:
      * </p>
      *
      * <pre>
@@ -94,11 +119,11 @@ final class OracleIntegrationSupport {
      * src/test/resources/integration/common/load/** → ${dataPath}/load/**
      * </pre>
      *
-     * @param container Oracle コンテナ
-     * @param dataPath 試験データ用のルートパス（テンポラリを想定）
-     * @param copyLoadFixtures ロード用フィクスチャをコピーする場合 true
-     * @return ランタイム
-     * @throws IOException ファイルI/Oに失敗した場合
+     * @param container Oracle container
+     * @param dataPath root path for test data (typically a temp directory)
+     * @param copyLoadFixtures {@code true} to copy load fixtures into the work directory
+     * @return assembled runtime
+     * @throws IOException on file I/O failure
      */
     static Runtime prepareRuntime(OracleContainer container, Path dataPath,
             boolean copyLoadFixtures) throws IOException {
@@ -122,14 +147,14 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * DataLoader を使って指定シナリオを実行します。
+     * Executes DataLoader for the specified scenario.
      *
      * <p>
-     * 実行対象の接続IDは {@code db1} 固定です。
+     * The target connection ID is fixed to {@code db1}.
      * </p>
      *
-     * @param runtime ランタイム
-     * @param scenario シナリオ名（例：pre）
+     * @param runtime runtime
+     * @param scenario scenario name (e.g. {@code pre})
      */
     static void executeLoad(Runtime runtime, String scenario) {
         DataLoader loader = runtime.newLoader();
@@ -137,15 +162,15 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * DataDumper を使って指定シナリオを実行し、出力先ディレクトリを返します。
+     * Executes DataDumper for the specified scenario and returns the output directory.
      *
      * <p>
-     * 出力先は {@code ${dataPath}/dump/${scenario}/db1} です。
+     * The output directory is {@code ${dataPath}/dump/${scenario}/db1}.
      * </p>
      *
-     * @param runtime ランタイム
-     * @param scenario シナリオ名
-     * @return 出力先ディレクトリ
+     * @param runtime runtime
+     * @param scenario scenario name
+     * @return output directory
      */
     static Path executeDump(Runtime runtime, String scenario) {
         DataDumper dumper = runtime.newDumper();
@@ -154,11 +179,11 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * Oracle コンテナへ JDBC 接続を開きます。
+     * Opens a JDBC connection to the Oracle container.
      *
-     * @param container Oracle コンテナ
-     * @return JDBC 接続
-     * @throws SQLException JDBC エラー
+     * @param container Oracle container
+     * @return JDBC connection
+     * @throws SQLException on JDBC error
      */
     static Connection openConnection(OracleContainer container) throws SQLException {
         return DriverManager.getConnection(container.getJdbcUrl(), container.getUsername(),
@@ -166,12 +191,12 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * 指定 CSV から {@code ID} 列で 1 行を取得します。
+     * Reads a single row from a CSV file by its {@code ID} column value.
      *
-     * @param csvPath CSV パス
-     * @param id ID 値
-     * @return 行データ（ヘッダ→値）
-     * @throws IOException CSV 読み取り失敗
+     * @param csvPath path to the CSV file
+     * @param id ID value to look up
+     * @return map of header → value for the matching row
+     * @throws IOException on CSV read failure
      */
     static Map<String, String> readCsvRowById(Path csvPath, String id) throws IOException {
         Map<String, Map<String, String>> rows = readCsvById(csvPath, "ID");
@@ -183,16 +208,17 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * 指定 CSV を {@code idColumn} 列でマップ化して取得します。
+     * Parses a CSV file into a map keyed by the specified ID column.
      *
      * <p>
-     * CSV の先頭行をヘッダとして扱い、ヘッダ順序を保持するため内部は {@link LinkedHashMap} を使用します。
+     * The first row is treated as the header. Insertion order is preserved via
+     * {@link LinkedHashMap}.
      * </p>
      *
-     * @param csvPath CSV パス
-     * @param idColumn ID 列名
-     * @return idColumn の値 → (ヘッダ → 値)
-     * @throws IOException CSV 読み取り失敗
+     * @param csvPath path to the CSV file
+     * @param idColumn name of the ID column
+     * @return map of idColumn value → (header → value)
+     * @throws IOException on CSV read failure
      */
     static Map<String, Map<String, String>> readCsvById(Path csvPath, String idColumn)
             throws IOException {
@@ -213,10 +239,10 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * 16進文字列（HEX）をバイト配列へデコードします。
+     * Decodes a hex string into a byte array.
      *
-     * @param value 16進文字列
-     * @return バイト配列（空または null の場合は空配列）
+     * @param value hex string
+     * @return decoded byte array, or an empty array if {@code value} is null or empty
      */
     static byte[] decodeHex(String value) {
         if (value == null || value.isEmpty()) {
@@ -230,10 +256,10 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * トリムして空なら null を返します。
+     * Trims the value and returns {@code null} if the result is empty.
      *
-     * @param value 入力値
-     * @return null またはトリム済み文字列
+     * @param value input value
+     * @return {@code null} or the trimmed string
      */
     static String trimToNull(String value) {
         if (value == null) {
@@ -247,10 +273,10 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * トリムして null を空文字に変換します。
+     * Trims the value and converts {@code null} to an empty string.
      *
-     * @param value 入力値
-     * @return 空文字またはトリム済み文字列
+     * @param value input value
+     * @return empty string or the trimmed string
      */
     static String trimToEmpty(String value) {
         if (value == null) {
@@ -260,13 +286,13 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * Flyway を用いて Oracle スキーマを初期化します。
+     * Initializes the Oracle schema using Flyway (all migrations).
      *
      * <p>
-     * マイグレーションの location は {@code classpath:db/migration/oracle} 固定です。
+     * The migration location is fixed to {@code classpath:db/migration/oracle}.
      * </p>
      *
-     * @param container Oracle コンテナ
+     * @param container Oracle container
      */
     static void migrate(OracleContainer container) {
         Flyway flyway = Flyway
@@ -278,19 +304,15 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * テストリソースのロード用フィクスチャを {@code dataPath/load} にコピーします。
-     *
-     * <p>
-     * 新しいリソース構成に合わせ、コピー元は以下です。
-     * </p>
+     * Copies the load fixtures for Oracle tests into {@code dataPath/load}.
      *
      * <pre>
      * src/test/resources/integration/oracle/load/** → ${dataPath}/load/**
      * src/test/resources/integration/common/load/** → ${dataPath}/load/**
      * </pre>
      *
-     * @param dataPath 試験データ用ルートパス
-     * @throws IOException コピー失敗
+     * @param dataPath root path for test data
+     * @throws IOException on copy failure
      */
     static void copyLoadFixtures(Path dataPath) throws IOException {
         Path src = Path.of("src", "test", "resources", "integration", "oracle", "load");
@@ -328,9 +350,9 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * PathsConfig を生成します。
+     * Creates a {@link PathsConfig} for the given data path.
      *
-     * @param dataPath 試験データ用ルートパス
+     * @param dataPath root path for test data
      * @return PathsConfig
      */
     static PathsConfig pathsConfig(Path dataPath) {
@@ -340,13 +362,13 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * ConnectionConfig を生成します。
+     * Creates a {@link ConnectionConfig} for the Oracle container.
      *
      * <p>
-     * 接続IDは {@code db1} 固定です。
+     * The connection ID is fixed to {@code db1}.
      * </p>
      *
-     * @param container Oracle コンテナ
+     * @param container Oracle container
      * @return ConnectionConfig
      */
     static ConnectionConfig connectionConfig(OracleContainer container) {
@@ -362,7 +384,7 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * DbUnitConfig を生成します。
+     * Creates a {@link DbUnitConfig} configured for Oracle.
      *
      * @return DbUnitConfig
      */
@@ -374,7 +396,7 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * DumpConfig を生成します。
+     * Creates a default {@link DumpConfig}.
      *
      * @return DumpConfig
      */
@@ -383,7 +405,7 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * CSV 日時フォーマット定義に基づいて DateTimeFormatUtil を生成します。
+     * Creates a {@link DateTimeFormatUtil} with the standard CSV date/time format.
      *
      * @return DateTimeFormatUtil
      */
@@ -397,7 +419,7 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * DbDialectHandlerFactory を生成します。
+     * Creates a {@link DbDialectHandlerFactory}.
      *
      * @param dbUnitConfig DbUnitConfig
      * @param dumpConfig DumpConfig
@@ -412,11 +434,7 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * FilePatternConfig を生成します。
-     *
-     * <p>
-     * LOB ファイル出力名の規定パターンを定義します。
-     * </p>
+     * Creates a {@link FilePatternConfig} with the default LOB file naming patterns.
      *
      * @return FilePatternConfig
      */
@@ -440,9 +458,9 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * Oracle コンテナを起動します。
+     * Ensures the Oracle container is started.
      *
-     * @param container Oracle コンテナ
+     * @param container Oracle container
      */
     static void ensureContainerRunning(OracleContainer container) {
         try {
@@ -454,10 +472,11 @@ final class OracleIntegrationSupport {
     }
 
     /**
-     * インテグレーション試験の実行に必要な設定一式を保持するランタイムです。
+     * Holds the full set of configuration objects needed to run an integration test.
      *
      * <p>
-     * DataLoader/DataDumper を生成する際の依存（PathsConfig/ConnectionConfig 等）をまとめて保持します。
+     * Aggregates the dependencies (PathsConfig, ConnectionConfig, etc.) required to
+     * create {@link DataLoader} and {@link DataDumper} instances.
      * </p>
      */
     static final class Runtime {
@@ -493,7 +512,7 @@ final class OracleIntegrationSupport {
         }
 
         /**
-         * DataLoader を生成します（Oracle 用）。
+         * Creates a {@link DataLoader} for Oracle.
          *
          * @return DataLoader
          */
@@ -503,7 +522,7 @@ final class OracleIntegrationSupport {
         }
 
         /**
-         * DataDumper を生成します（Oracle 用）。
+         * Creates a {@link DataDumper} for Oracle.
          *
          * @return DataDumper
          */

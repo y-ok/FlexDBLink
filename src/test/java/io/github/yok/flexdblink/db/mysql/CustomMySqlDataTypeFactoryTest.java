@@ -13,6 +13,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLXML;
 import java.sql.Types;
+import java.util.Arrays;
 import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
 import org.dbunit.dataset.ITable;
@@ -202,6 +203,6 @@ class CustomMySqlDataTypeFactoryTest {
     }
 
     private static boolean matches(byte[] actual, byte[] expected) {
-        return java.util.Arrays.equals(actual, expected);
+        return Arrays.equals(actual, expected);
     }
 }

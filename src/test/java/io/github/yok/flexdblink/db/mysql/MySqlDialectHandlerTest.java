@@ -21,6 +21,7 @@ import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.util.DateTimeFormatUtil;
 import java.io.StringReader;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -293,7 +294,8 @@ public class MySqlDialectHandlerTest {
         Connection conn = mock(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         when(conn.getMetaData()).thenReturn(meta);
-        doThrow(new SQLException("getColumns failed")).when(meta).getColumns(null, "public", "t1", "c1");
+        doThrow(new SQLException("getColumns failed")).when(meta).getColumns(null, "public", "t1",
+                "c1");
         assertThrows(SQLException.class,
                 () -> handler.getColumnTypeName(conn, "public", "t1", "c1"));
     }
@@ -865,8 +867,7 @@ public class MySqlDialectHandlerTest {
                 (Map<String, Map<String, Object>>) jdbcMapField.get(handler);
         Class<?> specClass = Class
                 .forName("io.github.yok.flexdblink.db.mysql.MySqlDialectHandler$JdbcColumnSpec");
-        java.lang.reflect.Constructor<?> ctor =
-                specClass.getDeclaredConstructor(int.class, String.class);
+        Constructor<?> ctor = specClass.getDeclaredConstructor(int.class, String.class);
         ctor.setAccessible(true);
         Map<String, Object> byCol = new java.util.HashMap<>();
         byCol.put("c1", ctor.newInstance(Types.VARCHAR, "varchar"));
@@ -987,8 +988,7 @@ public class MySqlDialectHandlerTest {
                 (Map<String, Map<String, Object>>) jdbcMapField.get(handler);
         Class<?> specClass = Class
                 .forName("io.github.yok.flexdblink.db.mysql.MySqlDialectHandler$JdbcColumnSpec");
-        java.lang.reflect.Constructor<?> ctor =
-                specClass.getDeclaredConstructor(int.class, String.class);
+        Constructor<?> ctor = specClass.getDeclaredConstructor(int.class, String.class);
         ctor.setAccessible(true);
         Map<String, Object> byCol = new java.util.HashMap<>();
         byCol.put("c1", ctor.newInstance(Types.BIGINT, "int8"));
@@ -1019,8 +1019,7 @@ public class MySqlDialectHandlerTest {
                 (Map<String, Map<String, Object>>) jdbcMapField.get(handler);
         Class<?> specClass = Class
                 .forName("io.github.yok.flexdblink.db.mysql.MySqlDialectHandler$JdbcColumnSpec");
-        java.lang.reflect.Constructor<?> ctor =
-                specClass.getDeclaredConstructor(int.class, String.class);
+        Constructor<?> ctor = specClass.getDeclaredConstructor(int.class, String.class);
         ctor.setAccessible(true);
         Map<String, Object> byCol = new java.util.HashMap<>();
         byCol.put("c1", ctor.newInstance(Types.BIGINT, "int8"));
@@ -1052,8 +1051,7 @@ public class MySqlDialectHandlerTest {
                 (Map<String, Map<String, Object>>) jdbcMapField.get(handler);
         Class<?> specClass = Class
                 .forName("io.github.yok.flexdblink.db.mysql.MySqlDialectHandler$JdbcColumnSpec");
-        java.lang.reflect.Constructor<?> ctor =
-                specClass.getDeclaredConstructor(int.class, String.class);
+        Constructor<?> ctor = specClass.getDeclaredConstructor(int.class, String.class);
         ctor.setAccessible(true);
         Map<String, Object> byCol = new java.util.HashMap<>();
         byCol.put("c1", ctor.newInstance(Types.BIGINT, "int8"));

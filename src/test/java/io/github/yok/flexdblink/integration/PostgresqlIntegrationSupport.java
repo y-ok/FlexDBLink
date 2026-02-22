@@ -28,16 +28,17 @@ import org.testcontainers.containers.ContainerLaunchException;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
- * PostgreSQL インテグレーション試験の支援ユーティリティです。
+ * Utility class for PostgreSQL integration tests.
  *
  * <p>
- * Testcontainers + Flyway で PostgreSQL を初期化し、FlexDBLink（DataLoader/DataDumper）を実運用に近い構成で実行します。
+ * Initializes PostgreSQL via Testcontainers + Flyway and runs FlexDBLink (DataLoader/DataDumper)
+ * in a production-like configuration.
  * </p>
  *
  * <ul>
- * <li>DB準備：Flyway clean/migrate（classpath:db/migration/postgresql）</li>
- * <li>実行準備：Paths/Connection/DbUnit/Dump/Pattern/DateTime/DialectFactory を組み立て</li>
- * <li>実行：load/dump を呼び出し</li>
+ * <li>DB setup: Flyway clean/migrate ({@code classpath:db/migration/postgresql})</li>
+ * <li>Runtime setup: assembles Paths/Connection/DbUnit/Dump/Pattern/DateTime/DialectFactory</li>
+ * <li>Execution: invokes load/dump</li>
  * </ul>
  */
 final class PostgresqlIntegrationSupport {
@@ -45,13 +46,14 @@ final class PostgresqlIntegrationSupport {
     private PostgresqlIntegrationSupport() {}
 
     /**
-     * PostgreSQL コンテナを起動し、Flyway によりテスト用スキーマを再作成します。
+     * Starts the PostgreSQL container and initializes the test schema with Flyway (all migrations).
      *
      * <p>
-     * 本メソッドは冪等ではありません。毎回 clean/migrate を行い、テスト開始時に DB を初期状態へ戻します。
+     * Runs Flyway clean → migrate on every call to ensure the DB is in a clean state
+     * at the start of each test.
      * </p>
      *
-     * @param container PostgreSQL コンテナ
+     * @param container PostgreSQL container
      */
     static void prepareDatabase(PostgreSQLContainer container) {
         ensureContainerRunning(container);
@@ -59,27 +61,51 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * インテグレーション試験の実行に必要なランタイム一式を組み立てます。
+     * Initializes the PostgreSQL container without FK constraints.
      *
      * <p>
-     * {@code dataPath} 配下に以下の構造を作成して利用します。
+     * Applies Flyway migrations only up to V2, excluding the V3 FK constraint (FK_AUX_MAIN).
+     * </p>
+     *
+     * @param container PostgreSQL container
+     */
+    static void prepareDatabaseWithoutFk(PostgreSQLContainer container) {
+        ensureContainerRunning(container);
+        migrateWithoutFk(container);
+    }
+
+    private static void migrateWithoutFk(PostgreSQLContainer container) {
+        Flyway flyway = Flyway.configure().cleanDisabled(false)
+                .dataSource(container.getJdbcUrl(), container.getUsername(),
+                        container.getPassword())
+                .locations("classpath:db/migration/postgresql").target("2").load();
+        flyway.clean();
+        flyway.migrate();
+    }
+
+    /**
+     * Assembles the runtime required to run an integration test.
+     *
+     * <p>
+     * The following directory structure is created under {@code dataPath}:
      * </p>
      *
      * <ul>
-     * <li>load/{scenario}/{dbId}/... : DataLoader 入力</li>
-     * <li>dump/{scenario}/{dbId}/... : DataDumper 出力</li>
+     * <li>{@code load/{scenario}/{dbId}/...} — DataLoader input</li>
+     * <li>{@code dump/{scenario}/{dbId}/...} — DataDumper output</li>
      * </ul>
      *
      * <p>
-     * {@code copyLoadFixtures=true} の場合、 {@code src/test/resources/integration/postgresql/load} と
-     * {@code src/test/resources/integration/common/load} を {@code dataPath/load} へコピーします。
+     * When {@code copyLoadFixtures} is {@code true}, the contents of
+     * {@code src/test/resources/integration/postgresql/load} and
+     * {@code src/test/resources/integration/common/load} are copied to {@code dataPath/load}.
      * </p>
      *
-     * @param container PostgreSQL コンテナ
-     * @param dataPath テストで使用する作業ディレクトリ
-     * @param copyLoadFixtures load 配下のフィクスチャを作業ディレクトリへコピーする場合 true
-     * @return 実行用ランタイム
-     * @throws IOException ファイル操作に失敗した場合
+     * @param container PostgreSQL container
+     * @param dataPath work directory for the test
+     * @param copyLoadFixtures {@code true} to copy load fixtures into the work directory
+     * @return assembled runtime
+     * @throws IOException on file I/O failure
      */
     static Runtime prepareRuntime(PostgreSQLContainer container, Path dataPath,
             boolean copyLoadFixtures) throws IOException {
@@ -106,10 +132,10 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * 指定シナリオの load を実行します。
+     * Executes DataLoader for the specified scenario.
      *
-     * @param runtime ランタイム
-     * @param scenario シナリオ名（例：pre）
+     * @param runtime runtime
+     * @param scenario scenario name (e.g. {@code pre})
      */
     static void executeLoad(Runtime runtime, String scenario) {
         DataLoader loader = runtime.newLoader();
@@ -117,11 +143,11 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * 指定シナリオの dump を実行し、出力先ディレクトリを返します。
+     * Executes DataDumper for the specified scenario and returns the output directory.
      *
-     * @param runtime ランタイム
-     * @param scenario シナリオ名
-     * @return dump/{scenario}/db1 ディレクトリ
+     * @param runtime runtime
+     * @param scenario scenario name
+     * @return {@code dump/{scenario}/db1} directory
      */
     static Path executeDump(Runtime runtime, String scenario) {
         DataDumper dumper = runtime.newDumper();
@@ -130,11 +156,11 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * PostgreSQL コンテナへ JDBC 接続します。
+     * Opens a JDBC connection to the PostgreSQL container.
      *
-     * @param container PostgreSQL コンテナ
-     * @return JDBC コネクション
-     * @throws SQLException 接続に失敗した場合
+     * @param container PostgreSQL container
+     * @return JDBC connection
+     * @throws SQLException on JDBC error
      */
     static Connection openConnection(PostgreSQLContainer container) throws SQLException {
         return DriverManager.getConnection(container.getJdbcUrl(), container.getUsername(),
@@ -142,13 +168,13 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * Flyway によりテスト用スキーマを再作成します。
+     * Initializes the PostgreSQL schema using Flyway (all migrations).
      *
      * <p>
-     * {@code classpath:db/migration/postgresql} を対象に clean/migrate を行います。
+     * The migration location is fixed to {@code classpath:db/migration/postgresql}.
      * </p>
      *
-     * @param container PostgreSQL コンテナ
+     * @param container PostgreSQL container
      */
     static void migrate(PostgreSQLContainer container) {
         Flyway flyway = Flyway.configure().cleanDisabled(false)
@@ -160,16 +186,16 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * PostgreSQL 用の load フィクスチャを作業ディレクトリへコピーします。
+     * Copies the load fixtures for PostgreSQL tests into {@code dataPath/load}.
      *
      * <p>
-     * コピー元： {@code src/test/resources/integration/postgresql/load}<br>
-     * コピー元： {@code src/test/resources/integration/common/load}<br>
-     * コピー先： {@code dataPath/load}
+     * Source: {@code src/test/resources/integration/postgresql/load}<br>
+     * Source: {@code src/test/resources/integration/common/load}<br>
+     * Destination: {@code dataPath/load}
      * </p>
      *
-     * @param dataPath 作業ディレクトリ
-     * @throws IOException コピーに失敗した場合
+     * @param dataPath work directory for the test
+     * @throws IOException on copy failure
      */
     static void copyLoadFixtures(Path dataPath) throws IOException {
         Path src = Path.of("src", "test", "resources", "integration", "postgresql", "load");
@@ -207,9 +233,9 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * PathsConfig を生成します。
+     * Creates a {@link PathsConfig} for the given data path.
      *
-     * @param dataPath 作業ディレクトリ
+     * @param dataPath work directory for the test
      * @return PathsConfig
      */
     static PathsConfig pathsConfig(Path dataPath) {
@@ -219,13 +245,13 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * ConnectionConfig を生成します。
+     * Creates a {@link ConnectionConfig} for the PostgreSQL container.
      *
      * <p>
-     * dbId は {@code db1} 固定で構成します。
+     * The connection ID is fixed to {@code db1}.
      * </p>
      *
-     * @param container PostgreSQL コンテナ
+     * @param container PostgreSQL container
      * @return ConnectionConfig
      */
     static ConnectionConfig connectionConfig(PostgreSQLContainer container) {
@@ -241,11 +267,7 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * DbUnitConfig を生成します。
-     *
-     * <p>
-     * PostgreSQL モードとして DBUnit の DataTypeFactory を PostgreSQL 用へ切り替えます。
-     * </p>
+     * Creates a {@link DbUnitConfig} configured for PostgreSQL.
      *
      * @return DbUnitConfig
      */
@@ -257,7 +279,7 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * DumpConfig を生成します。
+     * Creates a default {@link DumpConfig}.
      *
      * @return DumpConfig
      */
@@ -266,11 +288,7 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * 日時フォーマット（CSV⇔DB 変換）ユーティリティを生成します。
-     *
-     * <p>
-     * CSV の日時正規化ロジックとして共通利用します。
-     * </p>
+     * Creates a {@link DateTimeFormatUtil} with the standard CSV date/time format.
      *
      * @return DateTimeFormatUtil
      */
@@ -284,12 +302,12 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * DbDialectHandlerFactory を生成します。
+     * Creates a {@link DbDialectHandlerFactory}.
      *
      * @param dbUnitConfig DbUnitConfig
      * @param dumpConfig DumpConfig
      * @param pathsConfig PathsConfig
-     * @param dateTimeUtil 日時フォーマットユーティリティ
+     * @param dateTimeUtil DateTimeFormatUtil
      * @return DbDialectHandlerFactory
      */
     static DbDialectHandlerFactory dialectFactory(DbUnitConfig dbUnitConfig, DumpConfig dumpConfig,
@@ -299,10 +317,11 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * LOB ファイル命名パターン設定を生成します。
+     * Creates a {@link FilePatternConfig} with the default LOB file naming patterns.
      *
      * <p>
-     * DataDumper が LOB を {@code file:xxxx} 参照へ置換し、files ディレクトリへ出力する際のファイル名を決定します。
+     * DataDumper uses these patterns to derive LOB file names when writing
+     * {@code file:xxxx} references into the output CSV.
      * </p>
      *
      * @return FilePatternConfig
@@ -327,9 +346,9 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * PostgreSQL コンテナの起動を保証します。
+     * Ensures the PostgreSQL container is started.
      *
-     * @param container PostgreSQL コンテナ
+     * @param container PostgreSQL container
      */
     static void ensureContainerRunning(PostgreSQLContainer container) {
         if (container.isRunning()) {
@@ -344,7 +363,7 @@ final class PostgresqlIntegrationSupport {
     }
 
     /**
-     * インテグレーション試験実行に必要な設定一式を保持します。
+     * Holds the full set of configuration objects needed to run an integration test.
      */
     static final class Runtime {
 
@@ -369,16 +388,16 @@ final class PostgresqlIntegrationSupport {
         }
 
         /**
-         * 作業ディレクトリを返します。
+         * Returns the work directory for this runtime.
          *
-         * @return 作業ディレクトリ
+         * @return work directory
          */
         Path dataPath() {
             return dataPath;
         }
 
         /**
-         * DataLoader を生成します。
+         * Creates a {@link DataLoader}.
          *
          * @return DataLoader
          */
@@ -387,7 +406,7 @@ final class PostgresqlIntegrationSupport {
         }
 
         /**
-         * DataDumper を生成します。
+         * Creates a {@link DataDumper}.
          *
          * @return DataDumper
          */

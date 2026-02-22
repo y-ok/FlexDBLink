@@ -10,8 +10,10 @@ import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.util.CsvUtils;
 import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.LobPathConstants;
+import io.github.yok.flexdblink.util.TableDependencyResolver;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
@@ -47,6 +49,7 @@ import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVPrinter;
 import org.apache.commons.csv.CSVRecord;
 import org.apache.commons.csv.QuoteMode;
+import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.dbunit.database.DatabaseConnection;
@@ -175,31 +178,48 @@ public class DataDumper {
                         continue;
                     }
 
+                    // FK依存関係に基づいてテーブルをトポロジカルソート（ロードと一貫した順序）
+                    try {
+                        tables = TableDependencyResolver.resolveLoadOrder(conn, conn.getCatalog(),
+                                schema, tables);
+                        log.info("[{}] Table dump order resolved by FK dependencies: {}", dbId,
+                                tables);
+                    } catch (SQLException e) {
+                        log.warn("[{}] FK dependency resolution failed; using original order."
+                                + " reason={}", dbId, e.getMessage());
+                    }
+
                     // --- Prepare output directories (via common helper) ---
                     File[] dirs = prepareDbOutputDirs(scenarioDir, dbId);
                     File dbDir = dirs[0];
                     File filesDir = dirs[1];
 
-                    FileNameResolver resolver = new FileNameResolver(filePatternConfig);
-                    for (String tbl : tables) {
-                        // --- 1) CSV dump ---
-                        File csvFile = new File(dbDir, tbl + ".csv");
-                        exportTableAsCsvUtf8(conn, tbl, csvFile, dialectHandler);
-                        log.info("[{}] Table[{}] CSV dump completed (UTF-8)", dbId, tbl);
+                    // Write table-ordering.txt as a temporary working file
+                    writeTableOrdering(dbDir, tables);
+                    try {
+                        FileNameResolver resolver = new FileNameResolver(filePatternConfig);
+                        for (String tbl : tables) {
+                            // --- 1) CSV dump ---
+                            File csvFile = new File(dbDir, tbl + ".csv");
+                            exportTableAsCsvUtf8(conn, tbl, csvFile, dialectHandler);
+                            log.info("[{}] Table[{}] CSV dump completed (UTF-8)", dbId, tbl);
 
-                        // --- 2) BLOB/CLOB dump ---
-                        DumpResult result = dumpBlobClob(conn, tbl, dbDir, filesDir, resolver,
-                                schema, dialectHandler);
-                        log.info("[{}] Table[{}] dumped-records={}, BLOB/CLOB file-outputs={}",
-                                dbId, tbl, result.getRowCount(), result.getFileCount());
+                            // --- 2) BLOB/CLOB dump ---
+                            DumpResult result = dumpBlobClob(conn, tbl, dbDir, filesDir, resolver,
+                                    schema, dialectHandler);
+                            log.info("[{}] Table[{}] dumped-records={}, BLOB/CLOB file-outputs={}",
+                                    dbId, tbl, result.getRowCount(), result.getFileCount());
 
-                        // --- 3) Register to summary map ---
-                        summaryMap.put(tbl, result.getRowCount());
+                            // --- 3) Register to summary map ---
+                            summaryMap.put(tbl, result.getRowCount());
+                        }
+                        // After the dump, output summary
+                        logTableSummary(dbId, summaryMap);
+
+                        log.info("[{}] === DB dump completed ===", dbId);
+                    } finally {
+                        deleteTableOrdering(dbDir);
                     }
-                    // After the dump, output summary
-                    logTableSummary(dbId, summaryMap);
-
-                    log.info("[{}] === DB dump completed ===", dbId);
 
                     dbConn.close();
                 } finally {
@@ -736,6 +756,46 @@ public class DataDumper {
             }
         }
         return result;
+    }
+
+    /**
+     * Writes the table list to {@code table-ordering.txt} in the specified directory.
+     *
+     * <p>
+     * The file is treated as a temporary working file created at the start of each Dump execution
+     * and deleted at the end by {@link #deleteTableOrdering(File)}.
+     * </p>
+     *
+     * @param dbDir output directory for this DB
+     * @param tables ordered list of table names to write
+     */
+    private void writeTableOrdering(File dbDir, List<String> tables) {
+        File orderFile = new File(dbDir, "table-ordering.txt");
+        try {
+            String content = String.join(System.lineSeparator(), tables);
+            FileUtils.writeStringToFile(orderFile, content, StandardCharsets.UTF_8);
+            log.info("Generated table-ordering.txt: {}", orderFile.getAbsolutePath());
+        } catch (IOException e) {
+            log.error("Failed to create table-ordering.txt: {}", e.getMessage(), e);
+            ErrorHandler.errorAndExit("Failed to create table-ordering.txt", e);
+        }
+    }
+
+    /**
+     * Deletes {@code table-ordering.txt} from the specified directory if it exists.
+     *
+     * <p>
+     * Called after each Dump execution to clean up the temporary working file. Silently ignores
+     * cases where the file does not exist.
+     * </p>
+     *
+     * @param dbDir output directory for this DB
+     */
+    private void deleteTableOrdering(File dbDir) {
+        File orderFile = new File(dbDir, "table-ordering.txt");
+        if (FileUtils.deleteQuietly(orderFile)) {
+            log.info("Deleted table-ordering.txt: {}", orderFile.getAbsolutePath());
+        }
     }
 
     /**

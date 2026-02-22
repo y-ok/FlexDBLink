@@ -29,7 +29,7 @@ Most importantly, its greatest strength lies in the fact that **you no longer ne
 * **LOB は外部ファイルで**: データセルに `file:...` と書けば、`files/` ディレクトリの実体とリンクします
   （JUnit 5 拡張の配置規約は後述）。
 * **2 段階ロード**（初期投入 `pre` とシナリオ追加入力）＋ シナリオ時は **既存重複の削除＋新規 INSERT のみ**を実施します。
-* **テーブル順序自動化**: `DBUnit` 用の `table-ordering.txt` が無ければ データセット群から自動生成します。
+* **テーブル順序自動化**: FK依存関係を解析してロード順序を自動決定し、`table-ordering.txt` を常に最新状態に更新します。手動での管理は不要です。
 * **JUnit 5 拡張**: `@LoadData` でテストケースごとに データファイルを投入。SpringTestのトランザクション制御に従います。
 * **Oracle 対応**: INTERVAL/TIMESTAMP/TZ の正規化、BLOB/CLOB の JDBC 標準 API での投入などを実装しています。
 
@@ -39,7 +39,7 @@ Most importantly, its greatest strength lies in the fact that **you no longer ne
 * **External LOB files**: If a dataset cell contains `file:...`, it links to the actual file under the `files/` directory
   (JUnit 5 extension layout is described below).
 * **Two-phase loading**: Initial `pre` load plus scenario-specific additions; during scenarios, **remove existing duplicates and perform INSERT-only**.
-* **Automated table ordering**: If `table-ordering.txt` for DBUnit is missing, it’s auto-generated from the dataset set.
+* **Automated table ordering**: Automatically determines and maintains the correct load order by analyzing FK dependencies — `table-ordering.txt` is always kept up to date. No manual maintenance required.
 * **JUnit 5 extension**: Use `@LoadData` to load datasets per test case; adheres to Spring Test transaction management.
 * **Oracle support**: Normalization for INTERVAL/TIMESTAMP/TZ types and LOB insertion via standard JDBC APIs (BLOB/CLOB).
 
@@ -369,8 +369,8 @@ $ java -Dspring.config.additional-location=file:conf/ -jar flexdblink.jar --dump
       <DB_ID>/
         TABLE_A.csv
         TABLE_B.csv
-        table-ordering.txt   # 省略可：無ければ自動生成
-                             # Optional: auto-generated if missing
+        table-ordering.txt   # 自動生成・更新（FK依存解決）
+                             # Auto-generated and updated (FK dependency resolution)
     <scenario-name>/
       <DB_ID>/
         ...
@@ -608,7 +608,7 @@ src/test/resources/<package path>/<TestClassName>/<scenario>/input/files/*      
 ## ベストプラクティス
 
 * **`table-ordering.txt`**
-  外部キーなど参照制約を考慮した投入順序を明示化できます（1 行 1 テーブル名）。未配置の場合は、利用するデータファイル群（CSV/JSON/YAML/XML）から自動生成されます。
+  FK依存関係を解析してロード順序を自動決定し、常に最新状態へ更新されます。手動での編集・配置は不要です。
 
 * **除外テーブル**
   マイグレーション管理テーブルなど、投入やダンプの対象外とすべきテーブルは `dump.exclude-tables` に指定してください。
@@ -623,7 +623,7 @@ src/test/resources/<package path>/<TestClassName>/<scenario>/input/files/*      
 ## Best Practices
 
 * **`table-ordering.txt`**
-  Explicitly define the load order with referential constraints in mind (one table name per line). If missing, it is auto-generated from the dataset files (CSV/JSON/YAML/XML).
+  The load order is automatically determined and maintained by analyzing FK dependencies. No manual editing or placement is required.
 
 * **Exclude tables**
   Exclude migration/housekeeping tables by listing them in `dump.exclude-tables`.

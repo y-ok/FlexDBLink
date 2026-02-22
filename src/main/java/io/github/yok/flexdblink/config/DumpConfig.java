@@ -36,5 +36,4 @@ public class DumpConfig {
      * List of table names to exclude during dump processing.
      */
     private List<String> excludeTables = ImmutableList.of();
-
 }

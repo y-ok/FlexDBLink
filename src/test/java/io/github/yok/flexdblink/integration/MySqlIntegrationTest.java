@@ -31,10 +31,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 /**
- * MySQL コンテナに対する FlexDBLink のインテグレーション試験です。
+ * Integration tests for FlexDBLink against a MySQL container.
  *
  * <p>
- * 対象：DataLoader / DataDumper（CSV + LOB file: 参照を含む）
+ * Covers: DataLoader / DataDumper (CSV + LOB {@code file:} references).
  * </p>
  */
 @Testcontainers
@@ -214,6 +214,213 @@ public class MySqlIntegrationTest {
                 outputFilesDir);
         assertTableEquals("IT_TYPED_AUX", "ID", inputAuxCsv, outputAuxCsv, inputFilesDir,
                 outputFilesDir);
+    }
+
+    // ── FK dependency resolution tests ──────────────────────────────────────
+
+    @Test
+    public void execute_正常ケース_FK制約あり_tableOrderingが毎回再生成されてロードが成功すること()
+            throws Exception {
+        Path dataPath = tempDir.resolve("fk_load_no_ordering");
+        MySqlIntegrationSupport.Runtime runtime =
+                MySqlIntegrationSupport.prepareRuntime(mysql, dataPath, true);
+
+        // table-ordering.txt is always regenerated at the start and deleted at the end;
+        // the FK resolver corrects the alphabetical order (AUX before MAIN) to load order
+        MySqlIntegrationSupport.executeLoad(runtime, "pre");
+
+        try (Connection conn = MySqlIntegrationSupport.openConnection(mysql);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                assertTrue(rs.next());
+                assertEquals(6, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_FK制約あり_FK解決でアルファベット順が修正されてロードが成功すること()
+            throws Exception {
+        Path dataPath = tempDir.resolve("fk_load_reversed_ordering");
+        MySqlIntegrationSupport.Runtime runtime =
+                MySqlIntegrationSupport.prepareRuntime(mysql, dataPath, true);
+
+        // table-ordering.txt is always regenerated alphabetically (AUX before MAIN);
+        // FK resolver must correct the order so the load completes without FK violation
+        MySqlIntegrationSupport.executeLoad(runtime, "pre");
+
+        try (Connection conn = MySqlIntegrationSupport.openConnection(mysql);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                assertTrue(rs.next());
+                assertEquals(6, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_FK制約あり_ダンプが完了してCSVと件数が出力されること() throws Exception {
+        Path dataPath = tempDir.resolve("fk_dump_data");
+        MySqlIntegrationSupport.Runtime runtime =
+                MySqlIntegrationSupport.prepareRuntime(mysql, dataPath, false);
+
+        Path dbDir = MySqlIntegrationSupport.executeDump(runtime, "fk_dump_case");
+
+        Path mainCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
+        assertTrue(Files.exists(mainCsv));
+        assertTrue(Files.exists(auxCsv));
+
+        // Row counts in the dumped CSVs must match what is in the DB (seed data)
+        try (Connection conn = MySqlIntegrationSupport.openConnection(mysql);
+                Statement st = conn.createStatement()) {
+            int expectedMain, expectedAux;
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                rs.next();
+                expectedMain = rs.getInt(1);
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                rs.next();
+                expectedAux = rs.getInt(1);
+            }
+            long mainCsvRows = Files.lines(mainCsv).count() - 1; // minus header
+            long auxCsvRows = Files.lines(auxCsv).count() - 1;
+            assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
+            assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_FK制約あり_ロード後にダンプする_件数が一致すること() throws Exception {
+        Path dataPath = tempDir.resolve("fk_roundtrip_data");
+        MySqlIntegrationSupport.Runtime runtime =
+                MySqlIntegrationSupport.prepareRuntime(mysql, dataPath, true);
+
+        MySqlIntegrationSupport.executeLoad(runtime, "pre");
+        Path dbDir = MySqlIntegrationSupport.executeDump(runtime, "fk_roundtrip_case");
+
+        Path mainCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
+        assertTrue(Files.exists(mainCsv));
+        assertTrue(Files.exists(auxCsv));
+
+        long mainCsvRows = Files.lines(mainCsv).count() - 1;
+        long auxCsvRows = Files.lines(auxCsv).count() - 1;
+        assertEquals(6L, mainCsvRows, "IT_TYPED_MAIN should have 6 rows after load");
+        assertEquals(2L, auxCsvRows, "IT_TYPED_AUX should have 2 rows after load");
+    }
+
+    // ── FK constraint-free tests ──────────────────────────────────────────────
+
+    @Test
+    public void execute_正常ケース_FK制約なし_tableOrderingが毎回再生成されてロードが成功すること()
+            throws Exception {
+        MySqlIntegrationSupport.prepareDatabaseWithoutFk(mysql);
+        Path dataPath = tempDir.resolve("nofk_load_no_ordering");
+        MySqlIntegrationSupport.Runtime runtime =
+                MySqlIntegrationSupport.prepareRuntime(mysql, dataPath, true);
+
+        // table-ordering.txt is always regenerated alphabetically; without FK constraints
+        // any load order is acceptable, so load completes successfully
+        MySqlIntegrationSupport.executeLoad(runtime, "pre");
+
+        try (Connection conn = MySqlIntegrationSupport.openConnection(mysql);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                assertTrue(rs.next());
+                assertEquals(6, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_FK制約なし_アルファベット順でロードが成功すること()
+            throws Exception {
+        MySqlIntegrationSupport.prepareDatabaseWithoutFk(mysql);
+        Path dataPath = tempDir.resolve("nofk_load_reversed_ordering");
+        MySqlIntegrationSupport.Runtime runtime =
+                MySqlIntegrationSupport.prepareRuntime(mysql, dataPath, true);
+
+        // table-ordering.txt is always regenerated alphabetically (AUX before MAIN);
+        // without FK constraints, this order is acceptable for CLEAN_INSERT
+        MySqlIntegrationSupport.executeLoad(runtime, "pre");
+
+        try (Connection conn = MySqlIntegrationSupport.openConnection(mysql);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                assertTrue(rs.next());
+                assertEquals(6, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_FK制約なし_ダンプが完了してCSVと件数が出力されること() throws Exception {
+        MySqlIntegrationSupport.prepareDatabaseWithoutFk(mysql);
+        Path dataPath = tempDir.resolve("nofk_dump_data");
+        MySqlIntegrationSupport.Runtime runtime =
+                MySqlIntegrationSupport.prepareRuntime(mysql, dataPath, false);
+
+        Path dbDir = MySqlIntegrationSupport.executeDump(runtime, "nofk_dump_case");
+
+        Path mainCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
+        assertTrue(Files.exists(mainCsv));
+        assertTrue(Files.exists(auxCsv));
+
+        try (Connection conn = MySqlIntegrationSupport.openConnection(mysql);
+                Statement st = conn.createStatement()) {
+            int expectedMain, expectedAux;
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                rs.next();
+                expectedMain = rs.getInt(1);
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                rs.next();
+                expectedAux = rs.getInt(1);
+            }
+            long mainCsvRows = Files.lines(mainCsv).count() - 1; // minus header
+            long auxCsvRows = Files.lines(auxCsv).count() - 1;
+            assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
+            assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_FK制約なし_ロード後にダンプする_件数が一致すること() throws Exception {
+        MySqlIntegrationSupport.prepareDatabaseWithoutFk(mysql);
+        Path dataPath = tempDir.resolve("nofk_roundtrip_data");
+        MySqlIntegrationSupport.Runtime runtime =
+                MySqlIntegrationSupport.prepareRuntime(mysql, dataPath, true);
+
+        MySqlIntegrationSupport.executeLoad(runtime, "pre");
+        Path dbDir = MySqlIntegrationSupport.executeDump(runtime, "nofk_roundtrip_case");
+
+        Path mainCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
+        assertTrue(Files.exists(mainCsv));
+        assertTrue(Files.exists(auxCsv));
+
+        long mainCsvRows = Files.lines(mainCsv).count() - 1;
+        long auxCsvRows = Files.lines(auxCsv).count() - 1;
+        assertEquals(6L, mainCsvRows, "IT_TYPED_MAIN should have 6 rows after load");
+        assertEquals(2L, auxCsvRows, "IT_TYPED_AUX should have 2 rows after load");
     }
 
     private static void assertTableEquals(String table, String idColumn, Path inputCsv,

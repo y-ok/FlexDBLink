@@ -9,30 +9,38 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
+import io.github.yok.flexdblink.config.FilePatternConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.parser.DataLoaderFactory;
 import io.github.yok.flexdblink.util.ErrorHandler;
+import io.github.yok.flexdblink.util.TableDependencyResolver;
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -67,14 +75,20 @@ class DataLoaderTest {
     }
 
     private void withMockedDatabaseOperations(DataLoader loader, DatabaseOperation cleanInsert,
-            DatabaseOperation update, DatabaseOperation insert, ThrowingRunnable runnable)
-            throws Exception {
+            DatabaseOperation update, DatabaseOperation insert, DatabaseOperation deleteAll,
+            ThrowingRunnable runnable) throws Exception {
         DataLoader.OperationExecutor original = loader.getOperationExecutor();
         DataLoader.OperationExecutor executor = new DataLoader.OperationExecutor() {
             @Override
             public void cleanInsert(org.dbunit.database.IDatabaseConnection connection,
                     IDataSet dataSet) throws Exception {
                 cleanInsert.execute(connection, dataSet);
+            }
+
+            @Override
+            public void deleteAll(IDatabaseConnection connection, IDataSet dataSet)
+                    throws Exception {
+                deleteAll.execute(connection, dataSet);
             }
 
             @Override
@@ -518,7 +532,7 @@ class DataLoaderTest {
     }
 
     @Test
-    void ensureTableOrdering_正常ケース_ファイル数一致のorderingが既存である_既存内容が維持されること() throws Exception {
+    void ensureTableOrdering_正常ケース_ファイル数一致のorderingが既存である_常に再生成されること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
@@ -536,8 +550,9 @@ class DataLoaderTest {
         method.setAccessible(true);
         method.invoke(loader, dir.toFile());
 
+        // Always regenerated from dataset files (alphabetical: A, B)
         String actual = Files.readString(ordering, StandardCharsets.UTF_8);
-        assertEquals("EXISTING1\nEXISTING2\n", actual);
+        assertEquals("A" + System.lineSeparator() + "B", actual);
     }
 
     @Test
@@ -891,7 +906,8 @@ class DataLoaderTest {
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
-        withMockedDatabaseOperations(loader, clean, update, insert, () -> {
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
             try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
                     MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 driverManager.when(() -> DriverManager.getConnection("jdbc:dummy", "u", "p"))
@@ -949,10 +965,11 @@ class DataLoaderTest {
         doThrow(new RuntimeException("boom")).when(clean).execute(any(), any());
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
 
         ErrorHandler.disableExitForCurrentThread();
         try {
-            withMockedDatabaseOperations(loader, clean, update, insert, () -> {
+            withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
                 try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
                         MockedStatic<DataLoaderFactory> factory =
                                 mockStatic(DataLoaderFactory.class)) {
@@ -1077,7 +1094,8 @@ class DataLoaderTest {
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
-        withMockedDatabaseOperations(loader, clean, update, insert, () -> {
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
             try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
@@ -1091,7 +1109,7 @@ class DataLoaderTest {
     }
 
     @Test
-    void deploy_正常ケース_orderingが空白のみである_テーブルなしでスキップされること() throws Exception {
+    void deploy_正常ケース_データセットファイルなしでorderingが空白のみである_テーブルなしでスキップされること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
@@ -1099,8 +1117,7 @@ class DataLoaderTest {
 
         Path dir = tempDir.resolve("ordering_blank_only");
         Files.createDirectories(dir);
-        Files.writeString(dir.resolve("A.csv"), "ID\n1\n", StandardCharsets.UTF_8);
-        Files.writeString(dir.resolve("B.csv"), "ID\n2\n", StandardCharsets.UTF_8);
+        // No dataset files: ensureTableOrdering deletes the blank ordering and does not recreate it
         Files.writeString(dir.resolve("table-ordering.txt"), "\n \n", StandardCharsets.UTF_8);
 
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
@@ -1172,7 +1189,8 @@ class DataLoaderTest {
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
-        withMockedDatabaseOperations(loader, clean, update, insert, () -> {
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
             try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
                     MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 driverManager.when(() -> DriverManager.getConnection("jdbc:scenario", "u", "p"))
@@ -1348,7 +1366,8 @@ class DataLoaderTest {
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
-        withMockedDatabaseOperations(loader, clean, update, insert, () -> {
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
             try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
                     MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 driverManager.when(() -> DriverManager.getConnection("jdbc:lob", "u", "p"))
@@ -1411,7 +1430,8 @@ class DataLoaderTest {
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
-        withMockedDatabaseOperations(loader, clean, update, insert, () -> {
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
             try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
                     MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 driverManager.when(() -> DriverManager.getConnection("jdbc:scpk", "u", "p"))
@@ -1551,7 +1571,8 @@ class DataLoaderTest {
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
-        withMockedDatabaseOperations(loader, clean, update, insert, () -> {
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
             try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
@@ -1594,7 +1615,8 @@ class DataLoaderTest {
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
-        withMockedDatabaseOperations(loader, clean, update, insert, () -> {
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
             try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
                     MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 driverManager.when(() -> DriverManager.getConnection("jdbc:lob2", "u", "p"))
@@ -1688,7 +1710,8 @@ class DataLoaderTest {
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
-        withMockedDatabaseOperations(loader, clean, update, insert, () -> {
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
             try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
                     MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 driverManager.when(() -> DriverManager.getConnection("jdbc:scpk2", "u", "p"))
@@ -1765,7 +1788,8 @@ class DataLoaderTest {
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
-        withMockedDatabaseOperations(loader, clean, update, insert, () -> {
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
             try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
@@ -2006,7 +2030,8 @@ class DataLoaderTest {
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
-        withMockedDatabaseOperations(loader, clean, update, insert, () -> {
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
             try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
                     MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 driverManager.when(() -> DriverManager.getConnection("jdbc:dumpnull", "u", "p"))
@@ -2111,7 +2136,8 @@ class DataLoaderTest {
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
-        withMockedDatabaseOperations(loader, clean, update, insert, () -> {
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
             try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
                     MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 driverManager.when(() -> DriverManager.getConnection("jdbc:dumpempty", "u", "p"))
@@ -2153,7 +2179,8 @@ class DataLoaderTest {
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
-        withMockedDatabaseOperations(loader, clean, update, insert, () -> {
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
             try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
                     MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 driverManager.when(() -> DriverManager.getConnection("jdbc:dumpnull", "u", "p"))
@@ -2164,6 +2191,115 @@ class DataLoaderTest {
             }
         });
         verify(jdbc).commit();
+    }
+
+    @Test
+    void deploy_正常ケース_tableOrderingのテーブル名が空白のみ_トリム後に空となりスキップされること() throws Exception {
+
+        PathsConfig pathsConfig = new PathsConfig();
+        pathsConfig.setDataPath(tempDir.toString());
+
+        DumpConfig dumpConfig = new DumpConfig();
+        dumpConfig.setExcludeTables(List.of());
+
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), dumpConfig);
+
+        Path dir = tempDir.resolve("deploy_tables_blank_only");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("  .csv"), "ID\n1\n", StandardCharsets.UTF_8);
+
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setDriverClass("java.lang.String");
+        entry.setUrl("jdbc:should-not-connect");
+        entry.setUser("u");
+        entry.setPassword("p");
+
+        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+
+        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
+                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
+        method.setAccessible(true);
+
+        try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class)) {
+            method.invoke(loader, dir.toFile(), "db1", true, entry, dialectHandler, "fatal");
+
+            // tables が空で return するので、JDBC 接続は発生しない
+            driverManager.verifyNoInteractions();
+        }
+
+        // こちらも到達しない（接続処理に入らない）
+        verifyNoInteractions(dialectHandler);
+    }
+
+    @Test
+    public void execute_異常ケース_tableOrdering作成に失敗する_ErrorHandlerが呼ばれること() throws Exception {
+        PathsConfig pathsConfig = mock(PathsConfig.class);
+        Path dataRoot = Files.createDirectories(tempDir.resolve("data"));
+        Path dumpRoot = Files.createDirectories(tempDir.resolve("dump"));
+        when(pathsConfig.getDataPath()).thenReturn(dataRoot.toString());
+        when(pathsConfig.getDump()).thenReturn(dumpRoot.toString());
+
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setId("db1");
+        entry.setDriverClass("java.lang.String");
+        entry.setUrl("jdbc:dummy");
+        entry.setUser("u");
+        entry.setPassword("p");
+        ConnectionConfig connectionConfig = new ConnectionConfig();
+        connectionConfig.setConnections(List.of(entry));
+
+        DumpConfig dumpConfig = new DumpConfig();
+        dumpConfig.setExcludeTables(List.of());
+        FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
+
+        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
+        DatabaseConnection dbConn = mock(DatabaseConnection.class);
+
+        Connection conn = mock(Connection.class);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+
+        ResultSet tableRs = mock(ResultSet.class);
+        when(meta.getTables(isNull(), eq("APP"), eq("%"), any(String[].class))).thenReturn(tableRs);
+        when(tableRs.next()).thenReturn(true, false);
+        when(tableRs.getString("TABLE_NAME")).thenReturn("T1");
+
+        when(dialectHandler.createDbUnitConnection(eq(conn), eq("APP"))).thenReturn(dbConn);
+
+        DataDumper dumper = new DataDumper(pathsConfig, connectionConfig, filePatternConfig,
+                dumpConfig, e -> dialectHandler);
+
+        try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
+                MockedStatic<TableDependencyResolver> resolver =
+                        mockStatic(TableDependencyResolver.class);
+                MockedStatic<FileUtils> fileUtils = mockStatic(FileUtils.class);
+                MockedStatic<ErrorHandler> errorHandler = mockStatic(ErrorHandler.class)) {
+
+            driverManager.when(() -> DriverManager.getConnection("jdbc:dummy", "u", "p"))
+                    .thenReturn(conn);
+
+            resolver.when(
+                    () -> TableDependencyResolver.resolveLoadOrder(any(), any(), any(), any()))
+                    .thenReturn(List.of("T1"));
+
+            IOException ioEx = new IOException("write fail");
+            fileUtils.when(() -> FileUtils.writeStringToFile(any(File.class), anyString(),
+                    any(Charset.class))).thenThrow(ioEx);
+
+            errorHandler.when(() -> ErrorHandler.errorAndExit(anyString(), any(Throwable.class)))
+                    .thenAnswer(inv -> {
+                        throw new IllegalStateException("exit");
+                    });
+            errorHandler.when(() -> ErrorHandler.errorAndExit(anyString())).thenAnswer(inv -> {
+                throw new IllegalStateException("exit");
+            });
+
+            assertThrows(IllegalStateException.class, () -> dumper.execute("scn", List.of("db1")));
+            errorHandler.verify(() -> ErrorHandler.errorAndExit(
+                    eq("Failed to create table-ordering.txt"), any(IOException.class)), times(1));
+        }
     }
 
     @Test
@@ -2244,5 +2380,194 @@ class DataLoaderTest {
         private SimpleDataSetWrapper(IDataSet dataSet) {
             this.dataSet = dataSet;
         }
+    }
+
+    // ─── C0カバレッジ補完ケース ─────────────────────────────────────────────────
+
+    @Test
+    void ensureTableOrdering_正常ケース_行数一致でも常に再生成されること() throws Exception {
+        PathsConfig pathsConfig = new PathsConfig();
+        pathsConfig.setDataPath(tempDir.toString());
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
+        Path dir = tempDir.resolve("ordering_count_match");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
+        Files.writeString(dir.resolve("T2.csv"), "ID\n2\n", StandardCharsets.UTF_8);
+        Path orderingFile = dir.resolve("table-ordering.txt");
+        // 2ファイルに対して2行のordering（行数一致）でも常に再生成されること
+        Files.writeString(orderingFile, "CUSTOM1\nCUSTOM2", StandardCharsets.UTF_8);
+        long lastModified = orderingFile.toFile().lastModified();
+        // ファイルシステムのタイムスタンプ精度を考慮して少し待機
+        Thread.sleep(50);
+        Method method = DataLoader.class.getDeclaredMethod("ensureTableOrdering", File.class);
+        method.setAccessible(true);
+        method.invoke(loader, dir.toFile());
+        // 常に再生成されるためファイルが書き直される → 最終更新時刻が変わること
+        assertTrue(orderingFile.toFile().lastModified() > lastModified,
+                "table-ordering.txt should always be regenerated");
+        List<String> lines = Files.readAllLines(orderingFile, StandardCharsets.UTF_8);
+        assertEquals(List.of("T1", "T2"), lines);
+    }
+
+    @Test
+    void ensureTableOrdering_正常ケース_行数不一致_orderingが再生成されること() throws Exception {
+        // L618: lines.size() != fileCount の false 分岐（削除して再生成）
+        PathsConfig pathsConfig = new PathsConfig();
+        pathsConfig.setDataPath(tempDir.toString());
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class), new DumpConfig());
+        Path dir = tempDir.resolve("ordering_count_mismatch");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
+        Files.writeString(dir.resolve("T2.csv"), "ID\n2\n", StandardCharsets.UTF_8);
+        Path orderingFile = dir.resolve("table-ordering.txt");
+        // 2ファイルに対して1行のordering（行数不一致）→ 再生成されること
+        Files.writeString(orderingFile, "T1", StandardCharsets.UTF_8);
+        Method method = DataLoader.class.getDeclaredMethod("ensureTableOrdering", File.class);
+        method.setAccessible(true);
+        method.invoke(loader, dir.toFile());
+        List<String> lines = Files.readAllLines(orderingFile, StandardCharsets.UTF_8);
+        assertEquals(2, lines.size());
+        assertTrue(lines.contains("T1"));
+        assertTrue(lines.contains("T2"));
+    }
+
+    @Test
+    void deployWithConnection_正常ケース_FK解決でSQLException_アルファベット順で継続されること() throws Exception {
+        // L943: FK解決でSQLExceptionがスローされた場合、警告ログ後にアルファベット順で処理が継続されること
+        PathsConfig pathsConfig = new PathsConfig();
+        pathsConfig.setDataPath(tempDir.toString());
+        DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
+        DatabaseConnection dbConn = mock(DatabaseConnection.class);
+        when(dialect.createDbUnitConnection(any(), eq("APP"))).thenReturn(dbConn);
+        when(dialect.getLobColumns(any(), eq("T1"))).thenReturn(new Column[0]);
+        when(dialect.countRows(any(), eq("T1"))).thenReturn(1);
+        DataLoader loader = new DataLoader(pathsConfig, mock(ConnectionConfig.class), e -> dialect,
+                mock(DbUnitConfig.class), new DumpConfig());
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setId("db1");
+        Path dir = tempDir.resolve("with_conn_fk_sqlex");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
+        Files.writeString(dir.resolve("T2.csv"), "ID\n1\n", StandardCharsets.UTF_8);
+        SimpleDataSetWrapper ds1 = buildSimpleDataSet("T1", 1, "ID", "1");
+        Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
+                String.class, ConnectionConfig.Entry.class, Connection.class,
+                DbDialectHandler.class, String.class);
+        method.setAccessible(true);
+        DatabaseOperation clean = mock(DatabaseOperation.class);
+        DatabaseOperation update = mock(DatabaseOperation.class);
+        DatabaseOperation insert = mock(DatabaseOperation.class);
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
+            try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class);
+                    MockedStatic<TableDependencyResolver> resolver =
+                            mockStatic(TableDependencyResolver.class)) {
+                factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
+                        .thenReturn(ds1.dataSet);
+                factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T2"))
+                        .thenThrow(new RuntimeException("skip T2"));
+                resolver.when(
+                        () -> TableDependencyResolver.resolveLoadOrder(any(), any(), any(), any()))
+                        .thenThrow(new SQLException("FK resolution failed"));
+                method.invoke(loader, dir.toFile(), "db1", entry, mock(Connection.class), dialect,
+                        "fatal");
+            }
+        });
+        // FK解決失敗後もアルファベット順フォールバックで T1 がロードされること
+        verify(clean).execute(eq(dbConn), any());
+    }
+
+    @Test
+    void filteredTable_skipRowsなし_全行が正しく取得できること() throws Exception {
+        // FilteredTable の skipRows が空の場合、全物理行がそのままマップされること
+        Class<?> filteredTableClass = null;
+        for (Class<?> c : DataLoader.class.getDeclaredClasses()) {
+            if (c.getSimpleName().equals("FilteredTable")) {
+                filteredTableClass = c;
+                break;
+            }
+        }
+        assertFalse(filteredTableClass == null, "FilteredTable class not found");
+        java.lang.reflect.Constructor<?> cons =
+                filteredTableClass.getDeclaredConstructor(ITable.class, Set.class);
+        cons.setAccessible(true);
+        ITable delegate = mock(ITable.class);
+        when(delegate.getRowCount()).thenReturn(3);
+        ITableMetaData meta = mock(ITableMetaData.class);
+        when(delegate.getTableMetaData()).thenReturn(meta);
+        when(delegate.getValue(0, "ID")).thenReturn("A");
+        when(delegate.getValue(1, "ID")).thenReturn("B");
+        when(delegate.getValue(2, "ID")).thenReturn("C");
+        ITable filtered = (ITable) cons.newInstance(delegate, Set.of());
+        assertEquals(3, filtered.getRowCount());
+        assertEquals("A", filtered.getValue(0, "ID"));
+        assertEquals("B", filtered.getValue(1, "ID"));
+        assertEquals("C", filtered.getValue(2, "ID"));
+    }
+
+    @Test
+    void deleteAllInReverseOrder_正常ケース_tablesがnullである_早期リターンしてdbConnを呼ばないこと() throws Exception {
+        DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                mock(DumpConfig.class));
+        Method method = DataLoader.class.getDeclaredMethod("deleteAllInReverseOrder",
+                IDatabaseConnection.class, List.class, String.class);
+        method.setAccessible(true);
+
+        IDatabaseConnection dbConn = mock(IDatabaseConnection.class);
+        method.invoke(loader, dbConn, null, "db1");
+
+        verify(dbConn, never()).createDataSet(any(String[].class));
+    }
+
+    @Test
+    void deleteAllInReverseOrder_正常ケース_tablesが1件である_早期リターンしてdbConnを呼ばないこと() throws Exception {
+        DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                mock(DumpConfig.class));
+        Method method = DataLoader.class.getDeclaredMethod("deleteAllInReverseOrder",
+                IDatabaseConnection.class, List.class, String.class);
+        method.setAccessible(true);
+
+        IDatabaseConnection dbConn = mock(IDatabaseConnection.class);
+        method.invoke(loader, dbConn, List.of("T1"), "db1");
+
+        verify(dbConn, never()).createDataSet(any(String[].class));
+    }
+
+    @Test
+    void filteredTable_複数行スキップ_論理インデックスが正しくシフトされること() throws Exception {
+        // FilteredTable の skipRows が複数の場合、論理行→物理行のインデックスが正しく計算されること
+        // 物理行 0,1,2,3,4 のうち行インデックス 1,3 をスキップ
+        // → 論理行 0,1,2 は物理行 0,2,4 にそれぞれ対応する
+        Class<?> filteredTableClass = null;
+        for (Class<?> c : DataLoader.class.getDeclaredClasses()) {
+            if (c.getSimpleName().equals("FilteredTable")) {
+                filteredTableClass = c;
+                break;
+            }
+        }
+        java.lang.reflect.Constructor<?> cons =
+                filteredTableClass.getDeclaredConstructor(ITable.class, Set.class);
+        cons.setAccessible(true);
+        ITable delegate = mock(ITable.class);
+        when(delegate.getRowCount()).thenReturn(5);
+        ITableMetaData meta = mock(ITableMetaData.class);
+        when(delegate.getTableMetaData()).thenReturn(meta);
+        when(delegate.getValue(0, "ID")).thenReturn("row0");
+        when(delegate.getValue(2, "ID")).thenReturn("row2");
+        when(delegate.getValue(4, "ID")).thenReturn("row4");
+        ITable filtered = (ITable) cons.newInstance(delegate, Set.of(1, 3));
+        // 論理行数 = 5 - 2スキップ = 3
+        assertEquals(3, filtered.getRowCount());
+        // 論理行 0 → 物理行 0
+        assertEquals("row0", filtered.getValue(0, "ID"));
+        // 論理行 1 → 物理行 2（物理行1はスキップ）
+        assertEquals("row2", filtered.getValue(1, "ID"));
+        // 論理行 2 → 物理行 4（物理行1,3はスキップ）
+        assertEquals("row4", filtered.getValue(2, "ID"));
     }
 }
