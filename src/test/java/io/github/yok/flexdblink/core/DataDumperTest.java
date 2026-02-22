@@ -1,11 +1,14 @@
 package io.github.yok.flexdblink.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -19,7 +22,9 @@ import io.github.yok.flexdblink.config.FilePatternConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.util.ErrorHandler;
+import io.github.yok.flexdblink.util.TableDependencyResolver;
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
@@ -39,12 +44,16 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
+import org.apache.commons.io.FileUtils;
+import org.dbunit.database.DatabaseConnection;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 class DataDumperTest {
 
@@ -1588,8 +1597,7 @@ class DataDumperTest {
     @Test
     void execute_異常ケース_シナリオが未指定である_ErrorHandlerが呼ばれること() {
         DataDumper dumper = createDumper();
-        try (MockedStatic<ErrorHandler> handler =
-                org.mockito.Mockito.mockStatic(ErrorHandler.class)) {
+        try (MockedStatic<ErrorHandler> handler = Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any())).thenAnswer(inv -> {
                 throw new IllegalStateException("exit");
             });
@@ -1610,8 +1618,7 @@ class DataDumperTest {
                 String.class);
         method.setAccessible(true);
 
-        try (MockedStatic<ErrorHandler> handler =
-                org.mockito.Mockito.mockStatic(ErrorHandler.class)) {
+        try (MockedStatic<ErrorHandler> handler = Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any())).thenAnswer(inv -> {
                 throw new IllegalStateException("exit");
             });
@@ -1636,7 +1643,7 @@ class DataDumperTest {
         assertTrue(Files.exists(dataPath));
         assertTrue(Files.notExists(scenario));
         boolean found;
-        try (java.util.stream.Stream<Path> stream = Files.list(dataPath)) {
+        try (Stream<Path> stream = Files.list(dataPath)) {
             found = stream.anyMatch(p -> p.getFileName().toString().startsWith("scn_"));
         }
         assertTrue(found);
@@ -1663,8 +1670,7 @@ class DataDumperTest {
         }
         Path dataPath = Files.createDirectories(tempDir.resolve("data_rename_fail"));
         File scenario = new RenameFailFile(dataPath.resolve("scn").toString());
-        try (MockedStatic<ErrorHandler> handler =
-                org.mockito.Mockito.mockStatic(ErrorHandler.class)) {
+        try (MockedStatic<ErrorHandler> handler = Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any())).thenAnswer(inv -> null);
             method.invoke(dumper, dataPath, scenario);
             handler.verify(() -> ErrorHandler.errorAndExit(any()));
@@ -1707,8 +1713,7 @@ class DataDumperTest {
         Method method = DataDumper.class.getDeclaredMethod("ensureDirectoryExists", File.class,
                 String.class);
         method.setAccessible(true);
-        try (MockedStatic<ErrorHandler> handler =
-                org.mockito.Mockito.mockStatic(ErrorHandler.class)) {
+        try (MockedStatic<ErrorHandler> handler = Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any())).thenAnswer(inv -> null);
             method.invoke(dumper, target, "msg");
             handler.verify(() -> ErrorHandler.errorAndExit("msg: " + target.getAbsolutePath()));
@@ -1735,8 +1740,7 @@ class DataDumperTest {
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
                 e -> createDialectHandlerMock());
 
-        try (MockedStatic<DriverManager> driverManager =
-                org.mockito.Mockito.mockStatic(DriverManager.class)) {
+        try (MockedStatic<DriverManager> driverManager = Mockito.mockStatic(DriverManager.class)) {
             dumper.execute("scenario", List.of("db2"));
             driverManager.verifyNoInteractions();
         }
@@ -1764,8 +1768,7 @@ class DataDumperTest {
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         ResultSet rs = mock(ResultSet.class);
         DbDialectHandler dialectHandler = createDialectHandlerMock();
-        org.dbunit.database.DatabaseConnection dbConn =
-                mock(org.dbunit.database.DatabaseConnection.class);
+        DatabaseConnection dbConn = mock(DatabaseConnection.class);
 
         when(conn.getMetaData()).thenReturn(meta);
         when(meta.getTables(null, "APP", "%", new String[] {"TABLE"})).thenReturn(rs);
@@ -1775,8 +1778,7 @@ class DataDumperTest {
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
                 e -> dialectHandler);
 
-        try (MockedStatic<DriverManager> driverManager =
-                org.mockito.Mockito.mockStatic(DriverManager.class)) {
+        try (MockedStatic<DriverManager> driverManager = Mockito.mockStatic(DriverManager.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:dummy", "u", "p"))
                     .thenReturn(conn);
             dumper.execute("scenario", List.of("db1"));
@@ -1862,12 +1864,11 @@ class DataDumperTest {
         DbDialectHandler dialect = createDialectHandlerMock();
         when(dialect.quoteIdentifier(any())).thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
         when(dialect.createDbUnitConnection(eq(conn), eq("APP")))
-                .thenReturn(mock(org.dbunit.database.DatabaseConnection.class));
+                .thenReturn(mock(DatabaseConnection.class));
 
         DataDumper dumper =
                 new DataDumper(pathsConfig, config, filePatternConfig, dumpConfig, e -> dialect);
-        try (MockedStatic<DriverManager> driverManager =
-                org.mockito.Mockito.mockStatic(DriverManager.class)) {
+        try (MockedStatic<DriverManager> driverManager = Mockito.mockStatic(DriverManager.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:execok", "u", "p"))
                     .thenReturn(conn);
             dumper.execute("scn_ok", List.of("db1"));
@@ -1893,8 +1894,7 @@ class DataDumperTest {
         dumpConfig.setExcludeTables(List.of());
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
                 e -> createDialectHandlerMock());
-        try (MockedStatic<ErrorHandler> handler =
-                org.mockito.Mockito.mockStatic(ErrorHandler.class)) {
+        try (MockedStatic<ErrorHandler> handler = Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any(), any())).thenAnswer(inv -> {
                 throw new IllegalStateException("exit");
             });
@@ -1907,8 +1907,7 @@ class DataDumperTest {
     @Test
     void execute_異常ケース_シナリオ未指定でも終了処理を継続する_必須チェック行が通過すること() {
         DataDumper dumper = createDumper();
-        try (MockedStatic<ErrorHandler> handler =
-                org.mockito.Mockito.mockStatic(ErrorHandler.class)) {
+        try (MockedStatic<ErrorHandler> handler = Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any())).thenAnswer(inv -> null);
             assertThrows(NullPointerException.class, () -> dumper.execute(null, null));
             handler.verify(
@@ -1947,16 +1946,14 @@ class DataDumperTest {
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         ResultSet rs = mock(ResultSet.class);
         DbDialectHandler dialect = createDialectHandlerMock();
-        org.dbunit.database.DatabaseConnection dbConn =
-                mock(org.dbunit.database.DatabaseConnection.class);
+        DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(conn.getMetaData()).thenReturn(meta);
         when(meta.getTables(null, "APP", "%", new String[] {"TABLE"})).thenReturn(rs);
         when(rs.next()).thenReturn(false);
         when(dialect.createDbUnitConnection(conn, "APP")).thenReturn(dbConn);
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
                 e -> dialect);
-        try (MockedStatic<DriverManager> driverManager =
-                org.mockito.Mockito.mockStatic(DriverManager.class)) {
+        try (MockedStatic<DriverManager> driverManager = Mockito.mockStatic(DriverManager.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:emptytarget", "u", "p"))
                     .thenReturn(conn);
             dumper.execute("scenario_empty_target", List.of());
@@ -1983,16 +1980,14 @@ class DataDumperTest {
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         ResultSet rs = mock(ResultSet.class);
         DbDialectHandler dialect = createDialectHandlerMock();
-        org.dbunit.database.DatabaseConnection dbConn =
-                mock(org.dbunit.database.DatabaseConnection.class);
+        DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(conn.getMetaData()).thenReturn(meta);
         when(meta.getTables(null, "APP", "%", new String[] {"TABLE"})).thenReturn(rs);
         when(rs.next()).thenReturn(false);
         when(dialect.createDbUnitConnection(conn, "APP")).thenReturn(dbConn);
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
                 e -> dialect);
-        try (MockedStatic<DriverManager> driverManager =
-                org.mockito.Mockito.mockStatic(DriverManager.class)) {
+        try (MockedStatic<DriverManager> driverManager = Mockito.mockStatic(DriverManager.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:nulltarget", "u", "p"))
                     .thenReturn(conn);
             dumper.execute("scenario_null_target", null);
@@ -2020,18 +2015,15 @@ class DataDumperTest {
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         ResultSet rs = mock(ResultSet.class);
         DbDialectHandler dialect = createDialectHandlerMock();
-        org.dbunit.database.DatabaseConnection dbConn =
-                mock(org.dbunit.database.DatabaseConnection.class);
+        DatabaseConnection dbConn = mock(DatabaseConnection.class);
         when(conn.getMetaData()).thenReturn(meta);
         when(meta.getTables(null, "APP", "%", new String[] {"TABLE"})).thenReturn(rs);
         when(rs.next()).thenReturn(false);
         when(dialect.createDbUnitConnection(conn, "APP")).thenReturn(dbConn);
         DataDumper dumper = new DataDumper(pathsConfig, config, new FilePatternConfig(), dumpConfig,
                 e -> dialect);
-        try (MockedStatic<DriverManager> driverManager =
-                org.mockito.Mockito.mockStatic(DriverManager.class);
-                MockedStatic<ErrorHandler> handler =
-                        org.mockito.Mockito.mockStatic(ErrorHandler.class)) {
+        try (MockedStatic<DriverManager> driverManager = Mockito.mockStatic(DriverManager.class);
+                MockedStatic<ErrorHandler> handler = Mockito.mockStatic(ErrorHandler.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:closefail", "u", "p"))
                     .thenReturn(conn);
             handler.when(() -> ErrorHandler.errorAndExit(any(), any())).thenAnswer(inv -> null);
@@ -2144,6 +2136,179 @@ class DataDumperTest {
     }
 
     @Test
+    public void execute_異常ケース_tableOrdering書き込みに失敗する_ErrorHandlerから例外が送出されること() throws Exception {
+
+        PathsConfig pathsConfig = mock(PathsConfig.class);
+        ConnectionConfig connectionConfig = mock(ConnectionConfig.class);
+        DumpConfig dumpConfig = mock(DumpConfig.class);
+        FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
+
+        // execute() の先頭で使用される
+        Path dumpBaseDir = tempDir.resolve("dump_base");
+        when(pathsConfig.getDump()).thenReturn(dumpBaseDir.toString());
+        when(pathsConfig.getDataPath()).thenReturn(tempDir.toString());
+        when(dumpConfig.getExcludeTables()).thenReturn(List.of());
+
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setId("db1");
+        entry.setDriverClass("java.lang.String");
+        entry.setUrl("jdbc:dummy");
+        entry.setUser("u");
+        entry.setPassword("p");
+        when(connectionConfig.getConnections()).thenReturn(List.of(entry));
+
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+        when(dialectHandler.resolveSchema(any())).thenReturn("APP");
+        DatabaseConnection dbConn = mock(DatabaseConnection.class);
+        when(dialectHandler.createDbUnitConnection(any(), eq("APP"))).thenReturn(dbConn);
+
+        DataDumper dumper = new DataDumper(pathsConfig, connectionConfig, filePatternConfig,
+                dumpConfig, e -> dialectHandler);
+
+        // fetchTargetTables 用のメタデータを最低限スタブ
+        Connection conn = mock(Connection.class);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        ResultSet tableRs = mock(ResultSet.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        when(meta.getTables(any(), eq("APP"), any(), any())).thenReturn(tableRs);
+        when(tableRs.next()).thenReturn(true, false);
+        when(tableRs.getString("TABLE_NAME")).thenReturn("T1");
+
+        // FK解決は本筋ではないので固定値で返す
+        IOException io = new IOException("write fail");
+
+        ErrorHandler.disableExitForCurrentThread();
+        try (MockedStatic<DriverManager> driverManager = Mockito.mockStatic(DriverManager.class);
+                MockedStatic<TableDependencyResolver> resolver =
+                        Mockito.mockStatic(TableDependencyResolver.class);
+                MockedStatic<FileUtils> fileUtils = Mockito.mockStatic(FileUtils.class)) {
+
+            driverManager.when(() -> DriverManager.getConnection("jdbc:dummy", "u", "p"))
+                    .thenReturn(conn);
+
+            resolver.when(
+                    () -> TableDependencyResolver.resolveLoadOrder(any(), any(), any(), any()))
+                    .thenAnswer(inv -> inv.getArgument(3));
+
+            fileUtils.when(() -> FileUtils.writeStringToFile(any(File.class), anyString(),
+                    eq(StandardCharsets.UTF_8))).thenThrow(io);
+
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> dumper.execute("scn", List.of("db1")));
+
+            assertEquals("Dump failed (DB=db1)", ex.getMessage());
+            assertTrue(ex.getCause() instanceof IllegalStateException);
+            assertEquals("Failed to create table-ordering.txt", ex.getCause().getMessage());
+            assertSame(io, ex.getCause().getCause());
+
+            fileUtils.verify(() -> FileUtils.writeStringToFile(any(File.class), anyString(),
+                    eq(StandardCharsets.UTF_8)));
+
+        } finally {
+            ErrorHandler.restoreExitForCurrentThread();
+        }
+    }
+
+    @Test
+    void execute_正常ケース_FK解決でSQLException_元の順序でダンプが継続されること() throws Exception {
+        Path dataRoot = Files.createDirectories(tempDir.resolve("data_exec_fkfail"));
+        Path dumpRoot = Files.createDirectories(dataRoot.resolve("dump"));
+
+        PathsConfig pathsConfig = new PathsConfig();
+        pathsConfig.setDataPath(dataRoot.toString());
+
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setId("db1");
+        entry.setDriverClass("java.lang.String");
+        entry.setUrl("jdbc:fkfail");
+        entry.setUser("u");
+        entry.setPassword("p");
+        ConnectionConfig config = new ConnectionConfig();
+        config.setConnections(List.of(entry));
+
+        DumpConfig dumpConfig = new DumpConfig();
+        dumpConfig.setExcludeTables(List.of());
+
+        FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
+        when(filePatternConfig.getPatternsForTable("T1")).thenReturn(Collections.emptyMap());
+
+        Connection conn = mock(Connection.class);
+        when(conn.getSchema()).thenReturn("APP");
+        when(conn.getCatalog()).thenReturn(null);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+
+        ResultSet tableRs = mock(ResultSet.class);
+        when(meta.getTables(null, "APP", "%", new String[] {"TABLE"})).thenReturn(tableRs);
+        when(tableRs.next()).thenReturn(true, false);
+        when(tableRs.getString("TABLE_NAME")).thenReturn("T1");
+
+        ResultSet pkRsForExport = mock(ResultSet.class);
+        ResultSet pkRsForDump = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("T1"))).thenReturn(pkRsForExport,
+                pkRsForDump);
+        when(pkRsForExport.next()).thenReturn(false);
+        when(pkRsForDump.next()).thenReturn(false);
+
+        Statement stmtHeader = mock(Statement.class);
+        Statement stmtData = mock(Statement.class);
+        Statement stmtDump = mock(Statement.class);
+        when(conn.createStatement()).thenReturn(stmtHeader, stmtData, stmtDump);
+
+        ResultSet rsHeader = mock(ResultSet.class);
+        when(stmtHeader.executeQuery("SELECT * FROM \"T1\" WHERE 1=0")).thenReturn(rsHeader);
+        ResultSetMetaData mdHeader = mock(ResultSetMetaData.class);
+        when(rsHeader.getMetaData()).thenReturn(mdHeader);
+        when(mdHeader.getColumnCount()).thenReturn(1);
+        when(mdHeader.getColumnLabel(1)).thenReturn("ID");
+
+        ResultSet rsData = mock(ResultSet.class);
+        when(stmtData.executeQuery("SELECT * FROM \"T1\" ORDER BY \"ID\" ASC")).thenReturn(rsData);
+        ResultSetMetaData mdData = mock(ResultSetMetaData.class);
+        when(rsData.getMetaData()).thenReturn(mdData);
+        when(mdData.getColumnCount()).thenReturn(1);
+        when(mdData.getColumnType(1)).thenReturn(Types.VARCHAR);
+        when(mdData.getColumnTypeName(1)).thenReturn("VARCHAR2");
+        when(rsData.next()).thenReturn(true, false);
+        when(rsData.getObject(1)).thenReturn("1");
+
+        ResultSet rsDump = mock(ResultSet.class);
+        when(stmtDump.executeQuery("SELECT * FROM \"T1\"")).thenReturn(rsDump);
+        ResultSetMetaData mdDump = mock(ResultSetMetaData.class);
+        when(rsDump.getMetaData()).thenReturn(mdDump);
+        when(mdDump.getColumnCount()).thenReturn(1);
+        when(mdDump.getColumnLabel(1)).thenReturn("ID");
+        when(mdDump.getColumnType(1)).thenReturn(Types.VARCHAR);
+        when(rsDump.next()).thenReturn(true, false);
+        when(rsDump.getString(1)).thenReturn("1");
+
+        DbDialectHandler dialect = createDialectHandlerMock();
+        when(dialect.quoteIdentifier(any())).thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
+        when(dialect.createDbUnitConnection(eq(conn), eq("APP")))
+                .thenReturn(mock(org.dbunit.database.DatabaseConnection.class));
+
+        DataDumper dumper =
+                new DataDumper(pathsConfig, config, filePatternConfig, dumpConfig, e -> dialect);
+        // thenThrow に渡すオブジェクトはモックコンテキスト外で生成する（UnfinishedStubbingException を回避）
+        SQLException fkException = new SQLException("FK resolution failed");
+        try (MockedStatic<DriverManager> driverManager =
+                org.mockito.Mockito.mockStatic(DriverManager.class);
+                MockedStatic<TableDependencyResolver> resolver =
+                        org.mockito.Mockito.mockStatic(TableDependencyResolver.class)) {
+            driverManager.when(() -> DriverManager.getConnection("jdbc:fkfail", "u", "p"))
+                    .thenReturn(conn);
+            // FK解決で SQLException をスロー → warn ログ後に元の順序（T1）でダンプが継続されること
+            resolver.when(() -> TableDependencyResolver.resolveLoadOrder(eq(conn), isNull(),
+                    eq("APP"), eq(List.of("T1")))).thenThrow(fkException);
+            dumper.execute("scn_fkfail", List.of("db1"));
+        }
+
+        // FK解決失敗後も元の順序でダンプが完了し、CSVが生成されること
+        Path outCsv = dumpRoot.resolve("scn_fkfail").resolve("db1").resolve("T1.csv");
+        assertTrue(Files.exists(outCsv));
+    }
+
+    @Test
     void logTableSummary_正常ケース_複数テーブル件数を指定する_例外なく完了すること() throws Exception {
         DataDumper dumper = createDumper();
         Method method =
@@ -2156,6 +2321,45 @@ class DataDumperTest {
 
         method.invoke(dumper, "DB1", counts);
         assertEquals(2, counts.size());
+    }
+
+    @Test
+    void writeTableOrdering_異常ケース_IOExceptionが発生する_ErrorHandlerが呼ばれること()
+            throws Exception {
+        DataDumper dumper = createDumper();
+        Method method =
+                DataDumper.class.getDeclaredMethod("writeTableOrdering", File.class, List.class);
+        method.setAccessible(true);
+
+        File dbDir = tempDir.toFile();
+        IOException io = new IOException("write fail");
+
+        try (MockedStatic<FileUtils> fileUtils = Mockito.mockStatic(FileUtils.class);
+                MockedStatic<ErrorHandler> handler = Mockito.mockStatic(ErrorHandler.class)) {
+
+            fileUtils.when(() -> FileUtils.writeStringToFile(any(File.class), anyString(),
+                    eq(StandardCharsets.UTF_8))).thenThrow(io);
+            handler.when(() -> ErrorHandler.errorAndExit(anyString(), any()))
+                    .thenAnswer(inv -> null);
+
+            method.invoke(dumper, dbDir, List.of("T1", "T2"));
+
+            handler.verify(
+                    () -> ErrorHandler.errorAndExit("Failed to create table-ordering.txt", io));
+        }
+    }
+
+    @Test
+    void deleteTableOrdering_正常ケース_ファイルが存在しない_ログなしで正常終了すること()
+            throws Exception {
+        DataDumper dumper = createDumper();
+        Method method =
+                DataDumper.class.getDeclaredMethod("deleteTableOrdering", File.class);
+        method.setAccessible(true);
+
+        // table-ordering.txt が存在しない tempDir を渡す → deleteQuietly が false を返す (false ブランチ)
+        method.invoke(dumper, tempDir.toFile());
+        // 例外が発生しないことで false ブランチの通過を確認
     }
 
     private DataDumper createDumper() {

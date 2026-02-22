@@ -1374,13 +1374,9 @@ public class OracleDialectHandlerTest {
             throws Exception {
 
         OracleDialectHandler handler = createHandler();
-
-        // handler の baseLobDir 想定と同じ位置に「ディレクトリ」を作る
-        // （既存テストが tempDir/dump/files を使って成功している前提に合わせる）
         Path baseLobDir = tempDir.resolve("dump").resolve("files");
         Files.createDirectories(baseLobDir);
 
-        // ★「ファイル名」のはずの場所にディレクトリを作る（これが readAllBytes で IOException になる）
         Path dirAsFile = baseLobDir.resolve("dir_lob");
         Files.createDirectories(dirAsFile);
 
@@ -1420,10 +1416,8 @@ public class OracleDialectHandlerTest {
         ITableMetaData tableMetaData = mock(ITableMetaData.class);
         Column blobCol = mock(Column.class);
         Column clobCol = mock(Column.class);
-        org.dbunit.dataset.datatype.DataType blobLike =
-                mock(org.dbunit.dataset.datatype.DataType.class);
-        org.dbunit.dataset.datatype.DataType clobLike =
-                mock(org.dbunit.dataset.datatype.DataType.class);
+        DataType blobLike = mock(DataType.class);
+        DataType clobLike = mock(DataType.class);
         when(blobLike.getSqlType()).thenReturn(Types.BLOB);
         when(clobLike.getSqlType()).thenReturn(Types.CLOB);
         when(blobCol.getColumnName()).thenReturn("BLOB_COL");
@@ -1435,8 +1429,7 @@ public class OracleDialectHandlerTest {
         Field f = OracleDialectHandler.class.getDeclaredField("tableMetaMap");
         f.setAccessible(true);
         @SuppressWarnings("unchecked")
-        java.util.Map<String, ITableMetaData> map =
-                (java.util.Map<String, ITableMetaData>) f.get(handler);
+        Map<String, ITableMetaData> map = (Map<String, ITableMetaData>) f.get(handler);
         map.put("TBL", tableMetaData);
 
         Object blob = handler.readLobFile("s.bin", "TBL", "BLOB_COL", base);
@@ -1677,7 +1670,7 @@ public class OracleDialectHandlerTest {
         Column col = mock(Column.class);
         when(col.getColumnName()).thenReturn(column);
 
-        org.dbunit.dataset.datatype.DataType dt = mock(org.dbunit.dataset.datatype.DataType.class);
+        DataType dt = mock(DataType.class);
         when(dt.getSqlType()).thenReturn(sqlType);
         when(dt.getSqlTypeName()).thenReturn(sqlTypeName);
 

@@ -31,6 +31,7 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
+import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 class TestResourceContextTest {
@@ -401,44 +402,13 @@ class TestResourceContextTest {
         }
     }
 
-    // @Test
-    // void resolveTestClassRootFromClasspath_異常ケース_解決先がディレクトリでない_IllegalStateExceptionが送出されること()
-    // throws Exception {
-    // Path file = tempDir.resolve("NoPackageTestClass");
-    // Files.writeString(file, "x", StandardCharsets.UTF_8);
-    // ClassLoader original = Thread.currentThread().getContextClassLoader();
-    // ClassLoader fake = new ClassLoader(original) {
-    // @Override
-    // public URL getResource(String name) {
-    // if ("NoPackageTestClass".equals(name)) {
-    // return toUrl(file);
-    // }
-    // return super.getResource(name);
-    // }
-    // };
-    // Thread.currentThread().setContextClassLoader(fake);
-    // try {
-    // Class<?> noPackageClass = Class.forName("NoPackageTestClass");
-    // IllegalStateException ex =
-    // assertThrows(IllegalStateException.class,
-    // () -> invokePrivateStatic(TestResourceContext.class,
-    // "resolveTestClassRootFromClasspath", new Class[] {Class.class},
-    // new Object[] {noPackageClass}));
-    // assertTrue(ex.getMessage().contains("not a directory"));
-    // } finally {
-    // Thread.currentThread().setContextClassLoader(original);
-    // }
-    // }
-
     @Test
     void springManagedConnection_正常ケース_DataSourceを指定する_Connectionが返ること() throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
-        try (MockedStatic<org.springframework.jdbc.datasource.DataSourceUtils> mocked =
-                mockStatic(org.springframework.jdbc.datasource.DataSourceUtils.class)) {
-            mocked.when(() -> org.springframework.jdbc.datasource.DataSourceUtils.getConnection(ds))
-                    .thenReturn(conn);
+        try (MockedStatic<DataSourceUtils> mocked = mockStatic(DataSourceUtils.class)) {
+            mocked.when(() -> DataSourceUtils.getConnection(ds)).thenReturn(conn);
             Optional<Connection> out = trc.springManagedConnection(Optional.of(ds));
             assertTrue(out.isPresent());
             assertEquals(conn, out.get());
@@ -487,14 +457,6 @@ class TestResourceContextTest {
             throw new IllegalStateException(cause);
         }
     }
-
-    // private static URL toUrl(Path p) {
-    // try {
-    // return p.toUri().toURL();
-    // } catch (Exception e) {
-    // throw new IllegalStateException(e);
-    // }
-    // }
 
     private static String findBlankButNotEmptyToken() {
         for (int c = 0; c <= Character.MAX_VALUE; c++) {

@@ -21,6 +21,7 @@ import io.github.yok.flexdblink.db.oracle.OracleDialectHandler;
 import io.github.yok.flexdblink.db.postgresql.PostgresqlDialectHandler;
 import io.github.yok.flexdblink.db.sqlserver.SqlServerDialectHandler;
 import io.github.yok.flexdblink.util.DateTimeFormatUtil;
+import java.lang.reflect.Method;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -357,8 +358,8 @@ class DbDialectHandlerFactoryTest {
                 new DbDialectHandlerFactory(dbUnitConfig, new DumpConfig(), new PathsConfig(),
                         mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
 
-        java.lang.reflect.Method method = DbDialectHandlerFactory.class
-                .getDeclaredMethod("resolveMySqlDatabase", String.class);
+        Method method = DbDialectHandlerFactory.class.getDeclaredMethod("resolveMySqlDatabase",
+                String.class);
         method.setAccessible(true);
 
         assertEquals("testdb", method.invoke(factory, new Object[] {null}));
@@ -379,8 +380,8 @@ class DbDialectHandlerFactoryTest {
                 new DbDialectHandlerFactory(dbUnitConfig, new DumpConfig(), new PathsConfig(),
                         mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
 
-        java.lang.reflect.Method method = DbDialectHandlerFactory.class
-                .getDeclaredMethod("resolveSqlServerSchema", String.class);
+        Method method = DbDialectHandlerFactory.class.getDeclaredMethod("resolveSqlServerSchema",
+                String.class);
         method.setAccessible(true);
 
         assertEquals("dbo", method.invoke(factory, new Object[] {null}));

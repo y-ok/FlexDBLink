@@ -10,6 +10,7 @@ import io.github.yok.flexdblink.parser.DataFormat;
 import io.github.yok.flexdblink.parser.DataLoaderFactory;
 import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.LogPathUtil;
+import io.github.yok.flexdblink.util.TableDependencyResolver;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -22,6 +23,7 @@ import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -95,6 +97,15 @@ public class DataLoader {
         void cleanInsert(IDatabaseConnection connection, IDataSet dataSet) throws Exception;
 
         /**
+         * Executes DBUnit DELETE_ALL.
+         *
+         * @param connection DBUnit connection
+         * @param dataSet dataset to delete
+         * @throws Exception execution failure
+         */
+        void deleteAll(IDatabaseConnection connection, IDataSet dataSet) throws Exception;
+
+        /**
          * Executes DBUnit UPDATE.
          *
          * @param connection DBUnit connection
@@ -152,6 +163,12 @@ public class DataLoader {
                     public void cleanInsert(IDatabaseConnection connection, IDataSet dataSet)
                             throws Exception {
                         DatabaseOperation.CLEAN_INSERT.execute(connection, dataSet);
+                    }
+
+                    @Override
+                    public void deleteAll(IDatabaseConnection connection, IDataSet dataSet)
+                            throws Exception {
+                        DatabaseOperation.DELETE_ALL.execute(connection, dataSet);
                     }
 
                     @Override
@@ -246,6 +263,36 @@ public class DataLoader {
     }
 
     /**
+     * Deletes all rows for the specified tables in reverse order (child-first).
+     *
+     * <p>
+     * DBUnit CLEAN_INSERT performs DELETE_ALL internally per table. If parent tables are deleted
+     * while child tables still contain rows referencing them, FK constraints can fail.
+     * </p>
+     *
+     * @param dbConn DBUnit connection
+     * @param tables insert order (parent-first)
+     * @param dbId DB identifier for logging
+     * @throws Exception if DBUnit operation fails
+     */
+    private void deleteAllInReverseOrder(IDatabaseConnection dbConn, List<String> tables,
+            String dbId) throws Exception {
+
+        if (tables == null || tables.size() <= 1) {
+            return;
+        }
+
+        List<String> deleteOrder = new ArrayList<>(tables);
+        Collections.reverse(deleteOrder);
+
+        for (String table : deleteOrder) {
+            IDataSet ds = dbConn.createDataSet(new String[] {table});
+            operationExecutor.deleteAll(dbConn, ds);
+            log.info("[{}] Table[{}] Initial | deletedAll", dbId, table);
+        }
+    }
+
+    /**
      * Reads dataset (CSV/JSON/YAML/XML + LOB) from the specified directory.
      *
      * <p>
@@ -314,6 +361,15 @@ public class DataLoader {
                 try {
                     dbConn = createDbUnitConn(jdbc, entry, dialectHandler);
                     String schema = resolveSchema(entry, dialectHandler);
+
+                    // FK依存関係に基づいてテーブルをトポロジカルソート（親テーブルが先）
+                    tables = TableDependencyResolver.resolveLoadOrder(jdbc, jdbc.getCatalog(),
+                            schema, tables);
+                    log.info("[{}] Table load order resolved by FK dependencies: {}", dbId, tables);
+
+                    if (initial) {
+                        deleteAllInReverseOrder(dbConn, tables, dbId);
+                    }
 
                     for (String table : tables) {
                         // ファイル形式を自動判別して読み込み
@@ -397,6 +453,8 @@ public class DataLoader {
         } catch (Exception e) {
             log.error("[{}] Unexpected error occurred: {}", dbId, e.getMessage(), e);
             ErrorHandler.errorAndExit(errorMessage, e);
+        } finally {
+            deleteTableOrdering(dir);
         }
     }
 
@@ -580,12 +638,13 @@ public class DataLoader {
     }
 
     /**
-     * Generates/regenerates {@code table-ordering.txt}.
+     * Always regenerates {@code table-ordering.txt} from the dataset files in the directory.
      *
      * <p>
-     * This method scans the specified directory for supported dataset files (CSV/JSON/YAML/XML) and
-     * creates/updates {@code table-ordering.txt} with the list of table names (file base names,
-     * sorted).
+     * This method scans the specified directory for supported dataset files (CSV/JSON/YAML/XML),
+     * deletes any existing {@code table-ordering.txt}, and recreates it with the sorted list of
+     * table names (file base names). The file is treated as a temporary working file and is deleted
+     * at the end of each Load execution by {@link #deleteTableOrdering(File)}.
      * </p>
      *
      * @param dir directory where dataset files are located
@@ -606,18 +665,8 @@ public class DataLoader {
         Path orderPath = orderFile.toPath().toAbsolutePath().normalize();
         String relPath = FilenameUtils.separatorsToUnix(dataDir.relativize(orderPath).toString());
 
-        if (orderFile.exists()) {
-            try {
-                List<String> lines = Files.readAllLines(orderFile.toPath(), StandardCharsets.UTF_8);
-                if (lines.size() == fileCount) {
-                    log.info("table-ordering.txt already exists (count matches): {}", relPath);
-                    return;
-                }
-                FileUtils.forceDelete(orderFile);
-            } catch (IOException e) {
-                FileUtils.deleteQuietly(orderFile);
-            }
-        }
+        // Always delete existing file and regenerate
+        FileUtils.deleteQuietly(orderFile);
 
         if (fileCount == 0) {
             log.info("No dataset files found → ordering file not generated");
@@ -633,6 +682,26 @@ public class DataLoader {
         } catch (IOException e) {
             log.error("Failed to create table-ordering.txt: {}", e.getMessage(), e);
             ErrorHandler.errorAndExit("Failed to create table-ordering.txt", e);
+        }
+    }
+
+    /**
+     * Deletes {@code table-ordering.txt} from the specified directory if it exists.
+     *
+     * <p>
+     * Called after each Load execution to clean up the temporary working file. Silently ignores
+     * cases where the file does not exist.
+     * </p>
+     *
+     * @param dir directory containing {@code table-ordering.txt}
+     */
+    private void deleteTableOrdering(File dir) {
+        File orderFile = new File(dir, "table-ordering.txt");
+        if (FileUtils.deleteQuietly(orderFile)) {
+            Path dataDir = Paths.get(pathsConfig.getDataPath()).toAbsolutePath().normalize();
+            String relPath = FilenameUtils.separatorsToUnix(
+                    dataDir.relativize(orderFile.toPath().toAbsolutePath().normalize()).toString());
+            log.info("Deleted table-ordering.txt: {}", relPath);
         }
     }
 
@@ -928,9 +997,22 @@ public class DataLoader {
                 }
             }
 
+            // FK依存関係に基づいてテーブルをトポロジカルソート（親テーブルが先）
+            String schema = resolveSchema(entry, dialectHandler);
+            try {
+                tables = TableDependencyResolver.resolveLoadOrder(jdbc, jdbc.getCatalog(), schema,
+                        tables);
+                log.info("[{}] Table load order resolved by FK dependencies: {}", dbId, tables);
+            } catch (SQLException e) {
+                log.warn(
+                        "[{}] FK dependency resolution failed; using alphabetical order. reason={}",
+                        dbId, e.getMessage());
+            }
+
             // Create DBUnit connection
             dbConn = createDbUnitConn(jdbc, entry, dialectHandler);
-            String schema = resolveSchema(entry, dialectHandler);
+
+            deleteAllInReverseOrder(dbConn, tables, dbId);
 
             // Load each table (always "initial load" strategy)
             for (String table : tables) {
@@ -995,6 +1077,7 @@ public class DataLoader {
                             closeEx.getMessage(), closeEx);
                 }
             }
+            deleteTableOrdering(dir);
         }
     }
 }

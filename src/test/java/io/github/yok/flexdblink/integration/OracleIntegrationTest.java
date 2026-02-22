@@ -496,6 +496,208 @@ class OracleIntegrationTest {
         return sb.toString();
     }
 
+    // ── FK dependency resolution tests ──────────────────────────────────────
+
+    @Test
+    void execute_正常ケース_FK制約あり_tableOrderingが毎回再生成されてロードが成功すること()
+            throws Exception {
+        Path dataPath = tempDir.resolve("fk_load_no_ordering");
+        OracleIntegrationSupport.Runtime runtime =
+                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+
+        // table-ordering.txt is always regenerated at the start and deleted at the end;
+        // the FK resolver corrects the alphabetical order (AUX before MAIN) to load order
+        OracleIntegrationSupport.executeLoad(runtime, "pre");
+
+        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                assertTrue(rs.next());
+                assertEquals(6, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    void execute_正常ケース_FK制約あり_FK解決でアルファベット順が修正されてロードが成功すること()
+            throws Exception {
+        Path dataPath = tempDir.resolve("fk_load_reversed_ordering");
+        OracleIntegrationSupport.Runtime runtime =
+                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+
+        // table-ordering.txt is always regenerated alphabetically (AUX before MAIN);
+        // FK resolver must correct the order so the load completes without FK violation
+        OracleIntegrationSupport.executeLoad(runtime, "pre");
+
+        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                assertTrue(rs.next());
+                assertEquals(6, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    void execute_正常ケース_FK制約あり_ダンプが完了してCSVと件数が出力されること() throws Exception {
+        Path dataPath = tempDir.resolve("fk_dump_data");
+        OracleIntegrationSupport.Runtime runtime =
+                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, false);
+
+        Path dbDir = OracleIntegrationSupport.executeDump(runtime, "fk_dump_case");
+
+        assertTrue(Files.exists(dbDir.resolve("IT_TYPED_MAIN.csv")));
+        assertTrue(Files.exists(dbDir.resolve("IT_TYPED_AUX.csv")));
+
+        // Row counts in the dumped CSVs must match what is in the DB (seed data)
+        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+                Statement st = conn.createStatement()) {
+            int expectedMain, expectedAux;
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                rs.next();
+                expectedMain = rs.getInt(1);
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                rs.next();
+                expectedAux = rs.getInt(1);
+            }
+            long mainCsvRows =
+                    Files.lines(dbDir.resolve("IT_TYPED_MAIN.csv")).count() - 1; // minus header
+            long auxCsvRows =
+                    Files.lines(dbDir.resolve("IT_TYPED_AUX.csv")).count() - 1;
+            assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
+            assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");
+        }
+    }
+
+    @Test
+    void execute_正常ケース_FK制約あり_ロード後にダンプする_件数が一致すること() throws Exception {
+        Path dataPath = tempDir.resolve("fk_roundtrip_data");
+        OracleIntegrationSupport.Runtime runtime =
+                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+
+        OracleIntegrationSupport.executeLoad(runtime, "pre");
+        Path dbDir = OracleIntegrationSupport.executeDump(runtime, "fk_roundtrip_case");
+
+        assertTrue(Files.exists(dbDir.resolve("IT_TYPED_MAIN.csv")));
+        assertTrue(Files.exists(dbDir.resolve("IT_TYPED_AUX.csv")));
+
+        long mainCsvRows = Files.lines(dbDir.resolve("IT_TYPED_MAIN.csv")).count() - 1;
+        long auxCsvRows = Files.lines(dbDir.resolve("IT_TYPED_AUX.csv")).count() - 1;
+        assertEquals(6L, mainCsvRows, "IT_TYPED_MAIN should have 6 rows after load");
+        assertEquals(2L, auxCsvRows, "IT_TYPED_AUX should have 2 rows after load");
+    }
+
+    // ── FK constraint-free tests ──────────────────────────────────────────────
+
+    @Test
+    void execute_正常ケース_FK制約なし_tableOrderingが毎回再生成されてロードが成功すること()
+            throws Exception {
+        OracleIntegrationSupport.prepareDatabaseWithoutFk(ORACLE);
+        Path dataPath = tempDir.resolve("nofk_load_no_ordering");
+        OracleIntegrationSupport.Runtime runtime =
+                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+
+        // table-ordering.txt is always regenerated alphabetically; without FK constraints
+        // any load order is acceptable, so load completes successfully
+        OracleIntegrationSupport.executeLoad(runtime, "pre");
+
+        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                assertTrue(rs.next());
+                assertEquals(6, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    void execute_正常ケース_FK制約なし_アルファベット順でロードが成功すること()
+            throws Exception {
+        OracleIntegrationSupport.prepareDatabaseWithoutFk(ORACLE);
+        Path dataPath = tempDir.resolve("nofk_load_reversed_ordering");
+        OracleIntegrationSupport.Runtime runtime =
+                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+
+        // table-ordering.txt is always regenerated alphabetically (AUX before MAIN);
+        // without FK constraints, this order is acceptable for CLEAN_INSERT
+        OracleIntegrationSupport.executeLoad(runtime, "pre");
+
+        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                assertTrue(rs.next());
+                assertEquals(6, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    void execute_正常ケース_FK制約なし_ダンプが完了してCSVと件数が出力されること() throws Exception {
+        OracleIntegrationSupport.prepareDatabaseWithoutFk(ORACLE);
+        Path dataPath = tempDir.resolve("nofk_dump_data");
+        OracleIntegrationSupport.Runtime runtime =
+                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, false);
+
+        Path dbDir = OracleIntegrationSupport.executeDump(runtime, "nofk_dump_case");
+
+        assertTrue(Files.exists(dbDir.resolve("IT_TYPED_MAIN.csv")));
+        assertTrue(Files.exists(dbDir.resolve("IT_TYPED_AUX.csv")));
+
+        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+                Statement st = conn.createStatement()) {
+            int expectedMain, expectedAux;
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                rs.next();
+                expectedMain = rs.getInt(1);
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                rs.next();
+                expectedAux = rs.getInt(1);
+            }
+            long mainCsvRows =
+                    Files.lines(dbDir.resolve("IT_TYPED_MAIN.csv")).count() - 1; // minus header
+            long auxCsvRows = Files.lines(dbDir.resolve("IT_TYPED_AUX.csv")).count() - 1;
+            assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
+            assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");
+        }
+    }
+
+    @Test
+    void execute_正常ケース_FK制約なし_ロード後にダンプする_件数が一致すること() throws Exception {
+        OracleIntegrationSupport.prepareDatabaseWithoutFk(ORACLE);
+        Path dataPath = tempDir.resolve("nofk_roundtrip_data");
+        OracleIntegrationSupport.Runtime runtime =
+                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+
+        OracleIntegrationSupport.executeLoad(runtime, "pre");
+        Path dbDir = OracleIntegrationSupport.executeDump(runtime, "nofk_roundtrip_case");
+
+        assertTrue(Files.exists(dbDir.resolve("IT_TYPED_MAIN.csv")));
+        assertTrue(Files.exists(dbDir.resolve("IT_TYPED_AUX.csv")));
+
+        long mainCsvRows = Files.lines(dbDir.resolve("IT_TYPED_MAIN.csv")).count() - 1;
+        long auxCsvRows = Files.lines(dbDir.resolve("IT_TYPED_AUX.csv")).count() - 1;
+        assertEquals(6L, mainCsvRows, "IT_TYPED_MAIN should have 6 rows after load");
+        assertEquals(2L, auxCsvRows, "IT_TYPED_AUX should have 2 rows after load");
+    }
+
     private static void assertXmlTextEquals(String xml, String xPathExpr, String expected)
             throws Exception {
         DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();

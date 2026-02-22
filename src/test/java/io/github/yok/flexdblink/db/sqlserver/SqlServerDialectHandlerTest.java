@@ -170,7 +170,7 @@ public class SqlServerDialectHandlerTest {
     public void parseDateTimeValue_正常ケース_dateを指定する_Dateが返ること() throws Exception {
         SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
         Object actual = handler.parseDateTimeValue("COL", "2026/02/15");
-        assertInstanceOf(java.sql.Date.class, actual);
+        assertInstanceOf(Date.class, actual);
     }
 
     @Test
@@ -1008,25 +1008,6 @@ public class SqlServerDialectHandlerTest {
         SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
         assertFalse(handler.isDateTimeTypeForDump(Types.INTEGER, "int"));
     }
-
-    // @Test
-    // public void hasNotNullLobColumn_正常ケース_対象外列は無視されfalseが返ること() throws Exception {
-    // SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
-
-    // Connection conn = mock(Connection.class);
-    // DatabaseMetaData meta = mock(DatabaseMetaData.class);
-    // ResultSet rs = mock(ResultSet.class);
-    // when(conn.getMetaData()).thenReturn(meta);
-    // when(meta.getColumns(null, "dbo", "T1", "%")).thenReturn(rs);
-    // when(rs.next()).thenReturn(true, false);
-
-    // // LOB対象外の列名を返す -> continue を踏む
-    // when(rs.getString("COLUMN_NAME")).thenReturn("NOT_LOB");
-    // when(rs.getInt("NULLABLE")).thenReturn(DatabaseMetaData.columnNoNulls);
-
-    // Column[] lobCols = new Column[] {new Column("LOB1", DataType.BLOB)};
-    // assertFalse(handler.hasNotNullLobColumn(conn, "dbo", "T1", lobCols));
-    // }
 
     @Test
     public void hasPrimaryKey_正常ケース_PK無し_falseが返ること() throws Exception {
