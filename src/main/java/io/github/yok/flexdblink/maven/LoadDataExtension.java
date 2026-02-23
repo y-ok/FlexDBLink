@@ -89,7 +89,10 @@ public class LoadDataExtension
     private static final String STORE_KEY_TX = "TX_RECORDS";
     private static final String STORE_KEY_TXI_DEFAULT = "TXI_DEFAULT_SWITCH";
 
-    // Record container for TransactionInterceptor default TM switching
+    /**
+     * Records, per data source key, whether this extension switched the
+     * {@code TransactionInterceptor}'s default {@code TransactionManager} and needs to restore it.
+     */
     private static final class TxInterceptorSwitchRecord {
         final Map<String, Boolean> touched = new LinkedHashMap<>();
     }

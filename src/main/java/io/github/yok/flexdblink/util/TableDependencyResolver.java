@@ -288,9 +288,9 @@ public final class TableDependencyResolver {
      * @param rs imported-keys result set
      * @param childLower normalized child name (lower-case)
      * @param tableSetLower normalized table set (lower-case)
-     * @param edges adjacency list (parent -> children)
-     * @param inDegree in-degree map (child -> number of parents)
-     * @param normalizedMap normalized->original map
+     * @param edges adjacency list ({@code parent -> children})
+     * @param inDegree in-degree map ({@code child -> number of parents})
+     * @param normalizedMap {@code normalized -> original} map
      * @param childName original child name for logging
      * @return {@code true} if {@code rs} had at least one row, otherwise {@code false}
      * @throws SQLException if result set access fails

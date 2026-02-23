@@ -39,8 +39,7 @@ import org.dbunit.database.DatabaseConnection;
  * <li>Export all rows of each table as CSV (<code>dump/{scenario}/{dbId}/{table}.csv</code>).</li>
  * <li>Export all BLOB/CLOB columns under <code>dump/{scenario}/{dbId}/files/</code> and replace the
  * corresponding CSV cell with <code>file:&lt;fileName&gt;</code>.</li>
- * <li>Resolve file names using {@link io.github.yok.flexdblink.config.FileNameResolver} constructed
- * from {@link FilePatternConfig}.</li>
+ * <li>Resolve file names based on {@link io.github.yok.flexdblink.config.FilePatternConfig}.</li>
  * </ul>
  *
  * @see FilePatternConfig
