@@ -28,6 +28,7 @@ import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.TableDependencyResolver;
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.nio.charset.Charset;
@@ -139,6 +140,15 @@ class DataLoaderTest {
         IDatabaseConnection connection = mockConnectionForNoOpOperation();
 
         assertDoesNotThrow(() -> executor.insert(connection, new DefaultDataSet()));
+    }
+
+    @Test
+    void setScenarioDuplicateHandler_正常ケース_セッター経由でハンドラを差し替えられること() {
+        DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                mock(DumpConfig.class));
+        ScenarioDuplicateHandler custom = new ScenarioDuplicateHandler();
+        assertDoesNotThrow(() -> loader.setScenarioDuplicateHandler(custom));
     }
 
     private IDatabaseConnection mockConnectionForNoOpOperation() throws Exception {
@@ -589,7 +599,7 @@ class DataLoaderTest {
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
 
-        java.lang.reflect.Field field = DataLoader.class.getDeclaredField("insertSummary");
+        Field field = DataLoader.class.getDeclaredField("insertSummary");
         field.setAccessible(true);
         @SuppressWarnings("unchecked")
         Map<String, Map<String, Integer>> summary =
@@ -1657,12 +1667,8 @@ class DataLoaderTest {
 
         try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class)) {
             method.invoke(loader, dir.toFile(), "db1", true, entry, dialectHandler, "fatal");
-
-            // tables が空で return するので、JDBC 接続は発生しない
             driverManager.verifyNoInteractions();
         }
-
-        // こちらも到達しない（接続処理に入らない）
         verifyNoInteractions(dialectHandler);
     }
 
@@ -1816,11 +1822,8 @@ class DataLoaderTest {
         }
     }
 
-    // ─── C0カバレッジ補完ケース ─────────────────────────────────────────────────
-
     @Test
     void deployWithConnection_正常ケース_FK解決でSQLException_アルファベット順で継続されること() throws Exception {
-        // L943: FK解決でSQLExceptionがスローされた場合、警告ログ後にアルファベット順で処理が継続されること
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DbDialectHandler dialect = mock(DbDialectHandler.class);
@@ -1861,7 +1864,6 @@ class DataLoaderTest {
                         "fatal");
             }
         });
-        // FK解決失敗後もアルファベット順フォールバックで T1 がロードされること
         verify(clean).execute(eq(dbConn), any());
     }
 

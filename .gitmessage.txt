@@ -12,15 +12,3 @@
 # - chore: 雑務（生成物更新、設定調整、軽微な整理）
 # - style: フォーマットのみ（空白/インデント等、意味変化なし）
 # - revert: 取り消し
-#
-# 例:
-# feat: add YAML-driven dump configuration
-# fix: prevent NPE when roleIds is empty
-#
-# Why:
-# What:
-# How:
-# Test:
-#
-# Refs: #
-# BREAKING CHANGE:

@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(javap:*)"
+      "Bash(javap:*)",
+      "Bash(git config:*)",
+      "Bash(git add:*)",
+      "Bash(git restore:*)",
+      "Bash(mvn test:*)",
+      "Bash(mvn jacoco:report:*)",
+      "Bash(sort find src/test/resources/db/migration/sqlserver -type f)",
+      "Bash(mvn dependency:list:*)"
     ]
   }
 }

@@ -367,4 +367,22 @@ class ScenarioDuplicateHandlerTest {
         assertEquals("row2", filtered.getValue(1, "ID"));
         assertEquals("row4", filtered.getValue(2, "ID"));
     }
+
+    @Test
+    void FilteredTable_IntPredicate_正常ケース_述語ベースで除外行を指定する_行数と値が正しく返ること() throws Exception {
+        ITable delegate = mock(ITable.class);
+        ITableMetaData metaData = mock(ITableMetaData.class);
+        when(delegate.getTableMetaData()).thenReturn(metaData);
+        when(delegate.getValue(0, "ID")).thenReturn("A");
+        when(delegate.getValue(2, "ID")).thenReturn("C");
+
+        // 物理行 0,1,2 のうち行インデックス 1 をスキップする述語
+        ScenarioDuplicateHandler.FilteredTable filtered =
+                new ScenarioDuplicateHandler.FilteredTable(delegate, i -> i == 1, 2);
+
+        assertEquals(2, filtered.getRowCount());
+        assertSame(metaData, filtered.getTableMetaData());
+        assertEquals("A", filtered.getValue(0, "ID"));
+        assertEquals("C", filtered.getValue(1, "ID"));
+    }
 }

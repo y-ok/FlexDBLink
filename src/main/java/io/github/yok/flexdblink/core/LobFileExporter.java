@@ -5,9 +5,6 @@ import io.github.yok.flexdblink.config.FilePatternConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.util.CsvUtils;
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.OutputStreamWriter;
-import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.Connection;
@@ -28,10 +25,8 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
-import org.apache.commons.csv.CSVPrinter;
 import org.apache.commons.csv.CSVRecord;
 import org.apache.commons.csv.QuoteMode;
-import org.apache.commons.lang3.StringUtils;
 
 /**
  * Exports BLOB/CLOB columns from a database table to individual files, and updates the
@@ -133,7 +128,6 @@ class LobFileExporter {
             int rowIndex = 0;
             while (rs.next()) {
                 List<String> row = csvData.get(rowIndex++);
-                boolean wroteAny = false;
 
                 for (int i = 1; i <= colCount; i++) {
                     String col = md.getColumnLabel(i);
@@ -146,6 +140,7 @@ class LobFileExporter {
 
                     Object raw = rs.getObject(i);
                     String cell;
+                    Optional<String> patternOpt = filePatternConfig.getPattern(table, col);
 
                     // DATE/TIMESTAMP and dialect-specific temporal types
                     if (dialectHandler.shouldUseRawTemporalValueForDump(col, type, typeName)) {
@@ -153,37 +148,26 @@ class LobFileExporter {
                                 rs.getString(i));
 
                     } else if (dialectHandler.isDateTimeTypeForDump(type, typeName)) {
-                        Object temporalValue = raw;
-                        if ("DATE".equalsIgnoreCase(typeName) || type == Types.DATE) {
-                            Object typed = rs.getDate(i);
-                            temporalValue = (typed != null) ? typed : temporalValue;
-                        } else if (type == Types.TIME) {
-                            Object typed = rs.getTime(i);
-                            temporalValue = (typed != null) ? typed : temporalValue;
-                        } else if (type == Types.TIMESTAMP) {
-                            Object typed = rs.getTimestamp(i);
-                            temporalValue = (typed != null) ? typed : temporalValue;
-                        }
+                        Object temporalValue =
+                                CsvUtils.resolveTemporalValue(rs, i, raw, type, typeName);
                         cell = (temporalValue == null) ? ""
                                 : dialectHandler.formatDateTimeColumn(col, temporalValue, conn);
 
-                        // BLOB/CLOB types
-                    } else if (filePatternConfig.getPattern(table, col).isPresent()) {
+                        // BLOB/CLOB types with pattern
+                    } else if (patternOpt.isPresent()) {
                         if (raw == null) {
                             cell = "";
                         } else {
-                            Optional<String> patternOpt = filePatternConfig.getPattern(table, col);
-                            String pattern = patternOpt.orElseThrow(
-                                    () -> new IllegalStateException("No definition for \"" + table
-                                            + "\" / \"" + col + "\" in file-patterns."));
+                            String pattern = patternOpt.get();
                             Map<String, Object> keyMap = buildKeyMap(rs, pattern);
                             String fname = applyPlaceholders(pattern, keyMap);
                             Path outPath = filesDir.toPath().resolve(fname);
                             dialectHandler.writeLobFile(table, col, raw, outPath);
-                            wroteAny = true;
+                            fileCount++;
                             cell = "file:" + fname;
                         }
 
+                        // BLOB/CLOB types without pattern → error
                     } else if (isLobSqlType(type)) {
                         throw new IllegalStateException("No definition for \"" + table + "\" / \""
                                 + col + "\" in file-patterns.");
@@ -200,52 +184,20 @@ class LobFileExporter {
                     }
 
                     row.set(idx, cell);
-                    if (wroteAny) {
-                        fileCount++;
-                        wroteAny = false;
-                    }
                 }
             }
         }
 
         // 6) Compute sort-key indices
-        List<String> pkColumns = new ArrayList<>();
-        try (ResultSet pkRs = conn.getMetaData().getPrimaryKeys(conn.getCatalog(), schema, table)) {
-            while (pkRs.next()) {
-                pkColumns.add(pkRs.getString("COLUMN_NAME"));
-            }
-        }
+        List<String> pkColumns = CsvUtils.fetchPrimaryKeyColumns(conn, schema, table);
         List<Integer> sortIdx =
                 CsvUtils.buildSortIndices(headers.toArray(new String[0]), pkColumns);
 
-        // 7) Sort csvData ascending (trim → numeric-or-string compare)
-        csvData.sort((a, b) -> {
-            for (int idx : sortIdx) {
-                String va = StringUtils.trimToEmpty(a.get(idx));
-                String vb = StringUtils.trimToEmpty(b.get(idx));
-                int cmp;
-                try {
-                    cmp = Integer.compare(Integer.parseInt(va), Integer.parseInt(vb));
-                } catch (NumberFormatException ex) {
-                    cmp = va.compareTo(vb);
-                }
-                if (cmp != 0) {
-                    return cmp;
-                }
-            }
-            return 0;
-        });
+        // 7) Sort csvData ascending
+        csvData.sort(CsvUtils.rowComparator(sortIdx));
 
         // 8) Overwrite CSV
-        CSVFormat outFmt = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).get();
-        try (Writer w =
-                new OutputStreamWriter(new FileOutputStream(csvFile), StandardCharsets.UTF_8);
-                CSVPrinter pr = new CSVPrinter(w, outFmt)) {
-            pr.printRecord(headers);
-            for (List<String> row : csvData) {
-                pr.printRecord(row);
-            }
-        }
+        CsvUtils.writeCsvUtf8(csvFile, headers.toArray(new String[0]), csvData);
 
         return new DumpResult(csvData.size(), fileCount);
     }

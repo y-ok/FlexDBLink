@@ -668,49 +668,42 @@ class LobFileExporterTest {
     }
 
     @Test
-    void export_異常ケース_パターン取得が途中で空になる_IllegalStateExceptionが送出されること() throws Exception {
+    void export_異常ケース_CLOB列でパターン未定義_IllegalStateExceptionが送出されること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
 
-        when(filePatternConfig.getPatternsForTable("TPATTERN_EMPTY"))
-                .thenReturn(Collections.singletonMap("BLOB_COL", "blob_{ID}.bin"));
-        when(filePatternConfig.getPattern("TPATTERN_EMPTY", "BLOB_COL"))
-                .thenReturn(Optional.of("blob_{ID}.bin")).thenReturn(Optional.empty());
+        when(filePatternConfig.getPatternsForTable("TCLOB_ERR")).thenReturn(Collections.emptyMap());
+        when(filePatternConfig.getPattern("TCLOB_ERR", "CLOB_COL")).thenReturn(Optional.empty());
 
         Connection conn = mock(Connection.class);
         when(conn.getCatalog()).thenReturn(null);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         when(conn.getMetaData()).thenReturn(meta);
         ResultSet pkRs = mock(ResultSet.class);
-        when(meta.getPrimaryKeys(any(), eq("APP"), eq("TPATTERN_EMPTY"))).thenReturn(pkRs);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("TCLOB_ERR"))).thenReturn(pkRs);
         when(pkRs.next()).thenReturn(false);
 
         Statement stmt = mock(Statement.class);
         when(conn.createStatement()).thenReturn(stmt);
         ResultSet rs = mock(ResultSet.class);
-        when(stmt.executeQuery("SELECT * FROM \"TPATTERN_EMPTY\"")).thenReturn(rs);
+        when(stmt.executeQuery("SELECT * FROM \"TCLOB_ERR\"")).thenReturn(rs);
         ResultSetMetaData md = mock(ResultSetMetaData.class);
         when(rs.getMetaData()).thenReturn(md);
-        when(md.getColumnCount()).thenReturn(2);
-        when(md.getColumnLabel(1)).thenReturn("ID");
-        when(md.getColumnLabel(2)).thenReturn("BLOB_COL");
-        when(md.getColumnType(1)).thenReturn(Types.INTEGER);
-        when(md.getColumnType(2)).thenReturn(Types.BLOB);
+        when(md.getColumnCount()).thenReturn(1);
+        when(md.getColumnLabel(1)).thenReturn("CLOB_COL");
+        when(md.getColumnType(1)).thenReturn(Types.CLOB);
         when(rs.next()).thenReturn(true, false);
-        when(rs.getObject(1)).thenReturn(1);
-        when(rs.getObject(2)).thenReturn(new byte[] {0x01});
-        when(rs.getObject("ID")).thenReturn(1);
-        when(rs.getString(1)).thenReturn("1");
+        when(rs.getObject(1)).thenReturn("clob-body");
 
-        Path dbDirPath = Files.createDirectories(tempDir.resolve("db_pattern_empty"));
+        Path dbDirPath = Files.createDirectories(tempDir.resolve("db_clob_err"));
         Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
-        Path csvPath = dbDirPath.resolve("TPATTERN_EMPTY.csv");
-        Files.writeString(csvPath, "ID,BLOB_COL\n1,x\n", StandardCharsets.UTF_8);
+        Path csvPath = dbDirPath.resolve("TCLOB_ERR.csv");
+        Files.writeString(csvPath, "CLOB_COL\nx\n", StandardCharsets.UTF_8);
 
         assertThrows(IllegalStateException.class,
-                () -> new LobFileExporter(filePatternConfig).export(conn, "TPATTERN_EMPTY",
+                () -> new LobFileExporter(filePatternConfig).export(conn, "TCLOB_ERR",
                         dbDirPath.toFile(), filesDirPath.toFile(), "APP", dialectHandler));
     }
 

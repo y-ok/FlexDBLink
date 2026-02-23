@@ -17,6 +17,9 @@ import org.dbunit.ext.mssql.MsSqlDataTypeFactory;
  */
 public class CustomSqlServerDataTypeFactory extends MsSqlDataTypeFactory {
 
+    /** JDBC type for SQL Server {@code datetimeoffset} (microsoft.sql.Types.DATETIMEOFFSET). */
+    private static final int DATETIMEOFFSET_SQL_TYPE = -155;
+
     private static final Set<Integer> BINARY_SQL_TYPES =
             Set.of(Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY);
 
@@ -31,6 +34,9 @@ public class CustomSqlServerDataTypeFactory extends MsSqlDataTypeFactory {
     @Override
     public DataType createDataType(int sqlType, String sqlTypeName) throws DataTypeException {
         if (sqlType == Types.SQLXML || isXmlTypeName(sqlTypeName)) {
+            return DataType.VARCHAR;
+        }
+        if (sqlType == DATETIMEOFFSET_SQL_TYPE || isDatetimeoffsetTypeName(sqlTypeName)) {
             return DataType.VARCHAR;
         }
         if (BINARY_SQL_TYPES.contains(sqlType)) {
@@ -50,5 +56,18 @@ public class CustomSqlServerDataTypeFactory extends MsSqlDataTypeFactory {
             return false;
         }
         return "xml".equalsIgnoreCase(sqlTypeName);
+    }
+
+    /**
+     * Returns true when SQL type name represents {@code datetimeoffset}.
+     *
+     * @param sqlTypeName database type name
+     * @return true if datetimeoffset
+     */
+    private boolean isDatetimeoffsetTypeName(String sqlTypeName) {
+        if (sqlTypeName == null) {
+            return false;
+        }
+        return "datetimeoffset".equalsIgnoreCase(sqlTypeName);
     }
 }

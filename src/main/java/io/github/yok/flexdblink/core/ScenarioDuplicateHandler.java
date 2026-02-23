@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.IntPredicate;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -44,11 +45,30 @@ class ScenarioDuplicateHandler {
     static class FilteredTable implements ITable {
 
         private final ITable delegate;
-        private final Set<Integer> skipRows;
+        private final IntPredicate shouldSkip;
+        private final int rowCount;
 
-        FilteredTable(ITable delegate, Set<Integer> skipRows) {
+        /**
+         * Constructs a FilteredTable that hides rows matching the given {@link IntPredicate}.
+         *
+         * @param delegate underlying table
+         * @param shouldSkip predicate returning {@code true} for physical row indices to hide
+         * @param rowCount number of logical rows (after filtering)
+         */
+        FilteredTable(ITable delegate, IntPredicate shouldSkip, int rowCount) {
             this.delegate = delegate;
-            this.skipRows = skipRows;
+            this.shouldSkip = shouldSkip;
+            this.rowCount = rowCount;
+        }
+
+        /**
+         * Constructs a FilteredTable that hides the specified set of physical row indices.
+         *
+         * @param delegate underlying table
+         * @param skipRows physical row indices to hide
+         */
+        FilteredTable(ITable delegate, Set<Integer> skipRows) {
+            this(delegate, skipRows::contains, delegate.getRowCount() - skipRows.size());
         }
 
         @Override
@@ -58,18 +78,18 @@ class ScenarioDuplicateHandler {
 
         @Override
         public int getRowCount() {
-            return delegate.getRowCount() - skipRows.size();
+            return rowCount;
         }
 
         @Override
         public Object getValue(int row, String column) throws DataSetException {
-            int actual = row;
-            for (int i = 0; i <= actual; i++) {
-                if (skipRows.contains(i)) {
-                    actual++;
+            int physical = row;
+            for (int i = 0; i <= physical; i++) {
+                if (shouldSkip.test(i)) {
+                    physical++;
                 }
             }
-            return delegate.getValue(actual, column);
+            return delegate.getValue(physical, column);
         }
     }
 
@@ -78,8 +98,8 @@ class ScenarioDuplicateHandler {
      * {@code originalDbTable}.
      *
      * <p>
-     * When primary key columns are provided, matching is done by PK values only. When no PK
-     * columns exist, all columns are compared via {@link #rowsEqual}.
+     * When primary key columns are provided, matching is done by PK values only using a HashMap
+     * for O(n) lookup. When no PK columns exist, all columns are compared via {@link #rowsEqual}.
      * </p>
      *
      * @param wrapped the CSV-sourced dataset table
@@ -101,25 +121,26 @@ class ScenarioDuplicateHandler {
             Column[] cols = wrapped.getTableMetaData().getColumns();
 
             if (!pkCols.isEmpty()) {
-                // With PK
+                // With PK: build HashMap from DB table first (O(n)), then lookup CSV rows (O(n))
+                Map<List<Object>, Integer> dbIndex = new LinkedHashMap<>();
+                for (int j = 0; j < originalDbTable.getRowCount(); j++) {
+                    List<Object> key = new ArrayList<>();
+                    for (String pk : pkCols) {
+                        key.add(originalDbTable.getValue(j, pk));
+                    }
+                    dbIndex.putIfAbsent(key, j);
+                }
                 for (int i = 0; i < wrapped.getRowCount(); i++) {
-                    for (int j = 0; j < originalDbTable.getRowCount(); j++) {
-                        boolean match = true;
-                        for (String pk : pkCols) {
-                            Object v1 = wrapped.getValue(i, pk);
-                            Object v2 = originalDbTable.getValue(j, pk);
-                            if (v1 == null ? v2 != null : !v1.equals(v2)) {
-                                match = false;
-                                break;
-                            }
-                        }
-                        if (match) {
-                            identicalMap.put(i, j);
-                            log.debug(
-                                    "[{}] Table[{}] Duplicate detected: csvRow={} matches dbRow={}",
-                                    schema, table, i, j);
-                            break;
-                        }
+                    List<Object> key = new ArrayList<>();
+                    for (String pk : pkCols) {
+                        key.add(wrapped.getValue(i, pk));
+                    }
+                    Integer dbRow = dbIndex.get(key);
+                    if (dbRow != null) {
+                        identicalMap.put(i, dbRow);
+                        log.debug(
+                                "[{}] Table[{}] Duplicate detected: csvRow={} matches dbRow={}",
+                                schema, table, i, dbRow);
                     }
                 }
             } else {

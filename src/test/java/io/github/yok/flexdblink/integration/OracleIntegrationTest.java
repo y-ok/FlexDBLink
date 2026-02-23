@@ -40,6 +40,7 @@ class OracleIntegrationTest {
 
     private static final Set<String> NUMERIC_COLUMNS =
             Set.of("ID", "MAIN_ID", "NUM_COL", "BF_COL", "BD_COL");
+
     private static final DateTimeFormatter OFFSET_DATE_TIME_FORMATTER =
             new DateTimeFormatterBuilder().appendPattern("yyyy-MM-dd HH:mm:ss").optionalStart()
                     .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true).optionalEnd()
@@ -499,8 +500,7 @@ class OracleIntegrationTest {
     // ── FK dependency resolution tests ──────────────────────────────────────
 
     @Test
-    void execute_正常ケース_FK制約あり_tableOrderingが毎回再生成されてロードが成功すること()
-            throws Exception {
+    void execute_正常ケース_FK制約あり_tableOrderingが毎回再生成されてロードが成功すること() throws Exception {
         Path dataPath = tempDir.resolve("fk_load_no_ordering");
         OracleIntegrationSupport.Runtime runtime =
                 OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
@@ -523,8 +523,7 @@ class OracleIntegrationTest {
     }
 
     @Test
-    void execute_正常ケース_FK制約あり_FK解決でアルファベット順が修正されてロードが成功すること()
-            throws Exception {
+    void execute_正常ケース_FK制約あり_FK解決でアルファベット順が修正されてロードが成功すること() throws Exception {
         Path dataPath = tempDir.resolve("fk_load_reversed_ordering");
         OracleIntegrationSupport.Runtime runtime =
                 OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
@@ -569,10 +568,9 @@ class OracleIntegrationTest {
                 rs.next();
                 expectedAux = rs.getInt(1);
             }
-            long mainCsvRows =
-                    Files.lines(dbDir.resolve("IT_TYPED_MAIN.csv")).count() - 1; // minus header
-            long auxCsvRows =
-                    Files.lines(dbDir.resolve("IT_TYPED_AUX.csv")).count() - 1;
+            long mainCsvRows = Files.lines(dbDir.resolve("IT_TYPED_MAIN.csv")).count() - 1; // minus
+                                                                                            // header
+            long auxCsvRows = Files.lines(dbDir.resolve("IT_TYPED_AUX.csv")).count() - 1;
             assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
             assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");
         }
@@ -599,8 +597,7 @@ class OracleIntegrationTest {
     // ── FK constraint-free tests ──────────────────────────────────────────────
 
     @Test
-    void execute_正常ケース_FK制約なし_tableOrderingが毎回再生成されてロードが成功すること()
-            throws Exception {
+    void execute_正常ケース_FK制約なし_tableOrderingが毎回再生成されてロードが成功すること() throws Exception {
         OracleIntegrationSupport.prepareDatabaseWithoutFk(ORACLE);
         Path dataPath = tempDir.resolve("nofk_load_no_ordering");
         OracleIntegrationSupport.Runtime runtime =
@@ -624,8 +621,7 @@ class OracleIntegrationTest {
     }
 
     @Test
-    void execute_正常ケース_FK制約なし_アルファベット順でロードが成功すること()
-            throws Exception {
+    void execute_正常ケース_FK制約なし_アルファベット順でロードが成功すること() throws Exception {
         OracleIntegrationSupport.prepareDatabaseWithoutFk(ORACLE);
         Path dataPath = tempDir.resolve("nofk_load_reversed_ordering");
         OracleIntegrationSupport.Runtime runtime =
@@ -671,8 +667,8 @@ class OracleIntegrationTest {
                 rs.next();
                 expectedAux = rs.getInt(1);
             }
-            long mainCsvRows =
-                    Files.lines(dbDir.resolve("IT_TYPED_MAIN.csv")).count() - 1; // minus header
+            long mainCsvRows = Files.lines(dbDir.resolve("IT_TYPED_MAIN.csv")).count() - 1; // minus
+                                                                                            // header
             long auxCsvRows = Files.lines(dbDir.resolve("IT_TYPED_AUX.csv")).count() - 1;
             assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
             assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");

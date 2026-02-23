@@ -136,7 +136,7 @@ public class DataLoader {
     private OperationExecutor operationExecutor;
 
     // Scenario-mode duplicate detection and deletion
-    private final ScenarioDuplicateHandler scenarioHandler;
+    private ScenarioDuplicateHandler scenarioHandler;
 
     // Insert summary: dbId → (table → total inserted count)
     private final Map<String, Map<String, Integer>> insertSummary = new LinkedHashMap<>();
@@ -219,6 +219,16 @@ public class DataLoader {
      */
     void setOperationExecutor(OperationExecutor operationExecutor) {
         this.operationExecutor = operationExecutor;
+    }
+
+    /**
+     * Replaces the {@link ScenarioDuplicateHandler} used for scenario-mode duplicate detection.
+     * Intended for testing.
+     *
+     * @param scenarioHandler replacement handler
+     */
+    void setScenarioDuplicateHandler(ScenarioDuplicateHandler scenarioHandler) {
+        this.scenarioHandler = scenarioHandler;
     }
 
     /**

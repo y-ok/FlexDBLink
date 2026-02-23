@@ -44,7 +44,6 @@ public class MySqlIntegrationTest {
             Set.of("ID", "MAIN_ID", "TINYINT_COL", "SMALLINT_COL", "MEDIUMINT_COL", "INT_COL",
                     "BIGINT_COL2", "NUM_COL", "BF_COL", "BD_COL");
 
-
     @TempDir
     public Path tempDir;
 
@@ -118,7 +117,6 @@ public class MySqlIntegrationTest {
                 assertTrue(rs.getString("MEDIUMTEXT_COL").contains("medium"));
                 assertTrue(rs.getString("LONGTEXT_COL").contains("long"));
 
-                // BLOB は file: 参照で投入しているため、実ファイルと一致することを確認
                 byte[] actualBlob = rs.getBytes("BLOB_COL");
                 assertTrue(actualBlob != null && actualBlob.length > 0, "BLOB_COL が空です");
 
@@ -134,7 +132,6 @@ public class MySqlIntegrationTest {
         MySqlIntegrationSupport.Runtime runtime =
                 MySqlIntegrationSupport.prepareRuntime(mysql, dataPath, true);
 
-        // TSTZ_COL を不正値にする（パース失敗→例外→ロールバック想定）
         Path mainCsv = dataPath.resolve("load/pre/db1/IT_TYPED_MAIN.csv");
         String csv = Files.readString(mainCsv, StandardCharsets.UTF_8);
         csv = csv.replaceFirst(",2026-02-10 01:02:03,0A0B0C21,", ",bad-timestamptz,0A0B0C21,");
@@ -148,7 +145,6 @@ public class MySqlIntegrationTest {
             ErrorHandler.restoreExitForCurrentThread();
         }
 
-        // 失敗後：件数が 0 である（ロード全体がロールバックされる想定）
         try (Connection conn = MySqlIntegrationSupport.openConnection(mysql);
                 Statement st = conn.createStatement();
                 ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
@@ -175,7 +171,6 @@ public class MySqlIntegrationTest {
         String csvText = Files.readString(mainCsv, StandardCharsets.UTF_8);
         assertTrue(csvText.contains("file:"), "LOB列が file: 参照として出力されていません。");
 
-        // 出力された BLOB ファイルのうち、少なくとも1つはDBの BLOB と一致すること
         try (Connection conn = MySqlIntegrationSupport.openConnection(mysql);
                 Statement st = conn.createStatement();
                 ResultSet rs = st.executeQuery(
@@ -216,17 +211,12 @@ public class MySqlIntegrationTest {
                 outputFilesDir);
     }
 
-    // ── FK dependency resolution tests ──────────────────────────────────────
-
     @Test
-    public void execute_正常ケース_FK制約あり_tableOrderingが毎回再生成されてロードが成功すること()
-            throws Exception {
+    public void execute_正常ケース_FK制約あり_tableOrderingが毎回再生成されてロードが成功すること() throws Exception {
         Path dataPath = tempDir.resolve("fk_load_no_ordering");
         MySqlIntegrationSupport.Runtime runtime =
                 MySqlIntegrationSupport.prepareRuntime(mysql, dataPath, true);
 
-        // table-ordering.txt is always regenerated at the start and deleted at the end;
-        // the FK resolver corrects the alphabetical order (AUX before MAIN) to load order
         MySqlIntegrationSupport.executeLoad(runtime, "pre");
 
         try (Connection conn = MySqlIntegrationSupport.openConnection(mysql);
@@ -243,14 +233,11 @@ public class MySqlIntegrationTest {
     }
 
     @Test
-    public void execute_正常ケース_FK制約あり_FK解決でアルファベット順が修正されてロードが成功すること()
-            throws Exception {
+    public void execute_正常ケース_FK制約あり_FK解決でアルファベット順が修正されてロードが成功すること() throws Exception {
         Path dataPath = tempDir.resolve("fk_load_reversed_ordering");
         MySqlIntegrationSupport.Runtime runtime =
                 MySqlIntegrationSupport.prepareRuntime(mysql, dataPath, true);
 
-        // table-ordering.txt is always regenerated alphabetically (AUX before MAIN);
-        // FK resolver must correct the order so the load completes without FK violation
         MySqlIntegrationSupport.executeLoad(runtime, "pre");
 
         try (Connection conn = MySqlIntegrationSupport.openConnection(mysql);
@@ -279,7 +266,6 @@ public class MySqlIntegrationTest {
         assertTrue(Files.exists(mainCsv));
         assertTrue(Files.exists(auxCsv));
 
-        // Row counts in the dumped CSVs must match what is in the DB (seed data)
         try (Connection conn = MySqlIntegrationSupport.openConnection(mysql);
                 Statement st = conn.createStatement()) {
             int expectedMain, expectedAux;
@@ -291,7 +277,7 @@ public class MySqlIntegrationTest {
                 rs.next();
                 expectedAux = rs.getInt(1);
             }
-            long mainCsvRows = Files.lines(mainCsv).count() - 1; // minus header
+            long mainCsvRows = Files.lines(mainCsv).count() - 1;
             long auxCsvRows = Files.lines(auxCsv).count() - 1;
             assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
             assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");
@@ -318,18 +304,13 @@ public class MySqlIntegrationTest {
         assertEquals(2L, auxCsvRows, "IT_TYPED_AUX should have 2 rows after load");
     }
 
-    // ── FK constraint-free tests ──────────────────────────────────────────────
-
     @Test
-    public void execute_正常ケース_FK制約なし_tableOrderingが毎回再生成されてロードが成功すること()
-            throws Exception {
+    public void execute_正常ケース_FK制約なし_tableOrderingが毎回再生成されてロードが成功すること() throws Exception {
         MySqlIntegrationSupport.prepareDatabaseWithoutFk(mysql);
         Path dataPath = tempDir.resolve("nofk_load_no_ordering");
         MySqlIntegrationSupport.Runtime runtime =
                 MySqlIntegrationSupport.prepareRuntime(mysql, dataPath, true);
 
-        // table-ordering.txt is always regenerated alphabetically; without FK constraints
-        // any load order is acceptable, so load completes successfully
         MySqlIntegrationSupport.executeLoad(runtime, "pre");
 
         try (Connection conn = MySqlIntegrationSupport.openConnection(mysql);
@@ -346,15 +327,12 @@ public class MySqlIntegrationTest {
     }
 
     @Test
-    public void execute_正常ケース_FK制約なし_アルファベット順でロードが成功すること()
-            throws Exception {
+    public void execute_正常ケース_FK制約なし_アルファベット順でロードが成功すること() throws Exception {
         MySqlIntegrationSupport.prepareDatabaseWithoutFk(mysql);
         Path dataPath = tempDir.resolve("nofk_load_reversed_ordering");
         MySqlIntegrationSupport.Runtime runtime =
                 MySqlIntegrationSupport.prepareRuntime(mysql, dataPath, true);
 
-        // table-ordering.txt is always regenerated alphabetically (AUX before MAIN);
-        // without FK constraints, this order is acceptable for CLEAN_INSERT
         MySqlIntegrationSupport.executeLoad(runtime, "pre");
 
         try (Connection conn = MySqlIntegrationSupport.openConnection(mysql);
@@ -395,7 +373,7 @@ public class MySqlIntegrationTest {
                 rs.next();
                 expectedAux = rs.getInt(1);
             }
-            long mainCsvRows = Files.lines(mainCsv).count() - 1; // minus header
+            long mainCsvRows = Files.lines(mainCsv).count() - 1;
             long auxCsvRows = Files.lines(auxCsv).count() - 1;
             assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
             assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");
@@ -624,7 +602,7 @@ public class MySqlIntegrationTest {
         Map<String, Map<String, String>> rows = new LinkedHashMap<>();
         String normalizedIdColumn = idColumn.toUpperCase(Locale.ROOT);
         CSVFormat format = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true)
-                .setIgnoreSurroundingSpaces(false).setTrim(false).get();
+                .setIgnoreSurroundingSpaces(false).setTrim(false).setEscape('\\').get();
 
         try (CSVParser parser = CSVParser.parse(csvPath, StandardCharsets.UTF_8, format)) {
             for (CSVRecord record : parser) {

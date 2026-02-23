@@ -14,3 +14,4 @@ script/oradata/*
 .project
 .ansible/
 .settings/
+.claude/*

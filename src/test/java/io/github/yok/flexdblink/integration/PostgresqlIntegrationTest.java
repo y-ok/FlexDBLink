@@ -123,7 +123,6 @@ public class PostgresqlIntegrationTest {
         PostgresqlIntegrationSupport.Runtime runtime =
                 PostgresqlIntegrationSupport.prepareRuntime(postgres, dataPath, true);
 
-        // TSTZ_COL を不正値にする（パース失敗→例外→ロールバック想定）
         Path mainCsv = dataPath.resolve("load/pre/db1/IT_TYPED_MAIN.csv");
         String csv = Files.readString(mainCsv, StandardCharsets.UTF_8);
         csv = csv.replaceFirst(",2026-02-10 01:02:03,0A0B0C21,", ",bad-timestamptz,0A0B0C21,");
@@ -137,7 +136,6 @@ public class PostgresqlIntegrationTest {
             ErrorHandler.restoreExitForCurrentThread();
         }
 
-        // 失敗後：件数が 0 である（ロード全体がロールバックされる想定）
         try (Connection conn = PostgresqlIntegrationSupport.openConnection(postgres);
                 Statement st = conn.createStatement();
                 ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
@@ -234,8 +232,6 @@ public class PostgresqlIntegrationTest {
         PostgresqlIntegrationSupport.Runtime runtime =
                 PostgresqlIntegrationSupport.prepareRuntime(postgres, dataPath, true);
 
-        // table-ordering.txt is always regenerated alphabetically (AUX before MAIN);
-        // FK resolver must correct the order so the load completes without FK violation
         PostgresqlIntegrationSupport.executeLoad(runtime, "pre");
 
         try (Connection conn = PostgresqlIntegrationSupport.openConnection(postgres);
@@ -264,7 +260,6 @@ public class PostgresqlIntegrationTest {
         assertTrue(Files.exists(mainCsv));
         assertTrue(Files.exists(auxCsv));
 
-        // Row counts in the dumped CSVs must match what is in the DB (seed data)
         try (Connection conn = PostgresqlIntegrationSupport.openConnection(postgres);
                 Statement st = conn.createStatement()) {
             int expectedMain, expectedAux;
@@ -276,7 +271,7 @@ public class PostgresqlIntegrationTest {
                 rs.next();
                 expectedAux = rs.getInt(1);
             }
-            long mainCsvRows = Files.lines(mainCsv).count() - 1; // minus header
+            long mainCsvRows = Files.lines(mainCsv).count() - 1;
             long auxCsvRows = Files.lines(auxCsv).count() - 1;
             assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
             assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");
@@ -310,8 +305,6 @@ public class PostgresqlIntegrationTest {
         PostgresqlIntegrationSupport.Runtime runtime =
                 PostgresqlIntegrationSupport.prepareRuntime(postgres, dataPath, true);
 
-        // table-ordering.txt is always regenerated alphabetically; without FK constraints
-        // any load order is acceptable, so load completes successfully
         PostgresqlIntegrationSupport.executeLoad(runtime, "pre");
 
         try (Connection conn = PostgresqlIntegrationSupport.openConnection(postgres);
@@ -334,8 +327,6 @@ public class PostgresqlIntegrationTest {
         PostgresqlIntegrationSupport.Runtime runtime =
                 PostgresqlIntegrationSupport.prepareRuntime(postgres, dataPath, true);
 
-        // table-ordering.txt is always regenerated alphabetically (AUX before MAIN);
-        // without FK constraints, this order is acceptable for CLEAN_INSERT
         PostgresqlIntegrationSupport.executeLoad(runtime, "pre");
 
         try (Connection conn = PostgresqlIntegrationSupport.openConnection(postgres);
@@ -376,7 +367,7 @@ public class PostgresqlIntegrationTest {
                 rs.next();
                 expectedAux = rs.getInt(1);
             }
-            long mainCsvRows = Files.lines(mainCsv).count() - 1; // minus header
+            long mainCsvRows = Files.lines(mainCsv).count() - 1;
             long auxCsvRows = Files.lines(auxCsv).count() - 1;
             assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
             assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");

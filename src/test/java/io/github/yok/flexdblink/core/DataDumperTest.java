@@ -330,28 +330,23 @@ class DataDumperTest {
         when(pkRsForExport.next()).thenReturn(false);
         when(pkRsForDump.next()).thenReturn(false);
 
-        Statement stmtHeader = mock(Statement.class);
-        Statement stmtData = mock(Statement.class);
+        Statement stmtExport = mock(Statement.class);
         Statement stmtDump = mock(Statement.class);
-        when(conn.createStatement()).thenReturn(stmtHeader, stmtData, stmtDump);
+        when(conn.createStatement()).thenReturn(stmtExport, stmtDump);
 
-        ResultSet rsHeader = mock(ResultSet.class);
-        when(stmtHeader.executeQuery("SELECT * FROM \"T1\" WHERE 1=0")).thenReturn(rsHeader);
-        ResultSetMetaData mdHeader = mock(ResultSetMetaData.class);
-        when(rsHeader.getMetaData()).thenReturn(mdHeader);
-        when(mdHeader.getColumnCount()).thenReturn(1);
-        when(mdHeader.getColumnLabel(1)).thenReturn("ID");
+        // CsvTableExporter: single SELECT * query (headers + data from same ResultSet)
+        ResultSet rsExport = mock(ResultSet.class);
+        when(stmtExport.executeQuery("SELECT * FROM \"T1\"")).thenReturn(rsExport);
+        ResultSetMetaData mdExport = mock(ResultSetMetaData.class);
+        when(rsExport.getMetaData()).thenReturn(mdExport);
+        when(mdExport.getColumnCount()).thenReturn(1);
+        when(mdExport.getColumnLabel(1)).thenReturn("ID");
+        when(mdExport.getColumnType(1)).thenReturn(Types.VARCHAR);
+        when(mdExport.getColumnTypeName(1)).thenReturn("VARCHAR2");
+        when(rsExport.next()).thenReturn(true, false);
+        when(rsExport.getObject(1)).thenReturn("1");
 
-        ResultSet rsData = mock(ResultSet.class);
-        when(stmtData.executeQuery("SELECT * FROM \"T1\" ORDER BY \"ID\" ASC")).thenReturn(rsData);
-        ResultSetMetaData mdData = mock(ResultSetMetaData.class);
-        when(rsData.getMetaData()).thenReturn(mdData);
-        when(mdData.getColumnCount()).thenReturn(1);
-        when(mdData.getColumnType(1)).thenReturn(Types.VARCHAR);
-        when(mdData.getColumnTypeName(1)).thenReturn("VARCHAR2");
-        when(rsData.next()).thenReturn(true, false);
-        when(rsData.getObject(1)).thenReturn("1");
-
+        // LobFileExporter: SELECT * query
         ResultSet rsDump = mock(ResultSet.class);
         when(stmtDump.executeQuery("SELECT * FROM \"T1\"")).thenReturn(rsDump);
         ResultSetMetaData mdDump = mock(ResultSetMetaData.class);
@@ -566,25 +561,21 @@ class DataDumperTest {
                 pkRsForDump);
         when(pkRsForExport.next()).thenReturn(false);
         when(pkRsForDump.next()).thenReturn(false);
-        Statement stmtHeader = mock(Statement.class);
-        Statement stmtData = mock(Statement.class);
+        Statement stmtExport = mock(Statement.class);
         Statement stmtDump = mock(Statement.class);
-        when(conn.createStatement()).thenReturn(stmtHeader, stmtData, stmtDump);
-        ResultSet rsHeader = mock(ResultSet.class);
-        when(stmtHeader.executeQuery("SELECT * FROM \"T1\" WHERE 1=0")).thenReturn(rsHeader);
-        ResultSetMetaData mdHeader = mock(ResultSetMetaData.class);
-        when(rsHeader.getMetaData()).thenReturn(mdHeader);
-        when(mdHeader.getColumnCount()).thenReturn(1);
-        when(mdHeader.getColumnLabel(1)).thenReturn("ID");
-        ResultSet rsData = mock(ResultSet.class);
-        when(stmtData.executeQuery("SELECT * FROM \"T1\" ORDER BY \"ID\" ASC")).thenReturn(rsData);
-        ResultSetMetaData mdData = mock(ResultSetMetaData.class);
-        when(rsData.getMetaData()).thenReturn(mdData);
-        when(mdData.getColumnCount()).thenReturn(1);
-        when(mdData.getColumnType(1)).thenReturn(Types.VARCHAR);
-        when(mdData.getColumnTypeName(1)).thenReturn("VARCHAR2");
-        when(rsData.next()).thenReturn(true, false);
-        when(rsData.getObject(1)).thenReturn("1");
+        when(conn.createStatement()).thenReturn(stmtExport, stmtDump);
+        // CsvTableExporter: single SELECT * query
+        ResultSet rsExport = mock(ResultSet.class);
+        when(stmtExport.executeQuery("SELECT * FROM \"T1\"")).thenReturn(rsExport);
+        ResultSetMetaData mdExport = mock(ResultSetMetaData.class);
+        when(rsExport.getMetaData()).thenReturn(mdExport);
+        when(mdExport.getColumnCount()).thenReturn(1);
+        when(mdExport.getColumnLabel(1)).thenReturn("ID");
+        when(mdExport.getColumnType(1)).thenReturn(Types.VARCHAR);
+        when(mdExport.getColumnTypeName(1)).thenReturn("VARCHAR2");
+        when(rsExport.next()).thenReturn(true, false);
+        when(rsExport.getObject(1)).thenReturn("1");
+        // LobFileExporter: SELECT * query
         ResultSet rsDump = mock(ResultSet.class);
         when(stmtDump.executeQuery("SELECT * FROM \"T1\"")).thenReturn(rsDump);
         ResultSetMetaData mdDump = mock(ResultSetMetaData.class);
@@ -751,28 +742,23 @@ class DataDumperTest {
         when(pkRsForExport.next()).thenReturn(false);
         when(pkRsForDump.next()).thenReturn(false);
 
-        Statement stmtHeader = mock(Statement.class);
-        Statement stmtData = mock(Statement.class);
+        Statement stmtExport = mock(Statement.class);
         Statement stmtDump = mock(Statement.class);
-        when(conn.createStatement()).thenReturn(stmtHeader, stmtData, stmtDump);
+        when(conn.createStatement()).thenReturn(stmtExport, stmtDump);
 
-        ResultSet rsHeader = mock(ResultSet.class);
-        when(stmtHeader.executeQuery("SELECT * FROM \"T1\" WHERE 1=0")).thenReturn(rsHeader);
-        ResultSetMetaData mdHeader = mock(ResultSetMetaData.class);
-        when(rsHeader.getMetaData()).thenReturn(mdHeader);
-        when(mdHeader.getColumnCount()).thenReturn(1);
-        when(mdHeader.getColumnLabel(1)).thenReturn("ID");
+        // CsvTableExporter: single SELECT * query (headers + data from same ResultSet)
+        ResultSet rsExport = mock(ResultSet.class);
+        when(stmtExport.executeQuery("SELECT * FROM \"T1\"")).thenReturn(rsExport);
+        ResultSetMetaData mdExport = mock(ResultSetMetaData.class);
+        when(rsExport.getMetaData()).thenReturn(mdExport);
+        when(mdExport.getColumnCount()).thenReturn(1);
+        when(mdExport.getColumnLabel(1)).thenReturn("ID");
+        when(mdExport.getColumnType(1)).thenReturn(Types.VARCHAR);
+        when(mdExport.getColumnTypeName(1)).thenReturn("VARCHAR2");
+        when(rsExport.next()).thenReturn(true, false);
+        when(rsExport.getObject(1)).thenReturn("1");
 
-        ResultSet rsData = mock(ResultSet.class);
-        when(stmtData.executeQuery("SELECT * FROM \"T1\" ORDER BY \"ID\" ASC")).thenReturn(rsData);
-        ResultSetMetaData mdData = mock(ResultSetMetaData.class);
-        when(rsData.getMetaData()).thenReturn(mdData);
-        when(mdData.getColumnCount()).thenReturn(1);
-        when(mdData.getColumnType(1)).thenReturn(Types.VARCHAR);
-        when(mdData.getColumnTypeName(1)).thenReturn("VARCHAR2");
-        when(rsData.next()).thenReturn(true, false);
-        when(rsData.getObject(1)).thenReturn("1");
-
+        // LobFileExporter: SELECT * query
         ResultSet rsDump = mock(ResultSet.class);
         when(stmtDump.executeQuery("SELECT * FROM \"T1\"")).thenReturn(rsDump);
         ResultSetMetaData mdDump = mock(ResultSetMetaData.class);
