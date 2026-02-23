@@ -6,7 +6,11 @@ import java.io.IOException;
 import java.io.OutputStreamWriter;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 import org.apache.commons.csv.QuoteMode;
@@ -26,6 +30,28 @@ public final class CsvUtils {
 
     private CsvUtils() {
         // Utility class; do not instantiate.
+    }
+
+    /**
+     * Builds the list of column indices to use for sorting, given the header array and the primary
+     * key column list.
+     *
+     * <p>
+     * When {@code pkColumns} is empty, returns {@code [0]} (sort by first column). When duplicated
+     * header names exist, the first occurrence wins.
+     * </p>
+     *
+     * @param headers CSV header names
+     * @param pkColumns PK column names (empty list means no primary key)
+     * @return list of zero-based column indices to sort by, in PK order
+     */
+    public static List<Integer> buildSortIndices(String[] headers, List<String> pkColumns) {
+        Map<String, Integer> headerIndex = IntStream.range(0, headers.length).boxed().collect(
+                Collectors.toMap(i -> headers[i], i -> i, (a, b) -> a, LinkedHashMap::new));
+        if (pkColumns.isEmpty()) {
+            return List.of(0);
+        }
+        return pkColumns.stream().map(headerIndex::get).collect(Collectors.toList());
     }
 
     /**

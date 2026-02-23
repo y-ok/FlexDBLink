@@ -1,57 +1,31 @@
 package io.github.yok.flexdblink.core;
 
-import com.google.common.io.BaseEncoding;
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
-import io.github.yok.flexdblink.config.FileNameResolver;
 import io.github.yok.flexdblink.config.FilePatternConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
-import io.github.yok.flexdblink.util.CsvUtils;
 import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.LobPathConstants;
 import io.github.yok.flexdblink.util.TableDependencyResolver;
+import io.github.yok.flexdblink.util.TableOrderingFile;
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.OutputStreamWriter;
-import java.io.Writer;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
-import java.sql.Statement;
-import java.sql.Types;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Set;
 import java.util.function.Function;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.codec.binary.Hex;
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVParser;
-import org.apache.commons.csv.CSVPrinter;
-import org.apache.commons.csv.CSVRecord;
-import org.apache.commons.csv.QuoteMode;
-import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.dbunit.database.DatabaseConnection;
 
 /**
@@ -65,12 +39,11 @@ import org.dbunit.database.DatabaseConnection;
  * <li>Export all rows of each table as CSV (<code>dump/{scenario}/{dbId}/{table}.csv</code>).</li>
  * <li>Export all BLOB/CLOB columns under <code>dump/{scenario}/{dbId}/files/</code> and replace the
  * corresponding CSV cell with <code>file:&lt;fileName&gt;</code>.</li>
- * <li>Resolve file names using {@link FileNameResolver} constructed from
- * {@link FilePatternConfig}.</li>
+ * <li>Resolve file names using {@link io.github.yok.flexdblink.config.FileNameResolver} constructed
+ * from {@link FilePatternConfig}.</li>
  * </ul>
  *
  * @see FilePatternConfig
- * @see FileNameResolver
  * @see PathsConfig
  * @author Yasuharu.Okawauchi
  */
@@ -83,16 +56,15 @@ public class DataDumper {
     // List of DB connection settings (application.yml's connections)
     private final ConnectionConfig connectionConfig;
 
-    // file-patterns configuration (application.yml's file-patterns)
-    private final FilePatternConfig filePatternConfig;
-
     private final DumpConfig dumpConfig;
 
     // Factory function to obtain a DB dialect handler
     // Input : ConnectionConfig.Entry
     // Output: corresponding DbDialectHandler
     private final Function<ConnectionConfig.Entry, DbDialectHandler> dialectFactory;
-    private static final Set<Integer> LOB_SQL_TYPES = Set.of(Types.BLOB, Types.CLOB, Types.NCLOB);
+
+    private final CsvTableExporter csvExporter;
+    private final LobFileExporter lobExporter;
 
     /**
      * Creates dumper using dialect-based schema resolution.
@@ -108,9 +80,10 @@ public class DataDumper {
             Function<ConnectionConfig.Entry, DbDialectHandler> dialectFactory) {
         this.pathsConfig = pathsConfig;
         this.connectionConfig = connectionConfig;
-        this.filePatternConfig = filePatternConfig;
         this.dumpConfig = dumpConfig;
         this.dialectFactory = dialectFactory;
+        this.csvExporter = new CsvTableExporter();
+        this.lobExporter = new LobFileExporter(filePatternConfig);
     }
 
     /**
@@ -195,17 +168,16 @@ public class DataDumper {
                     File filesDir = dirs[1];
 
                     // Write table-ordering.txt as a temporary working file
-                    writeTableOrdering(dbDir, tables);
+                    TableOrderingFile.write(dbDir, tables);
                     try {
-                        FileNameResolver resolver = new FileNameResolver(filePatternConfig);
                         for (String tbl : tables) {
                             // --- 1) CSV dump ---
                             File csvFile = new File(dbDir, tbl + ".csv");
-                            exportTableAsCsvUtf8(conn, tbl, csvFile, dialectHandler);
+                            csvExporter.export(conn, tbl, csvFile, dialectHandler);
                             log.info("[{}] Table[{}] CSV dump completed (UTF-8)", dbId, tbl);
 
                             // --- 2) BLOB/CLOB dump ---
-                            DumpResult result = dumpBlobClob(conn, tbl, dbDir, filesDir, resolver,
+                            DumpResult result = lobExporter.export(conn, tbl, dbDir, filesDir,
                                     schema, dialectHandler);
                             log.info("[{}] Table[{}] dumped-records={}, BLOB/CLOB file-outputs={}",
                                     dbId, tbl, result.getRowCount(), result.getFileCount());
@@ -218,7 +190,7 @@ public class DataDumper {
 
                         log.info("[{}] === DB dump completed ===", dbId);
                     } finally {
-                        deleteTableOrdering(dbDir);
+                        TableOrderingFile.delete(dbDir);
                     }
 
                     dbConn.close();
@@ -329,473 +301,6 @@ public class DataDumper {
             }
         }
         return tables;
-    }
-
-    /**
-     * Executes {@code SELECT *} for the specified table and writes the result to a UTF-8 CSV
-     * file.<br>
-     * If a primary key exists, rows are sorted in ascending order by the PK columns; otherwise,
-     * rows are sorted by the leftmost column. Sorting is performed in-memory before writing
-     * CSV.<br>
-     * RAW/LONG RAW/VARBINARY-like types are emitted as hexadecimal strings.
-     *
-     * @param conn JDBC connection
-     * @param table table name
-     * @param csvFile destination CSV file
-     * @param dialectHandler DB dialect handler used for identifier quoting
-     * @throws Exception on SQL or file I/O error
-     */
-    private void exportTableAsCsvUtf8(Connection conn, String table, File csvFile,
-            DbDialectHandler dialectHandler) throws Exception {
-
-        // --- 1) Extract primary key column names from metadata ---
-        List<String> pkColumns = fetchPrimaryKeyColumns(conn, conn.getSchema(), table);
-
-        // --- 2) Read header first (for sorting) ---
-        String[] headerArray;
-        String quotedTable = dialectHandler.quoteIdentifier(table);
-        try (Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery("SELECT * FROM " + quotedTable + " WHERE 1=0")) {
-            ResultSetMetaData md = rs.getMetaData();
-            int colCount = md.getColumnCount();
-            headerArray = new String[colCount];
-            for (int i = 1; i <= colCount; i++) {
-                headerArray[i - 1] = md.getColumnLabel(i);
-            }
-        }
-
-        // --- 3) Build SELECT with ORDER BY (explicit column names) ---
-        String orderBy;
-        if (!pkColumns.isEmpty()) {
-            // Attach "ASC" to each PK column
-            String cols =
-                    pkColumns.stream().map(col -> dialectHandler.quoteIdentifier(col) + " ASC")
-                            .collect(Collectors.joining(", "));
-            orderBy = " ORDER BY " + cols;
-            log.debug("Table[{}] Sorting by primary key(s) (SQL): {}", table, cols);
-        } else {
-            // Fallback to first column
-            String firstCol = headerArray[0];
-            orderBy = " ORDER BY " + dialectHandler.quoteIdentifier(firstCol) + " ASC";
-            log.debug("Table[{}] No primary key -> sort by first column '{}' (SQL)", table,
-                    firstCol);
-        }
-        String sql = "SELECT * FROM " + quotedTable + orderBy;
-
-        // --- 4) Read records into memory ---
-        List<List<String>> rows = new ArrayList<>();
-        try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
-
-            ResultSetMetaData md = rs.getMetaData();
-            int colCount = md.getColumnCount();
-
-            while (rs.next()) {
-                List<String> row = new ArrayList<>(colCount);
-                for (int i = 1; i <= colCount; i++) {
-                    int sqlType = md.getColumnType(i);
-                    String typeNm = md.getColumnTypeName(i);
-                    String columnName = md.getColumnLabel(i);
-                    Object val = rs.getObject(i);
-                    String cell;
-                    // Binary columns → hex string
-                    if (dialectHandler.isBinaryTypeForDump(sqlType, typeNm)) {
-                        byte[] bytes = rs.getBytes(i);
-                        cell = (bytes == null) ? "" : Hex.encodeHexString(bytes).toUpperCase();
-                    } else if (dialectHandler.isDateTimeTypeForDump(sqlType, typeNm)) {
-                        Object temporalValue = val;
-                        if ("DATE".equalsIgnoreCase(typeNm) || sqlType == Types.DATE) {
-                            Object typed = rs.getDate(i);
-                            temporalValue = (typed != null) ? typed : temporalValue;
-                        } else if (sqlType == Types.TIME) {
-                            Object typed = rs.getTime(i);
-                            temporalValue = (typed != null) ? typed : temporalValue;
-                        } else if (sqlType == Types.TIMESTAMP) {
-                            Object typed = rs.getTimestamp(i);
-                            temporalValue = (typed != null) ? typed : temporalValue;
-                        }
-                        cell = (temporalValue == null) ? ""
-                                : dialectHandler.formatDateTimeColumn(columnName, temporalValue,
-                                        conn);
-                    } else {
-                        cell = (val == null) ? ""
-                                : dialectHandler.formatDbValueForCsv(columnName, val);
-                    }
-                    row.add(cell);
-                }
-                rows.add(row);
-            }
-        }
-
-        // --- 5) Sort in-memory (use extracted indices) ---
-        List<Integer> sortIdx = buildSortIndices(headerArray, pkColumns);
-
-        rows.sort((a, b) -> {
-            for (int idx : sortIdx) {
-                // Trim whitespace before comparison
-                String sa = StringUtils.trimToEmpty(a.get(idx));
-                String sb = StringUtils.trimToEmpty(b.get(idx));
-                int cmp;
-                try {
-                    // Numeric compare when both look like integers
-                    cmp = Integer.compare(Integer.parseInt(sa), Integer.parseInt(sb));
-                } catch (NumberFormatException ex) {
-                    // Fallback to string compare
-                    cmp = sa.compareTo(sb);
-                }
-                if (cmp != 0) {
-                    return cmp;
-                }
-            }
-            return 0;
-        });
-
-        // --- 6) Write sorted data to CSV ---
-        CsvUtils.writeCsvUtf8(csvFile, headerArray, rows);
-    }
-
-    /**
-     * Retrieves the list of primary key column names for the specified table.
-     *
-     * @param conn JDBC connection
-     * @param schema schema name
-     * @param table table name
-     * @return list of PK column names (empty if none)
-     * @throws SQLException on SQL error while reading PK metadata
-     */
-    private List<String> fetchPrimaryKeyColumns(Connection conn, String schema, String table)
-            throws SQLException {
-        List<String> pkColumns = new ArrayList<>();
-        DatabaseMetaData meta = conn.getMetaData();
-        try (ResultSet rs = meta.getPrimaryKeys(conn.getCatalog(), schema, table)) {
-            while (rs.next()) {
-                pkColumns.add(rs.getString("COLUMN_NAME"));
-            }
-        }
-        return pkColumns;
-    }
-
-    /**
-     * Builds the list of column indices to use for sorting, given the header array and the PK
-     * column list.
-     *
-     * @param headers CSV header names
-     * @param pkColumns PK column names (if empty, the first column is used)
-     * @return list of indices to sort by
-     */
-    private List<Integer> buildSortIndices(String[] headers, List<String> pkColumns) {
-        // Map header name → index
-        Map<String, Integer> headerIndex = IntStream.range(0, headers.length).boxed().collect(
-                Collectors.toMap(i -> headers[i], i -> i, (a, b) -> a, LinkedHashMap::new));
-
-        if (pkColumns.isEmpty()) {
-            // No PK → sort by the first column
-            return List.of(0);
-        }
-        // Extract indices in PK order
-        return pkColumns.stream().map(headerIndex::get).collect(Collectors.toList());
-    }
-
-    /**
-     * Scans all rows of the specified table, formats values by type, writes BLOB/CLOB columns to
-     * files, and replaces the cell text in the CSV. Finally sorts by PK (or first column)
-     * ascending, and overwrites the CSV.
-     *
-     * @param conn JDBC connection
-     * @param table table name
-     * @param dbDir directory for CSV files
-     * @param filesDir directory for BLOB/CLOB files
-     * @param resolver utility for resolving file names
-     * @param schema schema name
-     * @param dialectHandler implementation of DbDialectHandler
-     * @return dump result (CSV row count + number of files written)
-     * @throws Exception on SQL or file I/O error
-     */
-    private DumpResult dumpBlobClob(Connection conn, String table, File dbDir, File filesDir,
-            FileNameResolver resolver, String schema, DbDialectHandler dialectHandler)
-            throws Exception {
-        int fileCount = 0;
-
-        // --- Read CSV ---
-        File csvFile = new File(dbDir, table + ".csv");
-        if (!csvFile.exists()) {
-            log.warn("CSV file not found: {}", csvFile.getAbsolutePath());
-            return new DumpResult(0, 0);
-        }
-
-        // 1) Parse header row
-        CSVFormat headerFmt = CSVFormat.DEFAULT.builder().setSkipHeaderRecord(false).setTrim(false)
-                .setQuote('"').setQuoteMode(QuoteMode.MINIMAL).get();
-        List<String> headers = new ArrayList<>();
-        try (CSVParser p = CSVParser.parse(csvFile, StandardCharsets.UTF_8, headerFmt)) {
-            CSVRecord hr = p.iterator().next();
-            for (String h : hr) {
-                headers.add(h.trim().replaceAll("^\"|\"$", ""));
-            }
-        }
-
-        // 2) Parse data rows
-        CSVFormat dataFmt = CSVFormat.DEFAULT.builder().setHeader(headers.toArray(new String[0]))
-                .setSkipHeaderRecord(true).setTrim(false).setQuote('"')
-                .setQuoteMode(QuoteMode.MINIMAL).setEscape('\\').get();
-        List<CSVRecord> records;
-        try (CSVParser p = CSVParser.parse(csvFile, StandardCharsets.UTF_8, dataFmt)) {
-            records = p.getRecords();
-        }
-
-        // 3) Copy to memory
-        List<List<String>> csvData = new ArrayList<>();
-        for (CSVRecord rec : records) {
-            List<String> row = new ArrayList<>();
-            for (String h : headers) {
-                row.add(rec.get(h));
-            }
-            csvData.add(row);
-        }
-
-        // 4) Log BLOB/CLOB patterns
-        Map<String, String> tablePatterns = filePatternConfig.getPatternsForTable(table);
-        if (tablePatterns == null) {
-            throw new IllegalStateException(
-                    "No definition for \"" + table + "\" found in file-patterns.");
-        }
-        String joined = tablePatterns.entrySet().stream()
-                .map(e -> e.getKey() + " : " + e.getValue()).collect(Collectors.joining(", "));
-        log.debug("BLOB/CLOB output filename patterns: [{}]", joined);
-
-        // 5) Scan DB + write files + replace cells
-        String quotedTable = dialectHandler.quoteIdentifier(table);
-        try (Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery("SELECT * FROM " + quotedTable)) {
-
-            ResultSetMetaData md = rs.getMetaData();
-            int colCount = md.getColumnCount();
-
-            int rowIndex = 0;
-            while (rs.next()) {
-                List<String> row = csvData.get(rowIndex++);
-                boolean wroteAny = false;
-
-                for (int i = 1; i <= colCount; i++) {
-                    String col = md.getColumnLabel(i);
-                    int type = md.getColumnType(i);
-                    String typeName = md.getColumnTypeName(i);
-                    int idx = headers.indexOf(col);
-                    if (idx < 0) {
-                        continue;
-                    }
-
-                    Object raw = rs.getObject(i);
-                    String cell;
-
-                    // DATE/TIMESTAMP and dialect-specific temporal types
-                    if (dialectHandler.shouldUseRawTemporalValueForDump(col, type, typeName)) {
-                        cell = dialectHandler.normalizeRawTemporalValueForDump(col,
-                                rs.getString(i));
-
-                    } else if (dialectHandler.isDateTimeTypeForDump(type, typeName)) {
-                        Object temporalValue = raw;
-                        if ("DATE".equalsIgnoreCase(typeName) || type == Types.DATE) {
-                            Object typed = rs.getDate(i);
-                            temporalValue = (typed != null) ? typed : temporalValue;
-                        } else if (type == Types.TIME) {
-                            Object typed = rs.getTime(i);
-                            temporalValue = (typed != null) ? typed : temporalValue;
-                        } else if (type == Types.TIMESTAMP) {
-                            Object typed = rs.getTimestamp(i);
-                            temporalValue = (typed != null) ? typed : temporalValue;
-                        }
-                        cell = (temporalValue == null) ? ""
-                                : dialectHandler.formatDateTimeColumn(col, temporalValue, conn);
-
-                        // BLOB/CLOB types
-                    } else if (filePatternConfig.getPattern(table, col).isPresent()) {
-                        if (raw == null) {
-                            cell = "";
-                        } else {
-                            Optional<String> patternOpt = filePatternConfig.getPattern(table, col);
-                            String pattern = patternOpt.orElseThrow(
-                                    () -> new IllegalStateException("No definition for \"" + table
-                                            + "\" / \"" + col + "\" in file-patterns."));
-                            Map<String, Object> keyMap = buildKeyMap(rs, pattern);
-                            String fname = applyPlaceholders(pattern, keyMap);
-                            Path outPath = filesDir.toPath().resolve(fname);
-                            dialectHandler.writeLobFile(table, col, raw, outPath);
-                            wroteAny = true;
-                            cell = "file:" + fname;
-                        }
-
-                    } else if (isLobSqlType(type)) {
-                        throw new IllegalStateException("No definition for \"" + table + "\" / \""
-                                + col + "\" in file-patterns.");
-
-                        // RAW/BINARY family
-                    } else if (dialectHandler.isBinaryTypeForDump(type, typeName)) {
-                        byte[] bytes = rs.getBytes(i);
-                        cell = (bytes == null) ? ""
-                                : BaseEncoding.base16().upperCase().encode(bytes);
-
-                        // Others
-                    } else {
-                        cell = (raw == null) ? "" : dialectHandler.formatDbValueForCsv(col, raw);
-                    }
-
-                    row.set(idx, cell);
-                    if (wroteAny) {
-                        fileCount++;
-                        wroteAny = false;
-                    }
-                }
-            }
-        }
-
-        // 6) Compute sort-key indices
-        List<String> pkColumns = new ArrayList<>();
-        try (ResultSet pkRs = conn.getMetaData().getPrimaryKeys(conn.getCatalog(), schema, table)) {
-            while (pkRs.next()) {
-                pkColumns.add(pkRs.getString("COLUMN_NAME"));
-            }
-        }
-        Map<String, Integer> headerIndex = IntStream.range(0, headers.size()).boxed().collect(
-                Collectors.toMap(i -> headers.get(i), i -> i, (a, b) -> a, LinkedHashMap::new));
-        List<Integer> sortIdx = !pkColumns.isEmpty()
-                ? pkColumns.stream().map(headerIndex::get).collect(Collectors.toList())
-                : List.of(0);
-
-        // 7) Sort csvData ascending (trim → numeric-or-string compare)
-        csvData.sort((a, b) -> {
-            for (int idx : sortIdx) {
-                String va = StringUtils.trimToEmpty(a.get(idx));
-                String vb = StringUtils.trimToEmpty(b.get(idx));
-                int cmp;
-                try {
-                    cmp = Integer.compare(Integer.parseInt(va), Integer.parseInt(vb));
-                } catch (NumberFormatException ex) {
-                    cmp = va.compareTo(vb);
-                }
-                if (cmp != 0) {
-                    return cmp;
-                }
-            }
-            return 0;
-        });
-
-        // 8) Overwrite CSV
-        CSVFormat outFmt = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).get();
-        try (Writer w =
-                new OutputStreamWriter(new FileOutputStream(csvFile), StandardCharsets.UTF_8);
-                CSVPrinter pr = new CSVPrinter(w, outFmt)) {
-            pr.printRecord(headers);
-            for (List<String> row : csvData) {
-                pr.printRecord(row);
-            }
-        }
-
-        return new DumpResult(csvData.size(), fileCount);
-    }
-
-    /**
-     * Returns whether the JDBC type should be handled as LOB output.
-     *
-     * @param sqlType JDBC SQL type
-     * @return true if BLOB/CLOB/NCLOB
-     */
-    private boolean isLobSqlType(int sqlType) {
-        return LOB_SQL_TYPES.contains(sqlType);
-    }
-
-    /**
-     * Extracts placeholders like {@code {COLUMN}} from {@code rawPattern} using a regular
-     * expression, retrieves the values from the {@link java.sql.ResultSet} for the current row with
-     * matching column names, and returns a map of placeholders to values.
-     *
-     * <p>
-     * Even for tables without a primary key, any column that appears in {@code file-patterns} can
-     * be used as a key.
-     * </p>
-     *
-     * @param rs JDBC result set (current row is the target)
-     * @param rawPattern file name pattern (e.g., {@code "tbl_{COL1}_{COL2}.bin"})
-     * @return map of placeholder name → column value
-     * @throws java.sql.SQLException on column access error
-     */
-    private Map<String, Object> buildKeyMap(ResultSet rs, String rawPattern) throws SQLException {
-        Map<String, Object> keyMap = new HashMap<>();
-        Matcher m = Pattern.compile("\\{(.+?)\\}").matcher(rawPattern);
-        while (m.find()) {
-            String col = m.group(1);
-            keyMap.put(col, rs.getObject(col));
-        }
-        return keyMap;
-    }
-
-    /**
-     * Replaces placeholders in the specified pattern with values from the provided key-value
-     * map.<br>
-     * Placeholders are written as {@code {COLUMN_NAME}} and replaced with the corresponding entry
-     * in {@code keyMap}.
-     *
-     * <pre>
-     * // Example:
-     * String pattern = "LeapSecond_{ID}_{TIMESTAMP}.dat";
-     * Map&lt;String, Object&gt; keyMap = Map.of("ID", 3, "TIMESTAMP", "20250630T235959");
-     * // Result: "LeapSecond_3_20250630T235959.dat"
-     * </pre>
-     *
-     * @param pattern template string containing placeholders (e.g.,
-     *        {@code "tbl_{COL1}_{COL2}.bin"})
-     * @param keyMap map keyed by placeholder names with replacement values
-     * @return string with all placeholders replaced
-     * @throws NullPointerException if any key or value is {@code null}
-     */
-    private String applyPlaceholders(String pattern, Map<String, Object> keyMap) {
-        String result = pattern;
-        for (Map.Entry<String, Object> e : keyMap.entrySet()) {
-            String placeholder = "{" + e.getKey() + "}";
-            if (result.contains(placeholder)) {
-                result = result.replace(placeholder, Objects.toString(e.getValue()));
-            }
-        }
-        return result;
-    }
-
-    /**
-     * Writes the table list to {@code table-ordering.txt} in the specified directory.
-     *
-     * <p>
-     * The file is treated as a temporary working file created at the start of each Dump execution
-     * and deleted at the end by {@link #deleteTableOrdering(File)}.
-     * </p>
-     *
-     * @param dbDir output directory for this DB
-     * @param tables ordered list of table names to write
-     */
-    private void writeTableOrdering(File dbDir, List<String> tables) {
-        File orderFile = new File(dbDir, "table-ordering.txt");
-        try {
-            String content = String.join(System.lineSeparator(), tables);
-            FileUtils.writeStringToFile(orderFile, content, StandardCharsets.UTF_8);
-            log.info("Generated table-ordering.txt: {}", orderFile.getAbsolutePath());
-        } catch (IOException e) {
-            log.error("Failed to create table-ordering.txt: {}", e.getMessage(), e);
-            ErrorHandler.errorAndExit("Failed to create table-ordering.txt", e);
-        }
-    }
-
-    /**
-     * Deletes {@code table-ordering.txt} from the specified directory if it exists.
-     *
-     * <p>
-     * Called after each Dump execution to clean up the temporary working file. Silently ignores
-     * cases where the file does not exist.
-     * </p>
-     *
-     * @param dbDir output directory for this DB
-     */
-    private void deleteTableOrdering(File dbDir) {
-        File orderFile = new File(dbDir, "table-ordering.txt");
-        if (FileUtils.deleteQuietly(orderFile)) {
-            log.info("Deleted table-ordering.txt: {}", orderFile.getAbsolutePath());
-        }
     }
 
     /**

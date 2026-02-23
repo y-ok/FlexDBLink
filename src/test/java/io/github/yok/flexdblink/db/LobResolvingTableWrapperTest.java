@@ -56,8 +56,7 @@ class LobResolvingTableWrapperTest {
     }
 
     @Test
-    void getValue_異常ケース_file参照読み込みでIOExceptionが発生する_DataSetExceptionが送出されること()
-            throws Exception {
+    void getValue_異常ケース_file参照読み込みでIOExceptionが発生する_DataSetExceptionが送出されること() throws Exception {
         ITable delegate = mock(ITable.class);
         ITableMetaData metaData = mock(ITableMetaData.class);
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
