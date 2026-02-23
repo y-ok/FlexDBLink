@@ -1,4 +1,4 @@
-package io.github.yok.flexdblink.junit;
+package io.github.yok.flexdblink.maven;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -334,13 +334,13 @@ class LoadDataExtensionTest {
 
         // ===== (1) rollbackAllIfBegan 用の TX_RECORDS を仕込む =====
         Class<?> txRecordListClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecordList");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecordList");
         Constructor<?> txRecordListCtor = txRecordListClass.getDeclaredConstructor();
         txRecordListCtor.setAccessible(true);
         Object txRecordList = txRecordListCtor.newInstance();
 
         Class<?> txRecordClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecord");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecord");
         Constructor<?> txRecordCtor = txRecordClass.getDeclaredConstructor(String.class,
                 PlatformTransactionManager.class, TransactionStatus.class);
         txRecordCtor.setAccessible(true);
@@ -363,7 +363,7 @@ class LoadDataExtensionTest {
 
         // ===== (2) restoreTxInterceptorDefaultManager 用の TXI_DEFAULT_SWITCH を仕込む =====
         Class<?> recClass = Class.forName(
-                "io.github.yok.flexdblink.junit.LoadDataExtension$TxInterceptorSwitchRecord");
+                "io.github.yok.flexdblink.maven.LoadDataExtension$TxInterceptorSwitchRecord");
         Constructor<?> recCtor = recClass.getDeclaredConstructor();
         recCtor.setAccessible(true);
         Object rec = recCtor.newInstance();
@@ -615,7 +615,7 @@ class LoadDataExtensionTest {
         DataSource ds = dummyDataSource();
 
         Class<?> txRecordClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecord");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecord");
         Constructor<?> txCtor = txRecordClass.getDeclaredConstructor(String.class,
                 PlatformTransactionManager.class, TransactionStatus.class);
         txCtor.setAccessible(true);
@@ -625,7 +625,7 @@ class LoadDataExtensionTest {
         assertSame(status, readField(txRecordClass, txRecord, "status"));
 
         Class<?> componentsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$Components");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$Components");
         Constructor<?> compCtor = componentsClass.getDeclaredConstructor(DataSource.class,
                 PlatformTransactionManager.class);
         compCtor.setAccessible(true);
@@ -634,7 +634,7 @@ class LoadDataExtensionTest {
         assertSame(tm, readField(componentsClass, components, "txManager"));
 
         Class<?> tmWithDsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TmWithDs");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TmWithDs");
         Constructor<?> tmWithDsCtor = tmWithDsClass.getDeclaredConstructor(String.class,
                 String.class, PlatformTransactionManager.class, DataSource.class);
         tmWithDsCtor.setAccessible(true);
@@ -645,7 +645,7 @@ class LoadDataExtensionTest {
         assertSame(ds, readField(tmWithDsClass, tmWithDs, "ds"));
 
         Class<?> namedDsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$NamedDs");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$NamedDs");
         Constructor<?> namedDsCtor =
                 namedDsClass.getDeclaredConstructor(String.class, DataSource.class);
         namedDsCtor.setAccessible(true);
@@ -654,7 +654,7 @@ class LoadDataExtensionTest {
         assertSame(ds, readField(namedDsClass, namedDs, "ds"));
 
         Class<?> probeMetaClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$ProbeMeta");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$ProbeMeta");
         Constructor<?> probeCtor =
                 probeMetaClass.getDeclaredConstructor(String.class, String.class);
         probeCtor.setAccessible(true);
@@ -663,7 +663,7 @@ class LoadDataExtensionTest {
         assertEquals("sa", readField(probeMetaClass, probe, "user"));
 
         Class<?> txSwitchClass = Class.forName(
-                "io.github.yok.flexdblink.junit.LoadDataExtension$TxInterceptorSwitchRecord");
+                "io.github.yok.flexdblink.maven.LoadDataExtension$TxInterceptorSwitchRecord");
         Constructor<?> txSwitchCtor = txSwitchClass.getDeclaredConstructor();
         txSwitchCtor.setAccessible(true);
         Object txSwitch = txSwitchCtor.newInstance();
@@ -838,7 +838,7 @@ class LoadDataExtensionTest {
         when(context.getStore(Mockito.any(Namespace.class))).thenReturn(store);
 
         Class<?> txRecordListClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecordList");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecordList");
         Constructor<?> txRecordListConstructor = txRecordListClass.getDeclaredConstructor();
         txRecordListConstructor.setAccessible(true);
         Object txRecordList = txRecordListConstructor.newInstance();
@@ -846,7 +846,7 @@ class LoadDataExtensionTest {
         PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
         TransactionStatus transactionStatus = mock(TransactionStatus.class);
         Class<?> txRecordClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecord");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecord");
         Constructor<?> txRecordConstructor = txRecordClass.getDeclaredConstructor(String.class,
                 PlatformTransactionManager.class, TransactionStatus.class);
         txRecordConstructor.setAccessible(true);
@@ -905,7 +905,7 @@ class LoadDataExtensionTest {
 
         // Assert
         Class<?> componentsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$Components");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$Components");
         assertSame(ds, readField(componentsClass, components, "dataSource"));
         assertSame(tm, readField(componentsClass, components, "txManager"));
     }
@@ -1109,7 +1109,7 @@ class LoadDataExtensionTest {
         DataSource ds1 = mock(DataSource.class);
         DataSource ds2 = mock(DataSource.class);
         Class<?> namedDsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$NamedDs");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$NamedDs");
         Constructor<?> ctor = namedDsClass.getDeclaredConstructor(String.class, DataSource.class);
         ctor.setAccessible(true);
         Object n1 = ctor.newInstance("ds1", ds1);
@@ -1141,7 +1141,7 @@ class LoadDataExtensionTest {
         DataSource ds3 = mock(DataSource.class);
 
         Class<?> namedDsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$NamedDs");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$NamedDs");
         Constructor<?> ctor = namedDsClass.getDeclaredConstructor(String.class, DataSource.class);
         ctor.setAccessible(true);
         Object n1 = ctor.newInstance("ds1", ds1);
@@ -1700,7 +1700,7 @@ class LoadDataExtensionTest {
 
         // rec 有り、存在しない interceptor 名を含める分岐
         Class<?> recClass = Class.forName(
-                "io.github.yok.flexdblink.junit.LoadDataExtension$TxInterceptorSwitchRecord");
+                "io.github.yok.flexdblink.maven.LoadDataExtension$TxInterceptorSwitchRecord");
         Constructor<?> recCtor = recClass.getDeclaredConstructor();
         recCtor.setAccessible(true);
         Object rec = recCtor.newInstance();
@@ -1734,13 +1734,13 @@ class LoadDataExtensionTest {
         mockStore(context, storeMap);
 
         Class<?> txRecordListClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecordList");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecordList");
         Constructor<?> txRecordListCtor = txRecordListClass.getDeclaredConstructor();
         txRecordListCtor.setAccessible(true);
         Object txRecordList = txRecordListCtor.newInstance();
 
         Class<?> txRecordClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecord");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecord");
         Constructor<?> txRecordCtor = txRecordClass.getDeclaredConstructor(String.class,
                 PlatformTransactionManager.class, TransactionStatus.class);
         txRecordCtor.setAccessible(true);
@@ -1963,7 +1963,7 @@ class LoadDataExtensionTest {
         Object components = resolveComponentsForDbId.invoke(target, ac, "db1");
 
         Class<?> componentsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$Components");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$Components");
         assertSame(ds, readField(componentsClass, components, "dataSource"));
         assertSame(tm, readField(componentsClass, components, "txManager"));
     }
@@ -2003,7 +2003,7 @@ class LoadDataExtensionTest {
         Object components = resolveComponentsForDbId.invoke(target, ac, "db1");
 
         Class<?> componentsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$Components");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$Components");
         assertSame(ds1, readField(componentsClass, components, "dataSource"));
         assertSame(tm1, readField(componentsClass, components, "txManager"));
     }
@@ -2088,7 +2088,7 @@ class LoadDataExtensionTest {
         resolveComponentsForDbId.setAccessible(true);
         Object components = resolveComponentsForDbId.invoke(target, ac, "db1");
         Class<?> componentsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$Components");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$Components");
         assertSame(ds1, readField(componentsClass, components, "dataSource"));
     }
 
@@ -2097,7 +2097,7 @@ class LoadDataExtensionTest {
         DataSource ds1 = mock(DataSource.class);
         DataSource ds2 = mock(DataSource.class);
         Class<?> namedDsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$NamedDs");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$NamedDs");
         Constructor<?> ctor = namedDsClass.getDeclaredConstructor(String.class, DataSource.class);
         ctor.setAccessible(true);
         Object n1 = ctor.newInstance("ds1", ds1);
@@ -2129,7 +2129,7 @@ class LoadDataExtensionTest {
             throws Exception {
         DataSource ds1 = mock(DataSource.class);
         Class<?> namedDsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$NamedDs");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$NamedDs");
         Constructor<?> ctor = namedDsClass.getDeclaredConstructor(String.class, DataSource.class);
         ctor.setAccessible(true);
         Object n1 = ctor.newInstance("ds1", ds1);
@@ -2177,7 +2177,7 @@ class LoadDataExtensionTest {
         probeDataSourceMeta.setAccessible(true);
         Object meta = probeDataSourceMeta.invoke(target, ds);
         Class<?> metaClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$ProbeMeta");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$ProbeMeta");
         assertEquals(null, readField(metaClass, meta, "url"));
         assertEquals(null, readField(metaClass, meta, "user"));
     }
@@ -2229,7 +2229,7 @@ class LoadDataExtensionTest {
         mockStore(context, storeMap);
 
         Class<?> recClass = Class.forName(
-                "io.github.yok.flexdblink.junit.LoadDataExtension$TxInterceptorSwitchRecord");
+                "io.github.yok.flexdblink.maven.LoadDataExtension$TxInterceptorSwitchRecord");
         Constructor<?> recCtor = recClass.getDeclaredConstructor();
         recCtor.setAccessible(true);
         Object rec = recCtor.newInstance();
@@ -2463,7 +2463,7 @@ class LoadDataExtensionTest {
         DataSource ds1 = mock(DataSource.class);
         DataSource ds2 = mock(DataSource.class);
         Class<?> namedDsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$NamedDs");
+                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$NamedDs");
         Constructor<?> ctor = namedDsClass.getDeclaredConstructor(String.class, DataSource.class);
         ctor.setAccessible(true);
         Object n1 = ctor.newInstance("ds1", ds1);
