@@ -1,0 +1,7 @@
+ID,VC_COL,CHAR_COL,NVC_COL,NCHAR_COL,NUM_COL,BF_COL,BD_COL,DATE_COL,TIME_COL,TS_COL,TSTZ_COL,RAW_COL,XML_COL,CLOB_COL,NCLOB_COL,BLOB_COL,LOB_KIND
+101,load-xml,na-xml,load-nvc,na-nchar,123.456,1.25,10.125,2026-02-10,01:02:03,2026-02-10 01:02:03,2026-02-10 01:02:03+00:00,0A0B0C21,"<root><kind>xml</kind><source>load-main</source></root>","<root><kind>xml</kind><source>load</source></root>",nclob-load-xml,file:main_xml_1.xml,xml
+102,load-zip,na-zip,load-nvc,na-nchar,999.000,2.50,20.250,2026-02-11,02:03:04,2026-02-11 02:03:04,2026-02-11 02:03:04+00:00,0D0E0F10,"<root><kind>zip</kind><source>load-main</source></root>",clob-load-zip,nclob-load-zip,file:main_zip_1.zip,zip
+103,load-bin,na-bin,load-nvc,na-nchar,1.000,3.75,30.375,2026-02-12,03:04:05,2026-02-12 03:04:05,2026-02-12 03:04:05+00:00,11121314,"<root><kind>bin</kind><source>load-main</source></root>",clob-load-bin,nclob-load-bin,file:main_bin_1.bin,bin
+104,load-null,         ,        ,        ,0,0,0,2026-02-13,04:05:06,2026-02-13 04:05:06,2026-02-13 04:05:06+00:00,,,,"",file:main_empty_104.bin,empty
+105,load-text,loadchar ,loadnvc ,loadnchr ,10.5,4.00,40.000,2026-02-14,05:06:07,2026-02-14 05:06:07,2026-02-14 05:06:07+00:00,ABCD,"<root><kind>text</kind><source>load-main</source></root>",plain-text,plain-ntext,file:main_txt_1.txt,text
+106,load-more,morechar ,morenvc ,morenchr ,20.5,5.00,50.000,2026-02-15,06:07:08,2026-02-15 06:07:08,2026-02-15 06:07:08+00:00,DCBA,"<root><kind>more</kind><source>load-main</source></root>",more-text,more-ntext,file:main_more_106.bin,more
