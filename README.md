@@ -1,438 +1,85 @@
 # FlexDBLink
+
 [![GitHub release](https://img.shields.io/github/v/release/y-ok/FlexDBLink)](https://github.com/y-ok/FlexDBLink/releases)
 [![CI](https://github.com/y-ok/FlexDBLink/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/y-ok/FlexDBLink/actions/workflows/ci.yml)
 [![Coverage](https://codecov.io/gh/y-ok/FlexDBLink/branch/main/graph/badge.svg)](https://codecov.io/gh/y-ok/FlexDBLink)
 
-**FlexDBLink** は、開発・テスト工程における「DBデータの用意と検証」を圧倒的に効率化するデータ管理ツールです。
-CSV/JSON/YAML/XML などのシンプルなテキストファイルを使って、データベースへの **一括ロード／ダンプ** を誰でも簡単に実行できます。
-さらに BLOB/CLOB などの大容量 LOB データも「外部ファイル参照」で直感的に扱えるため、アプリケーションの実運用データを忠実に再現できます。
+**FlexDBLink** is a data management tool that automates "DB data preparation and verification" in development and testing workflows.
 
-CLI によるバッチ投入・取得はもちろん、JUnit 5 拡張機能を利用すれば **テストケース単位でのデータ準備と自動ロールバック** が可能。
-これにより「テスト前後のDB状態管理」や「シナリオごとのデータ切り替え」がスムーズになり、手作業のデータ調整から解放されます。
-そして最大の強みは、**SQL スクリプトに依存せず、テキストデータとして一元管理できるため、Git などで容易に構成管理・差分追跡・再現性の確保ができること**です。
+It performs **bulk load/dump** between databases and text files such as CSV / JSON / YAML / XML.
+LOB data (BLOB/CLOB) can be intuitively managed via "external file references."
+The JUnit 5 extension automates per-test data setup and rollback, enabling **Git-based configuration management without writing any SQL scripts**.
 
 ---
 
-**FlexDBLink** is a powerful yet lightweight tool to **manage DB test data as text**.
-It enables seamless **round-trips between DB and structured files** (CSV/JSON/YAML/XML), making it effortless to load datasets into your database or dump them back into files for inspection and reuse.
-Even large **LOBs (BLOB/CLOB)** are handled intuitively through external file references, so you can reproduce production-like data with ease.
+## Why FlexDBLink?
 
-Beyond bulk loading/dumping via the CLI, FlexDBLink provides a **JUnit 5 extension** that automatically loads datasets before test execution and rolls back afterward.
-This ensures **reliable, reproducible, and isolated test environments**, eliminating the hassle of manual data setup and cleanup.
-Most importantly, its greatest strength lies in the fact that **you no longer need to rely on handwritten SQL scripts — datasets are managed as plain text files, enabling easy version control with Git, clear diff tracking, and reproducibility across environments**.
+### Do any of these sound familiar?
 
----
+- Writing `INSERT` / `TRUNCATE` SQL by hand for every test
+- Missing DB cleanup steps before/after tests
+- LOB data (images, PDFs, XML) is hard to manage with plain SQL
+- DB state differs across development environments with no reproducibility
+- Want to version-control data in Git, but SQL diffs are hard to read
 
-## 特長
+### How FlexDBLink solves them
 
-* **Load & Dump**: CSV / JSON / YAML / XML ファイルから DB へデータロードします。また、DB から CSV/JSON/YAML/XML ファイルとしてデータ取得できます。LOBデータをファイルとして管理し、データロードおよびデータ取得できます。
-* **LOB は外部ファイルで**: データセルに `file:...` と書けば、`files/` ディレクトリの実体とリンクします
-  （JUnit 5 拡張の配置規約は後述）。
-* **2 段階ロード**（初期投入 `pre` とシナリオ追加入力）＋ シナリオ時は **既存重複の削除＋新規 INSERT のみ**を実施します。
-* **テーブル順序自動化**: FK依存関係を解析してロード順序を自動決定し、`table-ordering.txt` を常に最新状態に更新します。手動での管理は不要です。
-* **JUnit 5 拡張**: `@LoadData` でテストケースごとに データファイルを投入。SpringTestのトランザクション制御に従います。
-* **Oracle 対応**: INTERVAL/TIMESTAMP/TZ の正規化、BLOB/CLOB の JDBC 標準 API での投入などを実装しています。
-
-## Features
-
-* **Load & Dump**: Load data from CSV / JSON / YAML / XML files into the DB, and export data from the DB as CSV/JSON/YAML/XML files. LOB data is managed as external files and can be both loaded and exported.
-* **External LOB files**: If a dataset cell contains `file:...`, it links to the actual file under the `files/` directory
-  (JUnit 5 extension layout is described below).
-* **Two-phase loading**: Initial `pre` load plus scenario-specific additions; during scenarios, **remove existing duplicates and perform INSERT-only**.
-* **Automated table ordering**: Automatically determines and maintains the correct load order by analyzing FK dependencies — `table-ordering.txt` is always kept up to date. No manual maintenance required.
-* **JUnit 5 extension**: Use `@LoadData` to load datasets per test case; adheres to Spring Test transaction management.
-* **Oracle support**: Normalization for INTERVAL/TIMESTAMP/TZ types and LOB insertion via standard JDBC APIs (BLOB/CLOB).
+| Problem | Solution |
+|---------|----------|
+| Manual SQL for data management | Manage with text files: CSV/JSON/YAML/XML |
+| Difficulty handling LOB data | Reference external files with `file:filename` |
+| Manual DB cleanup before/after tests | Automatic load and rollback with `@LoadData` |
+| Non-reproducible DB state across environments | Version-control datasets in Git |
+| Load order management under FK constraints | Auto-generate and update `table-ordering.txt` |
 
 ---
 
-## Temporal Formats and Type Coverage (Oracle / PostgreSQL / MySQL / SQL Server) / 時刻フォーマットと対応型（Oracle / PostgreSQL / MySQL / SQL Server）
+## Key Features
 
-The following matrix defines target temporal formats used by FlexDBLink.  
-以下の表は、FlexDBLink が対象とする時刻フォーマットを示します。
-
-### Oracle
-
-| Category / 区分 | Target format / 対象フォーマット |
-| --- | --- |
-| `DATE` | `yyyy-MM-dd` |
-| `TIME` | `HH:mm:ss` |
-| `TIMESTAMP` | `yyyy-MM-dd HH:mm:ss.SSS` |
-| `TIMESTAMP WITH TIME ZONE` / `TIMESTAMP WITH LOCAL TIME ZONE` | `yyyy-MM-dd HH:mm:ss +HHMM` |
-| `INTERVAL YEAR TO MONTH` | `Y-M` |
-| `INTERVAL DAY TO SECOND` | `D H:M:S` |
-
-Covered Oracle SQL types in current dialect handling:  
-現在の Oracle 方言処理で対応している SQL 型:
-`NUMBER`, `BINARY_FLOAT`, `BINARY_DOUBLE`, `VARCHAR2`, `CHAR`, `NVARCHAR2`, `NCHAR`, `DATE`,
-`TIMESTAMP(6)`, `TIMESTAMP(6) WITH TIME ZONE`, `TIMESTAMP(6) WITH LOCAL TIME ZONE`,
-`INTERVAL YEAR TO MONTH`, `INTERVAL DAY TO SECOND`, `RAW`, `CLOB`, `NCLOB`, `BLOB`.
-
-### PostgreSQL
-
-| Category / 区分 | Target format / 対象フォーマット |
-| --- | --- |
-| `DATE` | `yyyy-MM-dd` |
-| `TIME` | `HH:mm:ss` |
-| `TIMESTAMP` | `yyyy-MM-dd HH:mm:ss[.fraction]` |
-| `TIMESTAMPTZ` | `yyyy-MM-dd HH:mm:ss[.fraction]+HHMM` |
-
-Covered PostgreSQL SQL types in current dialect handling:  
-現在の PostgreSQL 方言処理で対応している SQL 型:
-`BIGINT`, `NUMERIC`, `REAL`, `DOUBLE PRECISION`, `VARCHAR`, `CHAR`, `DATE`, `TIME`, `TIMESTAMP`,
-`TIMESTAMPTZ`, `BYTEA`, `XML`, `TEXT`.
-
-### MySQL
-
-| Category / 区分 | Target format / 対象フォーマット |
-| --- | --- |
-| `DATE` | `yyyy-MM-dd` |
-| `TIME` | `HH:mm:ss` |
-| `DATETIME` / `TIMESTAMP` | `yyyy-MM-dd HH:mm:ss[.fraction]` |
-| `YEAR` | `yyyy` |
-| LOB reference | `file:<relative-path>` |
-
-Covered MySQL SQL types in current dialect handling:  
-現在の MySQL 方言処理で対応している SQL 型:
-`TINYINT`, `SMALLINT`, `MEDIUMINT`, `INT`, `BIGINT`, `DECIMAL`, `NUMERIC`, `FLOAT`, `DOUBLE`,
-`BIT`, `BOOLEAN`, `CHAR`, `VARCHAR`, `TINYTEXT`, `TEXT`, `MEDIUMTEXT`, `LONGTEXT`, `ENUM`, `SET`,
-`JSON`, `BINARY`, `VARBINARY`, `TINYBLOB`, `BLOB`, `MEDIUMBLOB`, `LONGBLOB`, `DATE`, `TIME`,
-`DATETIME`, `TIMESTAMP`, `YEAR`.
-
-### SQL Server
-
-| Category / 区分 | Target format / 対象フォーマット |
-| --- | --- |
-| `DATE` | `yyyy-MM-dd` |
-| `TIME` | `HH:mm:ss` |
-| `DATETIME2` | `yyyy-MM-dd HH:mm:ss[.fraction]` |
-| LOB reference | `file:<relative-path>` |
-
-Covered SQL Server SQL types in current dialect handling:  
-現在の SQL Server 方言処理で対応している SQL 型:
-`BIGINT`, `INT`, `SMALLINT`, `TINYINT`, `DECIMAL`, `NUMERIC`, `FLOAT`, `REAL`, `BIT`,
-`CHAR`, `VARCHAR`, `NCHAR`, `NVARCHAR`, `DATE`, `TIME`, `DATETIME2`, `VARBINARY`, `XML`.
+- **Load & Dump** — Bidirectional data transfer between CSV / JSON / YAML / XML and databases
+- **LOB External File References** — Manage BLOB/CLOB by simply writing `file:xxx` in a CSV cell
+- **Two-phase Load** — Initial data (`pre`) + scenario-specific incremental data
+- **Automatic Table Ordering** — Analyzes FK dependencies and auto-generates `table-ordering.txt`
+- **JUnit 5 Extension** — Per-test data injection and automatic rollback via `@LoadData`
+- **Multi-DB Support** — Oracle / PostgreSQL / MySQL / SQL Server
 
 ---
 
-## 前提
+## Requirements
 
-* **Java 11+**（`JAVA_HOME` を JDK 11 以上に設定）
-  * **サポート対象（CIで動作確認）**: **Java 11 / 17 / 21（LTS）**
-  * **互換性ターゲット**: **Java 25（非LTS、CI必須対象外・動作報告歓迎）**
-* **Apache Maven 3.9+**（CLI ツールのビルドに使用します。例: 3.9.10）
-* **Oracle JDBC Driver**（`oracle.jdbc.OracleDriver`）
-* **OS**: Windows / macOS / Linux いずれでも可
+| Requirement | Details |
+|-------------|---------|
+| Java | 11 or higher (CI verified: **Java 11 / 17 / 21**) |
+| OS | Windows / macOS / Linux |
 
-> 現状の方言実装は **Oracle を主対象**に最適化しています。その他 RDB は順次対応予定です。
+> When using Oracle, you need to provide `oracle.jdbc.OracleDriver` (`ojdbc8`) separately.
 
 ---
 
-### Requirements
+## Quick Start
 
-* **Java 11+** (set `JAVA_HOME` to JDK 11 or later)
-  * **Supported (CI-tested):** **Java 11 / 17 / 21 (LTS)**
-  * **Compatibility target:** **Java 25 (non-LTS; not required in CI; bug reports welcome)**
-* **Apache Maven 3.9+** (used to build the CLI tool; e.g., 3.9.10)
-* **Oracle JDBC Driver** (`oracle.jdbc.OracleDriver`)
-* **OS**: Windows / macOS / Linux
+### 1. Download
 
-> The current dialect implementation is primarily optimized for **Oracle**. Support for other RDBMSs will be added progressively.
+Download the latest `FlexDBLink-distribution.zip` from [GitHub Releases](https://github.com/y-ok/FlexDBLink/releases) and extract it.
 
----
-
-## CLI ビルド方法 / CLI Build
-
-```bash
-mvn clean package -Dmaven.test.skip=true
+```
+FlexDBLink/
+  flexdblink.jar
+  conf/
+    application.yml    ← configuration file
 ```
 
-**Artifacts (in `target/`) / 生成物**
+### 2. Edit the Configuration File
 
-* `flexdblink.jar` — 実行 JAR（配布 ZIP に含まれる）
-* `FlexDBLink-sources.jar` — ソース JAR
-* `FlexDBLink-distribution.zip` — 配布用 ZIP
-  （ZIP 展開後は `FlexDBLink/` 直下に `flexdblink.jar` と `conf/application.yml` が配置されます）
+Edit `conf/application.yml` to set connection details and the data path.
 
----
-
-## CLI の使い方 / CLI Usage
-
-ビルドで生成される **`flexdblink.jar`** を使います。
-
-### コマンド
-
-```bash
-# ロード（シナリオ省略時は application.yml の pre-dir-name を使用、通常 "pre"）
-java -jar flexdblink.jar --load [<scenario>] --target DB1,DB2
-
-# ダンプ（シナリオ指定が必須）
-java -jar flexdblink.jar --dump <scenario> --target DB1,DB2
-```
-
-* `--load` / `-l`：ロードモード。`<scenario>` を省略すると `pre` を使用。
-* `--dump` / `-d`：ダンプモード。**シナリオ名必須**。
-* `--target` / `-t`：対象 DB ID のカンマ区切り。**省略時は `connections[].id` の全件**が対象。
-
-> **注意**: コマンドラインからの Spring プロパティ上書きは無効化しています。**設定は `application.yml` に記述**してください。
-
----
-
-* `--load` / `-l`: Load mode. Uses `pre` if `<scenario>` is omitted.
-* `--dump` / `-d`: Dump mode. **Scenario name required**.
-* `--target` / `-t`: Comma-separated target DB IDs. **If omitted, all entries in `connections[].id`** are targeted.
-
-> **Note**: Overriding Spring properties from the command line is disabled. **Configure everything in `application.yml`.**
-
-## dockerコンテナを用いたCLI利用手順 / CLI Usage Guide with a Docker Container
-
-- **[Oracle 19c（Docker）環境構築と FlexDBLink サンプル実行](script/README_jp.md)**
-- **[Set Up Oracle 19c (Docker) and Run the FlexDBLink Sample](script/README_en.md)**
-
-### CLI 実行結果
-
-<details>
-<summary><strong>ロード実行例</strong>（<code>--load COMMON</code>）</summary>
-
-```bash
-$ java -Dspring.config.additional-location=file:conf/ -jar flexdblink.jar --load COMMON
-
-  .   ____          _            __ _ _
- /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
-( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
- \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
-  '  |____| .__|_| |_|_| |_\__, | / / / /
- =========|_|==============|___/=/_/_/_/
- :: Spring Boot ::               (v2.7.18)
-
-2025-08-17 23:53:28.743  INFO 24625 --- [           main] io.github.yok.flexdblink.Main            : Starting Main v0.1.0 using Java 11.0.27 on okawauchi with PID 24625
-2025-08-17 23:53:28.745  INFO 24625 --- [           main] io.github.yok.flexdblink.Main            : No active profile set, falling back to 1 default profile: "default"
-2025-08-17 23:53:29.287  INFO 24625 --- [           main] io.github.yok.flexdblink.Main            : Started Main in 0.938 seconds (JVM running for 1.311)
-2025-08-17 23:53:29.289  INFO 24625 --- [           main] io.github.yok.flexdblink.Main            : Application started. Args: [--load, COMMON]
-2025-08-17 23:53:29.290  INFO 24625 --- [           main] io.github.yok.flexdblink.Main            : Mode: load, Scenario: COMMON, Target DBs: [DB1]
-2025-08-17 23:53:29.291  INFO 24625 --- [           main] io.github.yok.flexdblink.Main            : Starting data load. Scenario [COMMON], Target DBs [DB1]
-2025-08-17 23:53:29.293  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : === DataLoader started (mode=COMMON, target DBs=[DB1]) ===
-2025-08-17 23:53:29.947  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : Generated table-ordering.txt: load/pre/DB1/table-ordering.txt
-2025-08-17 23:53:29.953  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Excluded tables: [flyway_schema_history]
-2025-08-17 23:53:30.039  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: BINARY_TEST_TABLE.csv
-2025-08-17 23:53:30.059  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[BINARY_TEST_TABLE] rows=2
-2025-08-17 23:53:30.060  INFO 24625 --- [           main] i.g.y.f.db.OracleDialectHandler          :   Extracting LOB columns from: load/pre/DB1/BINARY_TEST_TABLE.csv
-2025-08-17 23:53:30.193  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[BINARY_TEST_TABLE] Initial | inserted=2
-2025-08-17 23:53:30.196  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: CHAR_CLOB_TEST_TABLE.csv
-2025-08-17 23:53:30.198  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[CHAR_CLOB_TEST_TABLE] rows=2
-2025-08-17 23:53:30.198  INFO 24625 --- [           main] i.g.y.f.db.OracleDialectHandler          :   Extracting LOB columns from: load/pre/DB1/CHAR_CLOB_TEST_TABLE.csv
-2025-08-17 23:53:30.245  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[CHAR_CLOB_TEST_TABLE] Initial | inserted=2
-2025-08-17 23:53:30.247  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: DATE_TIME_TEST_TABLE.csv
-2025-08-17 23:53:30.249  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[DATE_TIME_TEST_TABLE] rows=4
-2025-08-17 23:53:30.249  INFO 24625 --- [           main] i.g.y.f.db.OracleDialectHandler          :   Extracting LOB columns from: load/pre/DB1/DATE_TIME_TEST_TABLE.csv
-2025-08-17 23:53:30.281  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[DATE_TIME_TEST_TABLE] Initial | inserted=4
-2025-08-17 23:53:30.283  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: NO_PK_TABLE.csv
-2025-08-17 23:53:30.285  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[NO_PK_TABLE] rows=2
-2025-08-17 23:53:30.285  INFO 24625 --- [           main] i.g.y.f.db.OracleDialectHandler          :   Extracting LOB columns from: load/pre/DB1/NO_PK_TABLE.csv
-2025-08-17 23:53:30.306  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[NO_PK_TABLE] Initial | inserted=2
-2025-08-17 23:53:30.308  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: NUMERIC_TEST_TABLE.csv
-2025-08-17 23:53:30.310  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[NUMERIC_TEST_TABLE] rows=3
-2025-08-17 23:53:30.310  INFO 24625 --- [           main] i.g.y.f.db.OracleDialectHandler          :   Extracting LOB columns from: load/pre/DB1/NUMERIC_TEST_TABLE.csv
-2025-08-17 23:53:30.332  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[NUMERIC_TEST_TABLE] Initial | inserted=3
-2025-08-17 23:53:30.334  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: SAMPLE_BLOB_TABLE.csv
-2025-08-17 23:53:30.336  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[SAMPLE_BLOB_TABLE] rows=2
-2025-08-17 23:53:30.336  INFO 24625 --- [           main] i.g.y.f.db.OracleDialectHandler          :   Extracting LOB columns from: load/pre/DB1/SAMPLE_BLOB_TABLE.csv
-2025-08-17 23:53:30.358  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[SAMPLE_BLOB_TABLE] Initial | inserted=2
-2025-08-17 23:53:30.359  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: VARCHAR2_CHAR_TEST_TABLE.csv
-2025-08-17 23:53:30.361  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[VARCHAR2_CHAR_TEST_TABLE] rows=6
-2025-08-17 23:53:30.361  INFO 24625 --- [           main] i.g.y.f.db.OracleDialectHandler          :   Extracting LOB columns from: load/pre/DB1/VARCHAR2_CHAR_TEST_TABLE.csv
-2025-08-17 23:53:30.391  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[VARCHAR2_CHAR_TEST_TABLE] Initial | inserted=6
-2025-08-17 23:53:30.393  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: XML_JSON_TEST_TABLE.csv
-2025-08-17 23:53:30.394  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[XML_JSON_TEST_TABLE] rows=2
-2025-08-17 23:53:30.394  INFO 24625 --- [           main] i.g.y.f.db.OracleDialectHandler          :   Extracting LOB columns from: load/pre/DB1/XML_JSON_TEST_TABLE.csv
-2025-08-17 23:53:30.423  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[XML_JSON_TEST_TABLE] Initial | inserted=2
-2025-08-17 23:53:30.427  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : Generated table-ordering.txt: load/COMMON/DB1/table-ordering.txt
-2025-08-17 23:53:30.428  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Excluded tables: [flyway_schema_history]
-2025-08-17 23:53:30.502  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: BINARY_TEST_TABLE.csv
-2025-08-17 23:53:30.504  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[BINARY_TEST_TABLE] rows=4
-2025-08-17 23:53:30.554  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[BINARY_TEST_TABLE] Deleted duplicates by primary key → 2
-2025-08-17 23:53:30.558  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[BINARY_TEST_TABLE] Scenario (INSERT only) | inserted=2
-2025-08-17 23:53:30.560  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: CHAR_CLOB_TEST_TABLE.csv
-2025-08-17 23:53:30.561  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[CHAR_CLOB_TEST_TABLE] rows=2
-2025-08-17 23:53:30.580  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[CHAR_CLOB_TEST_TABLE] Deleted duplicates by primary key → 1
-2025-08-17 23:53:30.588  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[CHAR_CLOB_TEST_TABLE] Scenario (INSERT only) | inserted=1
-2025-08-17 23:53:30.590  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: DATE_TIME_TEST_TABLE.csv
-2025-08-17 23:53:30.592  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[DATE_TIME_TEST_TABLE] rows=4
-2025-08-17 23:53:30.622  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[DATE_TIME_TEST_TABLE] Deleted duplicates by primary key → 3
-2025-08-17 23:53:30.625  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[DATE_TIME_TEST_TABLE] Scenario (INSERT only) | inserted=1
-2025-08-17 23:53:30.626  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: NO_PK_TABLE.csv
-2025-08-17 23:53:30.628  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[NO_PK_TABLE] rows=4
-2025-08-17 23:53:30.736  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[NO_PK_TABLE] Deleted duplicates by all columns → 2
-2025-08-17 23:53:30.739  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[NO_PK_TABLE] Scenario (INSERT only) | inserted=2
-2025-08-17 23:53:30.741  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: NUMERIC_TEST_TABLE.csv
-2025-08-17 23:53:30.742  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[NUMERIC_TEST_TABLE] rows=5
-2025-08-17 23:53:30.761  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[NUMERIC_TEST_TABLE] Deleted duplicates by primary key → 3
-2025-08-17 23:53:30.765  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[NUMERIC_TEST_TABLE] Scenario (INSERT only) | inserted=2
-2025-08-17 23:53:30.766  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: SAMPLE_BLOB_TABLE.csv
-2025-08-17 23:53:30.768  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[SAMPLE_BLOB_TABLE] rows=2
-2025-08-17 23:53:30.786  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[SAMPLE_BLOB_TABLE] Deleted duplicates by primary key → 1
-2025-08-17 23:53:30.790  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[SAMPLE_BLOB_TABLE] Scenario (INSERT only) | inserted=1
-2025-08-17 23:53:30.792  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: VARCHAR2_CHAR_TEST_TABLE.csv
-2025-08-17 23:53:30.794  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[VARCHAR2_CHAR_TEST_TABLE] rows=4
-2025-08-17 23:53:30.813  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[VARCHAR2_CHAR_TEST_TABLE] Deleted duplicates by primary key → 4
-2025-08-17 23:53:30.813  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[VARCHAR2_CHAR_TEST_TABLE] Scenario (INSERT only) | inserted=0
-2025-08-17 23:53:30.815  INFO 24625 --- [           main] i.g.y.f.parser.DataLoaderFactory         : Resolved dataset file: XML_JSON_TEST_TABLE.csv
-2025-08-17 23:53:30.817  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[XML_JSON_TEST_TABLE] rows=1
-2025-08-17 23:53:30.833  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[XML_JSON_TEST_TABLE] Deleted duplicates by primary key → 1
-2025-08-17 23:53:30.833  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : [DB1] Table[XML_JSON_TEST_TABLE] Scenario (INSERT only) | inserted=0
-2025-08-17 23:53:30.836  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : === DataLoader finished ===
-2025-08-17 23:53:30.837  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : ===== Summary =====
-2025-08-17 23:53:30.837  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : DB[DB1]:
-2025-08-17 23:53:30.841  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  :   Table[BINARY_TEST_TABLE       ] Total=2
-2025-08-17 23:53:30.841  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  :   Table[CHAR_CLOB_TEST_TABLE    ] Total=2
-2025-08-17 23:53:30.841  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  :   Table[DATE_TIME_TEST_TABLE    ] Total=2
-2025-08-17 23:53:30.841  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  :   Table[NO_PK_TABLE             ] Total=2
-2025-08-17 23:53:30.841  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  :   Table[NUMERIC_TEST_TABLE      ] Total=2
-2025-08-17 23:53:30.841  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  :   Table[SAMPLE_BLOB_TABLE       ] Total=2
-2025-08-17 23:53:30.841  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  :   Table[VARCHAR2_CHAR_TEST_TABLE] Total=2
-2025-08-17 23:53:30.841  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  :   Table[XML_JSON_TEST_TABLE     ] Total=1
-2025-08-17 23:53:30.841  INFO 24625 --- [           main] i.github.yok.flexdblink.core.DataLoader  : == Data loading to all DBs has completed ==
-2025-08-17 23:53:30.841  INFO 24625 --- [           main] io.github.yok.flexdblink.Main            : Data load completed. Scenario [COMMON]
-```
-
-</details>
-
-<details>
-<summary><strong>ダンプ例</strong>（<code>--dump COMMON</code>）</summary>
-
-```bash
-$ java -Dspring.config.additional-location=file:conf/ -jar flexdblink.jar --dump COMMON
-
-  .   ____          _            __ _ _
- /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
-( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
- \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
-  '  |____| .__|_| |_|_| |_\__, | / / / /
- =========|_|==============|___/=/_/_/_/
- :: Spring Boot ::               (v2.7.18)
-
-2025-08-17 23:47:06.192  INFO 19573 --- [           main] io.github.yok.flexdblink.Main            : Starting Main v0.1.0 using Java 11.0.27 on okawauchi with PID 19573
-2025-08-17 23:47:06.195  INFO 19573 --- [           main] io.github.yok.flexdblink.Main            : No active profile set, falling back to 1 default profile: "default"
-2025-08-17 23:47:06.752  INFO 19573 --- [           main] io.github.yok.flexdblink.Main            : Started Main in 0.974 seconds (JVM running for 1.361)
-2025-08-17 23:47:06.754  INFO 19573 --- [           main] io.github.yok.flexdblink.Main            : Application started. Args: [--dump, COMMON]
-2025-08-17 23:47:06.755  INFO 19573 --- [           main] io.github.yok.flexdblink.Main            : Mode: dump, Scenario: COMMON, Target DBs: [DB1]
-2025-08-17 23:47:06.756  INFO 19573 --- [           main] io.github.yok.flexdblink.Main            : Starting data dump. Scenario [COMMON], Target DBs [[DB1]]
-2025-08-17 23:47:06.758  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] === DB dump started ===
-2025-08-17 23:47:07.559  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[BINARY_TEST_TABLE] CSV dump completed (UTF-8)
-2025-08-17 23:47:07.591  INFO 19573 --- [           main] i.g.y.f.db.OracleDialectHandler          :   LOB file written: dump/COMMON/DB1/files/sample3.bin
-2025-08-17 23:47:07.593  INFO 19573 --- [           main] i.g.y.f.db.OracleDialectHandler          :   LOB file written: dump/COMMON/DB1/files/sample4.bin
-2025-08-17 23:47:07.599  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[BINARY_TEST_TABLE] dumped-records=2, BLOB/CLOB file-outputs=2
-2025-08-17 23:47:07.610  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[CHAR_CLOB_TEST_TABLE] CSV dump completed (UTF-8)
-2025-08-17 23:47:07.616  INFO 19573 --- [           main] i.g.y.f.db.OracleDialectHandler          :   LOB file written: dump/COMMON/DB1/files/char_clob_2.clob
-2025-08-17 23:47:07.617  INFO 19573 --- [           main] i.g.y.f.db.OracleDialectHandler          :   LOB file written: dump/COMMON/DB1/files/char_clob_2.nclob
-2025-08-17 23:47:07.618  INFO 19573 --- [           main] i.g.y.f.db.OracleDialectHandler          :   LOB file written: dump/COMMON/DB1/files/char_clob_3.clob
-2025-08-17 23:47:07.618  INFO 19573 --- [           main] i.g.y.f.db.OracleDialectHandler          :   LOB file written: dump/COMMON/DB1/files/char_clob_3.nclob
-2025-08-17 23:47:07.623  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[CHAR_CLOB_TEST_TABLE] dumped-records=2, BLOB/CLOB file-outputs=4
-2025-08-17 23:47:07.662  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[DATE_TIME_TEST_TABLE] CSV dump completed (UTF-8)
-2025-08-17 23:47:07.687  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[DATE_TIME_TEST_TABLE] dumped-records=2, BLOB/CLOB file-outputs=0
-2025-08-17 23:47:07.693  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[NO_PK_TABLE] CSV dump completed (UTF-8)
-2025-08-17 23:47:07.699  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[NO_PK_TABLE] dumped-records=2, BLOB/CLOB file-outputs=0
-2025-08-17 23:47:07.708  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[NUMERIC_TEST_TABLE] CSV dump completed (UTF-8)
-2025-08-17 23:47:07.713  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[NUMERIC_TEST_TABLE] dumped-records=2, BLOB/CLOB file-outputs=0
-2025-08-17 23:47:07.723  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[SAMPLE_BLOB_TABLE] CSV dump completed (UTF-8)
-2025-08-17 23:47:07.726  INFO 19573 --- [           main] i.g.y.f.db.OracleDialectHandler          :   LOB file written: dump/COMMON/DB1/files/LeapSecond_3.dat
-2025-08-17 23:47:07.727  INFO 19573 --- [           main] i.g.y.f.db.OracleDialectHandler          :   LOB file written: dump/COMMON/DB1/files/LeapSecond_2.dat
-2025-08-17 23:47:07.730  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[SAMPLE_BLOB_TABLE] dumped-records=2, BLOB/CLOB file-outputs=2
-2025-08-17 23:47:07.739  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[VARCHAR2_CHAR_TEST_TABLE] CSV dump completed (UTF-8)
-2025-08-17 23:47:07.747  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[VARCHAR2_CHAR_TEST_TABLE] dumped-records=2, BLOB/CLOB file-outputs=0
-2025-08-17 23:47:07.756  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[XML_JSON_TEST_TABLE] CSV dump completed (UTF-8)
-2025-08-17 23:47:07.760  INFO 19573 --- [           main] i.g.y.f.db.OracleDialectHandler          :   LOB file written: dump/COMMON/DB1/files/json_data_1.json
-2025-08-17 23:47:07.760  INFO 19573 --- [           main] i.g.y.f.db.OracleDialectHandler          :   LOB file written: dump/COMMON/DB1/files/xml_data_1.xml
-2025-08-17 23:47:07.763  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] Table[XML_JSON_TEST_TABLE] dumped-records=1, BLOB/CLOB file-outputs=2
-2025-08-17 23:47:07.764  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : ===== Summary =====
-2025-08-17 23:47:07.764  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : DB[DB1]:
-2025-08-17 23:47:07.769  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  :   Table[BINARY_TEST_TABLE       ] Total=2
-2025-08-17 23:47:07.769  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  :   Table[CHAR_CLOB_TEST_TABLE    ] Total=2
-2025-08-17 23:47:07.769  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  :   Table[DATE_TIME_TEST_TABLE    ] Total=2
-2025-08-17 23:47:07.769  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  :   Table[NO_PK_TABLE             ] Total=2
-2025-08-17 23:47:07.769  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  :   Table[NUMERIC_TEST_TABLE      ] Total=2
-2025-08-17 23:47:07.769  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  :   Table[SAMPLE_BLOB_TABLE       ] Total=2
-2025-08-17 23:47:07.770  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  :   Table[VARCHAR2_CHAR_TEST_TABLE] Total=2
-2025-08-17 23:47:07.770  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  :   Table[XML_JSON_TEST_TABLE     ] Total=1
-2025-08-17 23:47:07.770  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : [DB1] === DB dump completed ===
-2025-08-17 23:47:07.772  INFO 19573 --- [           main] i.github.yok.flexdblink.core.DataDumper  : === All DB dumps completed: Output [dump/COMMON] ===
-2025-08-17 23:47:07.772  INFO 19573 --- [           main] io.github.yok.flexdblink.Main            : Data dump completed. Scenario [COMMON]
-```
-
-</details>
-
-### ディレクトリ構成（`data-path` 配下）
-
-```text
-<data-path>/
-  load/
-    pre/
-      <DB_ID>/
-        TABLE_A.csv
-        TABLE_B.csv
-        table-ordering.txt   # 自動生成・更新（FK依存解決）
-                             # Auto-generated and updated (FK dependency resolution)
-    <scenario-name>/
-      <DB_ID>/
-        ...
-  files/
-    ...                      # LOB 実体（CSV からは file:xxx で参照）
-                             # LOB payloads (referenced from CSV as file:xxx)
-  dump/
-    <scenario-name>/
-      <DB_ID>/
-        *.csv                # ダンプ結果
-                             # Dump results
-```
-
-### LOB の扱い
-
-* **ロード時**: CSV セルに `file:Foo_001.bin` のように書くと、`<data-path>/files/Foo_001.bin` を読み込んで投入します。
-* **ダンプ時**: LOB 列は `<data-path>/files/` に実体を書き出し、CSV 側には `file:...` を出力。ファイル名は `file-patterns` でテーブル／列ごとにテンプレート指定可能（後述）。
-
----
-
-### Handling LOBs
-
-* **On load**: If a CSV cell contains `file:Foo_001.bin`, the tool reads and inserts `<data-path>/files/Foo_001.bin`.
-* **On dump**: LOB columns are written to `<data-path>/files/`, and the CSV contains `file:...` references. Filenames can be templated per table/column via `file-patterns` (see below).
-
----
-
-## 設定ファイル（`application.yml`）
-
-FlexDBLink の CLI は **`application.yml`** を読み込んで動作します（標準の Spring Boot 外部設定解決に準拠）。
-主な探索場所: 実行ディレクトリ直下、`./config/`、クラスパス内 など。
-
-> **Note**: `Main` はコマンドライン引数による Spring のプロパティ上書きを無効化（`setAddCommandLineProperties(false)`）。
-> 設定は **YAML ファイル側で管理**してください。
-
---- 
-
-## Configuration file (`application.yml`)
-
-The FlexDBLink CLI operates by loading **`application.yml`**, adhering to Spring Boot’s standard externalized configuration resolution.
-Primary lookup locations include: the working directory, `./config/`, and the classpath.
-
-> **Note**: `Main` disables overriding Spring properties via command-line arguments (`setAddCommandLineProperties(false)`). Please **manage settings in the YAML file**.
-
-### Sample
+**Single DB**
 
 ```yaml
-data-path: /absolute/path/to/project-root
+data-path: /path/to/your/data
 
 dbunit:
-  dataTypeFactoryMode: ORACLE
-  pre-dir-name: pre
-  csv:
-    format:
-      date: "yyyy-MM-dd"
-      time: "HH:mm:ss"
-      dateTime: "yyyy-MM-dd HH:mm:ss"
-      dateTimeWithMillis: "yyyy-MM-dd HH:mm:ss.SSS"
-  config:
-    allow-empty-fields: true
-    batched-statements: true
-    batch-size: 100
+  dataTypeFactoryMode: ORACLE   # ORACLE / POSTGRESQL / MYSQL / SQLSERVER
 
 connections:
   - id: DB1
@@ -440,223 +87,460 @@ connections:
     user: oracle
     password: password
     driver-class: oracle.jdbc.OracleDriver
+```
 
+**Multiple DBs** (just add more entries under `connections`)
+
+```yaml
+data-path: /path/to/your/data
+
+dbunit:
+  dataTypeFactoryMode: ORACLE
+
+connections:
+  - id: DB1
+    url: jdbc:oracle:thin:@localhost:1521/OPEDB
+    user: oracle
+    password: password
+    driver-class: oracle.jdbc.OracleDriver
+  - id: DB2
+    url: jdbc:postgresql://localhost:5432/mydb
+    user: postgres
+    password: password
+    driver-class: org.postgresql.Driver
+```
+
+> Use `--target DB1,DB2` to restrict processing to specific DB IDs. When omitted, all connections are targeted.
+
+### 3. Place Your Dataset
+
+Place CSV files under `data-path`. The filename corresponds to the table name.
+
+```
+/path/to/your/data/
+  load/
+    pre/
+      DB1/
+        USERS.csv
+        ORDERS.csv
+```
+
+CSV files are UTF-8 with a header row:
+
+```csv
+USER_ID,USER_NAME,STATUS
+1,Alice,ACTIVE
+2,Bob,INACTIVE
+```
+
+### 4. Run
+
+#### Setup (first time only)
+
+Scans the DB schema to detect LOB columns and auto-writes `file-patterns` templates into `application.yml`.
+
+```bash
+java -jar flexdblink.jar --setup
+# Target a specific DB only
+java -jar flexdblink.jar --setup --target DB1
+```
+
+> The `file-patterns` generated by `--setup` are **filename format templates for dump output** (e.g., `{ID}.bin`).
+> After generation, open `application.yml` and **edit and maintain them** according to your project's naming conventions.
+
+#### Load
+
+```bash
+# Load initial data (inserts from load/pre/<DB_ID>/)
+java -jar flexdblink.jar --load
+
+# Load with a scenario (inserts load/pre/<DB_ID>/ then load/SCENARIO/<DB_ID>/)
+java -jar flexdblink.jar --load SCENARIO
+
+# Target a specific DB
+java -jar flexdblink.jar --load SCENARIO --target DB1
+java -jar flexdblink.jar --load SCENARIO --target DB1,DB2
+
+# Running without arguments is equivalent to --load (loads pre)
+java -jar flexdblink.jar
+```
+
+> When `confirm-before-load: true` is set, a confirmation prompt (`y/N`) appears before execution.
+
+#### Dump
+
+```bash
+# Dump all DBs under the name SCENARIO (output to dump/SCENARIO/<DB_ID>/)
+java -jar flexdblink.jar --dump SCENARIO
+
+# Dump a specific DB only
+java -jar flexdblink.jar --dump SCENARIO --target DB1
+```
+
+#### Short Options
+
+```bash
+java -jar flexdblink.jar -l SCENARIO -t DB1   # --load SCENARIO --target DB1
+java -jar flexdblink.jar -d SCENARIO -t DB1   # --dump SCENARIO --target DB1
+java -jar flexdblink.jar -s                   # --setup
+```
+
+---
+
+## Building from Source (for developers)
+
+**Requirement**: Maven 3.9 or higher
+
+```bash
+mvn clean package -Dmaven.test.skip=true
+```
+
+This produces `flexdblink.jar` and `FlexDBLink-distribution.zip` under `target/`.
+
+---
+
+## CLI Reference
+
+```bash
+java -jar flexdblink.jar [OPTIONS]
+```
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--load [scenario]` | `-l` | Load mode. Uses `pre` (or `pre-dir-name` from `application.yml`) when no scenario is specified |
+| `--dump <scenario>` | `-d` | Dump mode. Scenario name is required |
+| `--setup` | `-s` | Setup mode. Scans the DB schema for LOB columns and auto-generates `file-patterns` in `application.yml` |
+| `--target <ID,...>` | `-t` | Comma-separated DB IDs to target. When omitted, all connections are processed |
+
+> Overriding Spring properties from the command line is disabled. All configuration must be specified in `application.yml`.
+
+### Example Output
+
+<details>
+<summary>Load execution log (<code>--load COMMON</code>)</summary>
+
+```bash
+$ java -jar flexdblink.jar --load COMMON
+
+  .   ____          _            __ _ _
+ /\\ / ___'_ __ _ _(_)_ __  __ _ \ \ \ \
+( ( )\___ | '_ | '_| | '_ \/ _` | \ \ \ \
+ \\/  ___)| |_)| | | | | || (_| |  ) ) ) )
+  '  |____| .__|_| |_|_| |_\__, | / / / /
+ =========|_|==============|___/=/_/_/_/
+ :: Spring Boot ::               (v2.7.18)
+
+INFO : Mode: load, Scenario: COMMON, Target DBs: [DB1]
+INFO : [DB1] Table[BINARY_TEST_TABLE]       Initial | inserted=2
+INFO : [DB1] Table[CHAR_CLOB_TEST_TABLE]    Initial | inserted=2
+INFO : [DB1] Table[DATE_TIME_TEST_TABLE]    Initial | inserted=4
+INFO : [DB1] Table[NUMERIC_TEST_TABLE]      Initial | inserted=3
+INFO : [DB1] Table[SAMPLE_BLOB_TABLE]       Initial | inserted=2
+INFO : [DB1] Table[BINARY_TEST_TABLE]       Scenario (INSERT only) | inserted=2
+INFO : [DB1] Table[CHAR_CLOB_TEST_TABLE]    Scenario (INSERT only) | inserted=1
+...
+INFO : == Data loading to all DBs has completed ==
+```
+
+</details>
+
+<details>
+<summary>Dump execution log (<code>--dump COMMON</code>)</summary>
+
+```bash
+$ java -jar flexdblink.jar --dump COMMON
+
+INFO : Mode: dump, Scenario: COMMON, Target DBs: [DB1]
+INFO : [DB1] Table[BINARY_TEST_TABLE]    CSV dump completed (UTF-8)
+INFO : [DB1] Table[BINARY_TEST_TABLE]    dumped-records=2, BLOB/CLOB file-outputs=2
+INFO : [DB1] Table[CHAR_CLOB_TEST_TABLE] dumped-records=2, BLOB/CLOB file-outputs=4
+...
+INFO : === All DB dumps completed: Output [dump/COMMON] ===
+```
+
+</details>
+
+---
+
+## Directory Structure (under `data-path`)
+
+```
+<data-path>/
+  load/
+    pre/
+      <DB_ID>/
+        TABLE_A.csv
+        TABLE_B.csv
+        table-ordering.txt    # Load order file for FK dependency resolution (auto-generated)
+    <scenario>/
+      <DB_ID>/
+        TABLE_A.csv           # Incremental data (scenario-specific additions)
+  files/
+    Foo_001.bin               # LOB content (referenced from CSV via file:xxx)
+  dump/
+    <scenario>/
+      <DB_ID>/
+        *.csv                 # Dump output
+        files/                # Dumped LOB files
+```
+
+---
+
+## Working with LOB (BLOB/CLOB)
+
+**On load**: Write `file:filename` in a CSV cell to read and insert `<data-path>/files/filename`.
+
+```csv
+ID,FILE_DATA
+001,file:LeapSecond_001.dat
+002,file:LeapSecond_002.dat
+```
+
+**On dump**: LOB columns are written as files under `files/`, and the CSV cell is populated with `file:xxx`.
+The filename template is controlled by `file-patterns`.
+
+---
+
+## application.yml Configuration Reference
+
+```yaml
+# Base path for CSV and LOB files (required)
+data-path: /absolute/path/to/data
+
+dbunit:
+  dataTypeFactoryMode: ORACLE   # ORACLE / POSTGRESQL / MYSQL / SQLSERVER
+  pre-dir-name: pre             # Initial load directory name (default: pre)
+  csv:
+    format:
+      date: "yyyy-MM-dd"                    # Dump output format / preferred parse format on load
+      time: "HH:mm:ss"                      # Same as above
+      dateTime: "yyyy-MM-dd HH:mm:ss"       # Same as above
+      dateTimeWithMillis: "yyyy-MM-dd HH:mm:ss.SSS"  # Same as above
+  config:
+    allow-empty-fields: true    # Allow empty fields
+    batched-statements: true    # Use batch execution
+    batch-size: 100             # Batch size
+
+# DB connection settings (multiple entries supported)
+connections:
+  - id: DB1
+    url: jdbc:oracle:thin:@localhost:1521/OPEDB
+    user: oracle
+    password: password
+    driver-class: oracle.jdbc.OracleDriver
+  - id: DB2
+    url: jdbc:postgresql://localhost:5432/mydb
+    user: postgres
+    password: password
+    driver-class: org.postgresql.Driver
+
+# LOB filename templates for dump output
+# Column name placeholders like {COL_NAME} are replaced with the row's values
 file-patterns:
   SAMPLE_BLOB_TABLE:
     FILE_DATA: "LeapSecond_{ID}.dat"
-  BINARY_TEST_TABLE:
-    BLOB_COL: "sample{ID}.bin"
   CHAR_CLOB_TEST_TABLE:
     CLOB_COL: "char_clob_{ID}.clob"
     NCLOB_COL: "char_clob_{ID}.nclob"
-  XML_JSON_TEST_TABLE:
-    JSON_DATA: "json_data_{ID}.json"
-    XML_DATA: "xml_data_{ID}.xml"
 
+# Tables to exclude from dump
 dump:
   exclude-tables:
     - flyway_schema_history
 ```
 
-**主な項目**
-
-* `data-path` (**必須**) — CSV と外部ファイル（LOB）の **ベース絶対パス**。`load/`, `dump/`, `files/` をここから解決。
-* `dbunit.*` — 方言・CSV フォーマット・DBUnit 設定。LOB ディレクトリは **`files` 固定**です。
-* `connections[]` — CLI が対象とする接続。`id` は `--target`、および `load/<scenario>/<DB_ID>/` と対応。
-* `file-patterns` — **ダンプ**時の LOB 出力ファイル名テンプレート（同一行の `{列名}` で置換）。
-* `dump.exclude-tables` — ダンプ対象外テーブル（例: `flyway_schema_history`）。
-
----
-
-**Key items**
-
-* `data-path` (**required**) — **Base absolute path** for CSVs and external (LOB) files. `load/`, `dump/`, and `files/` are resolved from here.
-* `dbunit.*` — Dialect, CSV format, and DBUnit settings. The LOB directory is fixed to **`files`**.
-* `connections[]` — Connections targeted by the CLI. Each `id` maps to `--target` and to `load/<scenario>/<DB_ID>/`.
-* `file-patterns` — LOB output filename templates used during **dump** (placeholders like `{columnName}` are replaced using values from the same row).
-* `dump.exclude-tables` — Tables to exclude from dumping (e.g., `flyway_schema_history`).
+| Key | Required | Description |
+|-----|----------|-------------|
+| `data-path` | ✅ | Base path for CSV and LOB files |
+| `dbunit.dataTypeFactoryMode` | ✅ | Target DB type |
+| `dbunit.pre-dir-name` | | Initial load directory name (default: `pre`) |
+| `dbunit.confirm-before-load` | | When `true`, shows a confirmation prompt before `--load` executes (default: `false`) |
+| `dbunit.csv.format.date` | | **Dump output format** and **preferred parse format on load** for DATE (default: `yyyy-MM-dd`) |
+| `dbunit.csv.format.time` | | **Dump output format** and **preferred parse format on load** for TIME (default: `HH:mm:ss`) |
+| `dbunit.csv.format.dateTime` | | **Dump output format** and **preferred parse format on load** for TIMESTAMP (default: `yyyy-MM-dd HH:mm:ss`) |
+| `dbunit.csv.format.dateTimeWithMillis` | | **Dump output format** and **preferred parse format on load** for TIMESTAMP with milliseconds (default: `yyyy-MM-dd HH:mm:ss.SSS`) |
+| `connections[].id` | ✅ | DB identifier, matched against the `--target` option |
+| `file-patterns` | | LOB filename templates for dump. Generate a template with `--setup`, then edit and maintain manually |
+| `dump.exclude-tables` | | Tables to exclude from dump |
 
 ---
 
-## CSV 仕様と LOB ファイル
+## JUnit 5 Extension (`@LoadData`)
 
-* **ヘッダ付き CSV（UTF-8）**
-* 値が `file:xxx` のセルは **`<data-path>/files/xxx` を参照**（ロード時）または ダンプ時同様の形式で出力します。
-* データサンプル
+Simply annotate your test with `@LoadData` to automatically inject the dataset before the test and roll it back on completion.
+This integrates with Spring Test transaction management (`@Transactional`), ensuring the DB state is reliably restored after each test method.
 
-  ```csv
-  ID,FILE_DATA
-  001,file:LeapSecond_001.dat
-  002,file:LeapSecond_002.dat
-  ```
----
+A **Spring Test execution context** is required (`@SpringBootTest`, `@MybatisTest`, `@ExtendWith(SpringExtension.class)`, etc.).
 
-## CSV format and LOB files
-
-* **CSV with header (UTF-8)**
-* Cells whose value is `file:xxx` **refer to `<data-path>/files/xxx` when loading**, and the dump emits the same `file:...` form.
-* Data sample
-
-  ```csv
-  ID,FILE_DATA
-  001,file:LeapSecond_001.dat
-  002,file:LeapSecond_002.dat
-  ```
-
----
-## JUnit 5 サポート
-
-`@LoadData` アノテーションを付与すると、テスト実行前に **CSV / JSON / YAML / XML** などのデータファイルを自動投入し、テスト終了時に自動的にロールバックされます。
-Spring のテストトランザクション（`@Transactional`）に参加するため、各テストメソッドの終了時点で確実にデータベースの状態が元に戻ります。
-**本機能は Spring Test の実行コンテキストが必須**です（`@SpringBootTest` / `@MybatisTest` / `@ExtendWith(SpringExtension.class)` など）。
-
-`@LoadData` は **クラスレベル** と **メソッドレベル** の両方に付与できます。
-
-* クラスに付与した場合、そのテストクラス全体に対してデータ投入が行われます。
-* メソッドに付与した場合、そのテストメソッド専用のデータ投入が行われます。
-
-この仕組みにより、テストデータは **SQL スクリプトを記述せずにテキストファイルで管理**でき、Git などによる構成管理・差分追跡・環境再現が容易になります。
-
----
-## JUnit 5 Support
-
-With the `@LoadData` annotation, **datasets (CSV / JSON / YAML / XML)** are automatically loaded before test execution and rolled back afterward.
-Because it integrates with Spring’s test transaction (`@Transactional`), the database state is reliably restored at the end of each test method.
-**A Spring Test execution context is required** (e.g., `@SpringBootTest`, `@MybatisTest`, or `@ExtendWith(SpringExtension.class)`).
-
-The `@LoadData` annotation can be placed on both the **class level** and the **method level**:
-
-* At the class level, data is loaded once for the entire test class.
-* At the method level, data is loaded specifically for that test method.
-
-This allows test data to be managed as plain text files — without writing SQL — enabling easy version control with Git, clear diff tracking, and reproducibility across environments.
-
----
-
-### Sample （MyBatis マッパーの読み取りテスト）
+### Usage
 
 ```java
 @MybatisTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(BbbDataSourceDevelopmentConfig.class)
-// クラス全体に適用
-@LoadData(scenario = "NORMAL", dbNames = DbName.Constants.BBB)
-class LeapSecondFileMapperTest {
+@Import(MyDataSourceConfig.class)
+@LoadData(scenario = "NORMAL", dbNames = "BBB")   // ← applied to the entire class
+class UserMapperTest {
 
     @Autowired
-    private LeapSecondFileMapper mapper;
+    private UserMapper mapper;
 
     @Test
-    // メソッド単位に適用
-    @LoadData(scenario = "NORMAL", dbNames = DbName.Constants.BBB)
-    void selectLatest_正常ケース_指定fileNameの最新レコードが取得できること() {
-        LeapSecondFileRecord record = mapper.selectLatest("test_file.txt");
-
-        assertNotNull(record);
-        assertEquals("ID002", record.getIdentifier());
-        assertEquals("test_file.txt", record.getFileName());
-        assertEquals("2025-08-16T09:00", record.getUpdateTime().toString().substring(0, 16));
-
-        String fileContent = new String(record.getFileData(), StandardCharsets.UTF_8);
-        assertEquals("Hello Leap Second", fileContent.trim());
+    @LoadData(scenario = "ADMIN", dbNames = "BBB") // ← applied to a single method (overrides class-level)
+    void findById_returnsExpectedRecord() {
+        User user = mapper.findById(1L);
+        assertNotNull(user);
+        assertEquals("Alice", user.getName());
     }
 }
 ```
 
-**リソース配置規約（JUnit 5 拡張の規約）**
+### Test Resource Layout Convention
 
 ```
-# 複数DB
-src/test/resources/<パッケージ階層>/<テストクラス名>/<シナリオ>/input/<DB名>/*.csv
-src/test/resources/<パッケージ階層>/<テストクラス名>/<シナリオ>/input/<DB名>/files/*   # LOB 実体
+# Multi-DB tests
+src/test/resources/<package>/<TestClassName>/<scenario>/input/<dbName>/*.csv
+src/test/resources/<package>/<TestClassName>/<scenario>/input/<dbName>/files/*  # LOB content
 
-# 単一DB
-src/test/resources/<パッケージ階層>/<テストクラス名>/<シナリオ>/input/*.csv
-src/test/resources/<パッケージ階層>/<テストクラス名>/<シナリオ>/input/files/*        # LOB 実体
+# Single-DB tests
+src/test/resources/<package>/<TestClassName>/<scenario>/input/*.csv
+src/test/resources/<package>/<TestClassName>/<scenario>/input/files/*           # LOB content
 ```
 
-> **この規約以外の場所はエラー**とします。
+> **Paths outside this convention will cause an error.**
 
-* `@LoadData(scenario = "...", dbNames = "...")`
+### `@LoadData` Parameters
 
-  * `scenario`: シナリオ（ディレクトリ）名
-  * `dbNames`: 1 つまたは複数の DB 名（サブディレクトリ）。省略すると `input/` 直下の単一DBデータが使われる（マルチDB配置の場合は対象DB名を明示的に列挙してください）
-
---- 
-
-**Resource layout conventions (JUnit 5 extension)**
-
-```
-# Multiple DBs
-src/test/resources/<package path>/<TestClassName>/<scenario>/input/<dbName>/*.csv
-src/test/resources/<package path>/<TestClassName>/<scenario>/input/<dbName>/files/*   # LOB payloads
-
-# Single DB
-src/test/resources/<package path>/<TestClassName>/<scenario>/input/*.csv
-src/test/resources/<package path>/<TestClassName>/<scenario>/input/files/*            # LOB payloads
-```
-
-> **Any other location is treated as an error.**
-
-* `@LoadData(scenario = "...", dbNames = "...")`
-
-  * `scenario`: Scenario (directory) name.
-  * `dbNames`: One or more DB names (subdirectories). Omitting this runs in single-DB mode using the files directly under `input/`; list the DB folders explicitly when you want to load multiple targets.
+| Parameter | Description |
+|-----------|-------------|
+| `scenario` | Scenario name (directory name). E.g., `"NORMAL"`, `"ERROR_CASE"` |
+| `dbNames` | Target DB name (subdirectory name). When omitted, uses single-DB mode under `input/` |
 
 ---
 
-## ベストプラクティス
+## Supported Databases and Type Coverage
 
-* **`table-ordering.txt`**
-  FK依存関係を解析してロード順序を自動決定し、常に最新状態へ更新されます。手動での編集・配置は不要です。
+### Oracle
 
-* **除外テーブル**
-  マイグレーション管理テーブルなど、投入やダンプの対象外とすべきテーブルは `dump.exclude-tables` に指定してください。
+| SQL Type | Format / Notes |
+|----------|----------------|
+| `DATE` | `yyyy-MM-dd` |
+| `TIMESTAMP(6)` | `yyyy-MM-dd HH:mm:ss.SSS` |
+| `TIMESTAMP WITH TIME ZONE` / `WITH LOCAL TIME ZONE` | `yyyy-MM-dd HH:mm:ss +HHMM` |
+| `INTERVAL YEAR TO MONTH` | `Y-M` |
+| `INTERVAL DAY TO SECOND` | `D H:M:S` |
+| `CLOB` / `NCLOB` / `BLOB` | External file reference via `file:xxx` |
+| `NUMBER`, `VARCHAR2`, `CHAR`, `NVARCHAR2`, `NCHAR`, `RAW`, `BINARY_FLOAT`, `BINARY_DOUBLE` | Standard support |
 
-* **時刻フォーマットの統一**
-  日付・時刻のフォーマットは `dbunit.csv.format.*` で統一して設定しておくと、チーム全体でのデータ管理が安定します。
+### PostgreSQL
 
-* **テキストデータによる構成管理**
-  SQL スクリプトに依存せず、CSV/JSON/YAML/XML でデータを表現することで、Git 等による構成管理・差分追跡・環境再現が容易になります。
+| SQL Type | Format / Notes |
+|----------|----------------|
+| `DATE` | `yyyy-MM-dd` |
+| `TIME` | `HH:mm:ss` |
+| `TIMESTAMP` | `yyyy-MM-dd HH:mm:ss[.fraction]` |
+| `TIMESTAMPTZ` | `yyyy-MM-dd HH:mm:ss[.fraction]+HHMM` |
+| `BYTEA` | External file reference via `file:xxx` |
+| `BIGINT`, `NUMERIC`, `REAL`, `DOUBLE PRECISION`, `VARCHAR`, `CHAR`, `TEXT`, `XML` | Standard support |
+
+### MySQL
+
+| SQL Type | Format / Notes |
+|----------|----------------|
+| `DATE` | `yyyy-MM-dd` |
+| `TIME` | `HH:mm:ss` |
+| `DATETIME` / `TIMESTAMP` | `yyyy-MM-dd HH:mm:ss[.fraction]` |
+| `YEAR` | `yyyy` |
+| `TINYBLOB` / `BLOB` / `MEDIUMBLOB` / `LONGBLOB` | External file reference via `file:xxx` |
+| Integer types, `DECIMAL`, `FLOAT`, `DOUBLE`, `BIT`, `BOOLEAN`, `CHAR`, `VARCHAR`, `TEXT` family, `ENUM`, `SET`, `JSON`, `BINARY`, `VARBINARY` | Standard support |
+
+### SQL Server
+
+| SQL Type | Format / Notes |
+|----------|----------------|
+| `DATE` | `yyyy-MM-dd` |
+| `TIME` | `HH:mm:ss` |
+| `DATETIME2` | `yyyy-MM-dd HH:mm:ss[.fraction]` |
+| `VARBINARY` | External file reference via `file:xxx` |
+| `BIGINT`, `INT`, `SMALLINT`, `TINYINT`, `DECIMAL`, `NUMERIC`, `FLOAT`, `REAL`, `BIT`, `CHAR`, `VARCHAR`, `NCHAR`, `NVARCHAR`, `XML` | Standard support |
 
 ---
+
+## Accepted Date/Time Formats on CSV Load
+
+On `--load`, the format specified by `dbunit.csv.format.*` is tried first.
+If no match is found, the following formats are attempted in order (applies to all databases).
+
+### Date (DATE)
+
+| Format | Example |
+|--------|---------|
+| `yyyy-MM-dd` (ISO) | `2026-02-25` |
+| `yyyy/MM/dd` | `2026/02/25` |
+| `yyyyMMdd` (basic ISO) | `20260225` |
+| `yyyy.MM.dd` | `2026.02.25` |
+| `yyyy年M月d日` (Japanese) | `2026年2月25日` |
+
+### Time (TIME)
+
+| Format | Example |
+|--------|---------|
+| `HH:mm:ss[.fraction]` (seconds and fractional seconds are optional) | `14:30:00.123456789` |
+| `HH:mm` | `14:30` |
+| `HHmmss[.fraction]` (no delimiter) | `143000.123` |
+| `HHmm` | `1430` |
+
+### Timestamp (TIMESTAMP)
+
+All combinations of date and time formats are tried, with `dbunit.csv.format.dateTime` / `dateTimeWithMillis` applied first.
+
+> DB-specific extended types (e.g., Oracle `TIMESTAMP WITH TIME ZONE`, SQL Server `DATETIMEOFFSET`) have additional formats in each DB's implementation. See the type coverage tables for details.
+
+---
+
 ## Best Practices
 
-* **`table-ordering.txt`**
-  The load order is automatically determined and maintained by analyzing FK dependencies. No manual editing or placement is required.
+**No need to maintain `table-ordering.txt` manually**
+FK dependencies are automatically analyzed to determine the load order, and the file is always kept up to date. You can commit it, but manual editing is not necessary.
 
-* **Exclude tables**
-  Exclude migration/housekeeping tables by listing them in `dump.exclude-tables`.
+**Configure tables to exclude**
+Add tables like `flyway_schema_history` to `dump.exclude-tables` so they are not loaded or dumped.
 
-* **Unified time formats**
-  Configure `dbunit.csv.format.*` for consistent date/time formats across the team.
+**Standardize date/time formats across your team**
+Explicitly configuring `dbunit.csv.format.*` aligns the dump output format with the preferred load parse format, preventing inconsistencies due to environment differences.
+Even without configuration, multiple formats such as `yyyy-MM-dd` / `yyyy/MM/dd` are tried automatically, so existing CSV files can be loaded as-is.
 
-* **Manage data as text files**
-  Instead of relying on SQL scripts, represent datasets as CSV/JSON/YAML/XML files. This enables version control with Git, easy diff tracking, and reproducibility across environments.
+**Grow `file-patterns` yourself**
+`--setup` only generates a template for filename formats. Edit and maintain `file-patterns` in `application.yml` manually to match your project's naming conventions.
 
----
+**Centralize LOBs in `files/`**
+Store BLOB/CLOB binaries in the `files/` directory rather than in CSV, and consider applying Git LFS to that directory.
 
-## 既知事項 / Notes
-
-* 内部で **DBUnit** を利用していますが、API は FlexDBLink で抽象化しています。
-* 現状は Oracle に最適化された実装です。その他 RDBMS への拡張は順次対応予定です。
-
----
-
-* Internally uses **DBUnit**, but the API is abstracted by FlexDBLink.
-* The current implementation is optimized for Oracle; support for other RDBMS will be added progressively.
+**Choose a data format that produces readable diffs**
+CSV is the simplest, but JSON/YAML is better for nested structures. Choose based on your team's needs.
 
 ---
 
-## ライセンス / License
+## Docker Sample Environment (Oracle 19c)
 
-本リポジトリは **Apache License 2.0** で提供されています。詳しくは [LICENSE](LICENSE.txt) を参照してください。  
-This repository is distributed under the **Apache License 2.0**. See [LICENSE](LICENSE.txt) for details.
+A sample using an Oracle 19c Docker environment is available in the `script/` directory.
 
+- [Oracle 19c (Docker) Setup and FlexDBLink Sample Run](script/README_jp.md)
 
 ---
 
-## 貢献 / Contributing
+## Internal Implementation
 
-バグ報告、機能提案、大歓迎です。Issue / PR をお待ちしています。  
-Bug reports and feature requests are very welcome. We look forward to your Issues and PRs.
+- **DBUnit** is used internally for dataset management, but its API is fully abstracted by FlexDBLink.
+- Separate implementations handle the type characteristics of Oracle, PostgreSQL, MySQL, and SQL Server.
+
+---
+
+## License
+
+This repository is provided under the **Apache License 2.0**. See [LICENSE](LICENSE.txt) for details.
+
+---
+
+## Contributing
+
+Bug reports and feature requests are welcome. Issues and PRs are appreciated.
