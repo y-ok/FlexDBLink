@@ -6,6 +6,7 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
+import io.github.yok.flexdblink.db.FlexibleDateTimeParsers;
 import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import io.github.yok.flexdblink.util.LobPathConstants;
 import java.io.BufferedReader;
@@ -112,18 +113,6 @@ public class OracleDialectHandler implements DbDialectHandler {
             .optionalStart().appendLiteral('.')
             .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true).optionalEnd().toFormatter();
 
-    private static final DateTimeFormatter FLEXIBLE_LOCAL_TIME_PARSER_COLON =
-            new DateTimeFormatterBuilder().appendPattern("HH:mm").optionalStart()
-                    .appendPattern(":ss").optionalEnd().optionalStart()
-                    .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd()
-                    .toFormatter();
-
-    private static final DateTimeFormatter FLEXIBLE_LOCAL_TIME_PARSER_NO_COLON =
-            new DateTimeFormatterBuilder().appendPattern("HHmm").optionalStart().appendPattern("ss")
-                    .optionalEnd().optionalStart()
-                    .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd()
-                    .toFormatter();
-
     private static final DateTimeFormatter FLEXIBLE_TIMESTAMP_PARSER =
             new DateTimeFormatterBuilder().appendPattern("yyyy-MM-dd HH:mm:ss").optionalStart()
                     .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd()
@@ -153,11 +142,6 @@ public class OracleDialectHandler implements DbDialectHandler {
 
     private static final DateTimeFormatter DATE_LITERAL_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-
-    private static final DateTimeFormatter[] DATE_ONLY_FORMATTERS =
-            {DateTimeFormatter.ISO_LOCAL_DATE, DateTimeFormatter.ofPattern("yyyy/MM/dd"),
-                    DateTimeFormatter.BASIC_ISO_DATE, DateTimeFormatter.ofPattern("yyyy.MM.dd"),
-                    DateTimeFormatter.ofPattern("yyyy年M月d日", Locale.JAPANESE)};
 
     /**
      * JDBC metadata snapshot for one column.
@@ -759,7 +743,7 @@ public class OracleDialectHandler implements DbDialectHandler {
             return Timestamp.from(odt.toInstant());
         } catch (DateTimeParseException ex) {
             // Try DATE-only patterns
-            for (DateTimeFormatter fmt : DATE_ONLY_FORMATTERS) {
+            for (DateTimeFormatter fmt : FlexibleDateTimeParsers.DATE_ONLY_FORMATTERS) {
                 try {
                     LocalDate ld = LocalDate.parse(str, fmt);
                     return Date.valueOf(ld);
@@ -1055,10 +1039,11 @@ public class OracleDialectHandler implements DbDialectHandler {
      * Parses a date-only string into {@link java.sql.Date}.
      *
      * <p>
-     * Tries multiple permissive patterns in the order defined by {@code DATE_ONLY_FORMATTERS}
-     * (e.g., {@code ISO_LOCAL_DATE}, {@code yyyy/MM/dd}, {@code yyyyMMdd}, {@code yyyy.MM.dd}, and
-     * a Japanese literal form). Each attempt is logged. If none match, wraps the last
-     * {@link DateTimeParseException} in a {@link DataSetException}.
+     * Tries multiple permissive patterns in the order defined by
+     * {@code FlexibleDateTimeParsers.DATE_ONLY_FORMATTERS} (e.g., {@code ISO_LOCAL_DATE},
+     * {@code yyyy/MM/dd}, {@code yyyyMMdd}, {@code yyyy.MM.dd}, and a Japanese literal form). Each
+     * attempt is logged. If none match, wraps the last {@link DateTimeParseException} in a
+     * {@link DataSetException}.
      * </p>
      *
      * @param str raw date text (e.g., {@code "2024-07-01"})
@@ -1067,8 +1052,12 @@ public class OracleDialectHandler implements DbDialectHandler {
      * @throws DataSetException if no supported format matches
      */
     private Date parseDate(String str, String column) throws DataSetException {
+        LocalDate configured = dateTimeFormatter.parseConfiguredDate(str);
+        if (configured != null) {
+            return Date.valueOf(configured);
+        }
         DateTimeParseException lastEx = null;
-        for (DateTimeFormatter fmt : DATE_ONLY_FORMATTERS) {
+        for (DateTimeFormatter fmt : FlexibleDateTimeParsers.DATE_ONLY_FORMATTERS) {
             try {
                 LocalDate ld = LocalDate.parse(str, fmt);
                 log.debug("[DATE] column={} value={} → format={} OK", column, str, fmt);
@@ -1099,12 +1088,18 @@ public class OracleDialectHandler implements DbDialectHandler {
      * @throws DataSetException if the value cannot be parsed as a local time
      */
     private Time parseTime(String str, String column) throws DataSetException {
+        LocalTime configured = dateTimeFormatter.parseConfiguredTime(str);
+        if (configured != null) {
+            return Time.valueOf(configured);
+        }
         try {
-            return Time.valueOf(LocalTime.parse(str, FLEXIBLE_LOCAL_TIME_PARSER_COLON));
+            return Time.valueOf(
+                    LocalTime.parse(str, FlexibleDateTimeParsers.FLEXIBLE_LOCAL_TIME_PARSER_COLON));
         } catch (DateTimeParseException ex1) {
             log.debug("[TIME] colon parser failed: column={} value={}", column, str, ex1);
             try {
-                return Time.valueOf(LocalTime.parse(str, FLEXIBLE_LOCAL_TIME_PARSER_NO_COLON));
+                return Time.valueOf(LocalTime.parse(str,
+                        FlexibleDateTimeParsers.FLEXIBLE_LOCAL_TIME_PARSER_NO_COLON));
             } catch (DateTimeParseException ex2) {
                 log.debug("TIME conversion failed: column={} value={}", column, str, ex2);
                 throw new DataSetException(
@@ -1165,6 +1160,10 @@ public class OracleDialectHandler implements DbDialectHandler {
      * @throws DataSetException if no supported pattern matches
      */
     private Timestamp parseTimestamp(String str, String column) throws DataSetException {
+        LocalDateTime configured = dateTimeFormatter.parseConfiguredTimestamp(str);
+        if (configured != null) {
+            return Timestamp.valueOf(configured);
+        }
         String normalized = str.replace('T', ' ').replace('/', '-').trim();
         try {
             DateTimeFormatter fmtOffset =
@@ -1182,7 +1181,7 @@ public class OracleDialectHandler implements DbDialectHandler {
             log.debug("FLEXIBLE_OFFSET_DATETIME_PARSER_COLON parse failed: column={} value={}",
                     column, normalized);
         }
-        for (DateTimeFormatter fmt : DATE_ONLY_FORMATTERS) {
+        for (DateTimeFormatter fmt : FlexibleDateTimeParsers.DATE_ONLY_FORMATTERS) {
             try {
                 LocalDate ld = LocalDate.parse(normalized, fmt);
                 return Timestamp.valueOf(ld.atStartOfDay());

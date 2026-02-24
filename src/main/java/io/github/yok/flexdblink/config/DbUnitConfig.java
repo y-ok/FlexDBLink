@@ -41,4 +41,10 @@ public class DbUnitConfig {
      * Directory name used for initial data loading.
      */
     private String preDirName = "pre";
+
+    /**
+     * When {@code true}, the user is prompted for confirmation before {@code --load} executes.
+     * Defaults to {@code false} (no confirmation required).
+     */
+    private boolean confirmBeforeLoad = false;
 }

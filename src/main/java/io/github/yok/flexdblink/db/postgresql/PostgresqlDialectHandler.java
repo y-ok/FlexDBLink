@@ -6,6 +6,7 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
+import io.github.yok.flexdblink.db.FlexibleDateTimeParsers;
 import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import io.github.yok.flexdblink.util.LobPathConstants;
 import java.io.BufferedReader;
@@ -38,9 +39,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
-import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -114,25 +113,6 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     // Path settings (used for log-friendly relative path output)
     private final PathsConfig pathsConfig;
 
-    // Flexible local time parser with colon (HH:mm[:ss][.fraction])
-    private static final DateTimeFormatter FLEXIBLE_LOCAL_TIME_PARSER_COLON =
-            new DateTimeFormatterBuilder().appendPattern("HH:mm").optionalStart()
-                    .appendPattern(":ss").optionalEnd().optionalStart()
-                    .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd()
-                    .toFormatter();
-
-    // Flexible local time parser without colon (HHmm[ss][.fraction])
-    private static final DateTimeFormatter FLEXIBLE_LOCAL_TIME_PARSER_NO_COLON =
-            new DateTimeFormatterBuilder().appendPattern("HHmm").optionalStart().appendPattern("ss")
-                    .optionalEnd().optionalStart()
-                    .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd()
-                    .toFormatter();
-
-    // Date-only patterns
-    private static final DateTimeFormatter[] DATE_ONLY_FORMATTERS =
-            {DateTimeFormatter.ISO_LOCAL_DATE, DateTimeFormatter.ofPattern("yyyy/MM/dd"),
-                    DateTimeFormatter.BASIC_ISO_DATE, DateTimeFormatter.ofPattern("yyyy.MM.dd"),
-                    DateTimeFormatter.ofPattern("yyyy年M月d日", Locale.JAPANESE)};
     private static final Set<String> TEXT_LIKE_TYPE_NAMES = new HashSet<>(
             List.of("text", "varchar", "bpchar", "character varying", "character", "xml"));
     private static final Set<String> BOOLEAN_TYPE_NAMES = new HashSet<>(List.of("bool", "boolean"));
@@ -611,6 +591,19 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     @Override
     public Object parseDateTimeValue(String columnName, String value) throws Exception {
         String str = value.trim();
+
+        LocalDateTime configuredTs = dateTimeFormatter.parseConfiguredTimestamp(str);
+        if (configuredTs != null) {
+            return Timestamp.valueOf(configuredTs);
+        }
+        LocalDate configuredDate = dateTimeFormatter.parseConfiguredDate(str);
+        if (configuredDate != null) {
+            return Date.valueOf(configuredDate);
+        }
+        LocalTime configuredTime = dateTimeFormatter.parseConfiguredTime(str);
+        if (configuredTime != null) {
+            return Time.valueOf(configuredTime);
+        }
 
         OffsetDateTime odt = tryParseOffsetDateTime(str);
         if (odt != null) {
@@ -1133,7 +1126,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
      */
     private LocalDate tryParseLocalDate(String s) {
         String normalized = s.trim();
-        for (DateTimeFormatter fmt : DATE_ONLY_FORMATTERS) {
+        for (DateTimeFormatter fmt : FlexibleDateTimeParsers.DATE_ONLY_FORMATTERS) {
             try {
                 return LocalDate.parse(normalized, fmt);
             } catch (DateTimeParseException ignored) {
@@ -1152,13 +1145,15 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     private LocalTime tryParseLocalTime(String s) {
         String normalized = s.trim();
         try {
-            return LocalTime.parse(normalized, FLEXIBLE_LOCAL_TIME_PARSER_COLON);
+            return LocalTime.parse(normalized,
+                    FlexibleDateTimeParsers.FLEXIBLE_LOCAL_TIME_PARSER_COLON);
         } catch (DateTimeParseException ignored) {
             // Try next format
         }
 
         try {
-            return LocalTime.parse(normalized, FLEXIBLE_LOCAL_TIME_PARSER_NO_COLON);
+            return LocalTime.parse(normalized,
+                    FlexibleDateTimeParsers.FLEXIBLE_LOCAL_TIME_PARSER_NO_COLON);
         } catch (DateTimeParseException ignored) {
             // Try next format
         }

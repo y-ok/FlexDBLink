@@ -5,7 +5,11 @@ import java.sql.Connection;
 import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import lombok.extern.slf4j.Slf4j;
@@ -51,6 +55,8 @@ public class DateTimeFormatUtil implements DateTimeFormatSupport {
     private final DateTimeFormatter dateFormatter;
     // Time format (e.g. {@code HH:mm:ss})
     private final DateTimeFormatter timeFormatter;
+    // Timestamp format without milliseconds (e.g. {@code yyyy-MM-dd HH:mm:ss})
+    private final DateTimeFormatter dateTimeFormatter;
     // Timestamp format with milliseconds (e.g. {@code yyyy-MM-dd HH:mm:ss.SSS})
     private final DateTimeFormatter dateTimeMillisFormatter;
 
@@ -63,6 +69,7 @@ public class DateTimeFormatUtil implements DateTimeFormatSupport {
     public DateTimeFormatUtil(CsvDateTimeFormatProperties props) {
         this.dateFormatter = DateTimeFormatter.ofPattern(props.getDate());
         this.timeFormatter = DateTimeFormatter.ofPattern(props.getTime());
+        this.dateTimeFormatter = DateTimeFormatter.ofPattern(props.getDateTime());
         this.dateTimeMillisFormatter = DateTimeFormatter.ofPattern(props.getDateTimeWithMillis());
     }
 
@@ -147,6 +154,47 @@ public class DateTimeFormatUtil implements DateTimeFormatSupport {
             log.warn("Failed to normalize temporal value: colName={}, value={}", colName, value,
                     ex);
             return value.toString();
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public LocalDate parseConfiguredDate(String value) {
+        try {
+            return LocalDate.parse(value, dateFormatter);
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public LocalTime parseConfiguredTime(String value) {
+        try {
+            return LocalTime.parse(value, timeFormatter);
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public LocalDateTime parseConfiguredTimestamp(String value) {
+        try {
+            return LocalDateTime.parse(value, dateTimeMillisFormatter);
+        } catch (DateTimeParseException e) {
+            // fall through to dateTime format
+        }
+        try {
+            return LocalDateTime.parse(value, dateTimeFormatter);
+        } catch (DateTimeParseException e) {
+            return null;
         }
     }
 
