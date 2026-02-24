@@ -105,6 +105,10 @@ public class MySqlIntegrationTest {
                 assertEquals(1000, rs.getInt("INT_COL"));
                 assertEquals(10000L, rs.getLong("BIGINT_COL2"));
                 assertEquals(2026, rs.getInt("YEAR_COL"));
+                assertEquals(java.sql.Date.valueOf("2026-02-10"), rs.getDate("DATE_COL"));
+                assertEquals(java.sql.Time.valueOf("01:02:03"), rs.getTime("TIME_COL"));
+                assertEquals(java.sql.Timestamp.valueOf("2026-02-10 01:02:03"),
+                        rs.getTimestamp("TS_COL"));
 
                 byte[] rawCol = rs.getBytes("RAW_COL");
                 assertTrue(Arrays.equals(new byte[] {0x0A, 0x0B, 0x0C, 0x21}, rawCol),

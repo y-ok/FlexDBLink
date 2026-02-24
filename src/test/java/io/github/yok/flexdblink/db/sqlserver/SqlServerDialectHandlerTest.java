@@ -1231,6 +1231,17 @@ public class SqlServerDialectHandlerTest {
                 new Class<?>[] {int.class, String.class}, new Object[] {Types.INTEGER, "varchar"}));
     }
 
+    @Test
+    public void convertCsvValueToDbType_正常ケース_DATE型_日本語日付を指定する_正しくパースされること()
+            throws Exception {
+        Map<String, Column[]> dbUnitCols = Map.of("T1",
+                new Column[] {colMock("D", dataTypeMock(Types.DATE, "date"))});
+        SqlServerDialectHandler handler = createHandlerDefault(List.of("T1"), dbUnitCols, Map.of());
+
+        Object result = handler.convertCsvValueToDbType("T1", "D", "2026年2月15日");
+        assertEquals(Date.valueOf(LocalDate.of(2026, 2, 15)), result);
+    }
+
     /**
      * Invokes a private method for coverage-oriented tests.
      *

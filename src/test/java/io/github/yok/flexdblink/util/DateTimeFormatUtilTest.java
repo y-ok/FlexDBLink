@@ -9,7 +9,9 @@ import io.github.yok.flexdblink.config.CsvDateTimeFormatProperties;
 import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.LocalTime;
 import org.junit.jupiter.api.Test;
 
 public class DateTimeFormatUtilTest {
@@ -19,6 +21,7 @@ public class DateTimeFormatUtilTest {
         CsvDateTimeFormatProperties props = mock(CsvDateTimeFormatProperties.class);
         when(props.getDate()).thenReturn("yyyy-MM-dd");
         when(props.getTime()).thenReturn("HH:mm:ss");
+        when(props.getDateTime()).thenReturn("yyyy-MM-dd HH:mm:ss");
         when(props.getDateTimeWithMillis()).thenReturn("invalid[");
 
         assertThrows(IllegalArgumentException.class, () -> new DateTimeFormatUtil(props));
@@ -163,10 +166,55 @@ public class DateTimeFormatUtilTest {
         assertEquals(ts.toString(), actual);
     }
 
+    @Test
+    public void parseConfiguredDate_正常ケース_設定フォーマットにマッチする場合_LocalDateが返ること() {
+        DateTimeFormatUtil util = createUtil();
+        assertEquals(LocalDate.of(2026, 2, 24), util.parseConfiguredDate("2026-02-24"));
+    }
+
+    @Test
+    public void parseConfiguredDate_正常ケース_マッチしない場合_nullが返ること() {
+        DateTimeFormatUtil util = createUtil();
+        assertNull(util.parseConfiguredDate("bad-date"));
+    }
+
+    @Test
+    public void parseConfiguredTime_正常ケース_設定フォーマットにマッチする場合_LocalTimeが返ること() {
+        DateTimeFormatUtil util = createUtil();
+        assertEquals(LocalTime.of(12, 34, 56), util.parseConfiguredTime("12:34:56"));
+    }
+
+    @Test
+    public void parseConfiguredTime_正常ケース_マッチしない場合_nullが返ること() {
+        DateTimeFormatUtil util = createUtil();
+        assertNull(util.parseConfiguredTime("bad-time"));
+    }
+
+    @Test
+    public void parseConfiguredTimestamp_正常ケース_ミリ秒ありフォーマットにマッチする場合_LocalDateTimeが返ること() {
+        DateTimeFormatUtil util = createUtil();
+        assertEquals(LocalDateTime.of(2026, 2, 24, 12, 34, 56, 789_000_000),
+                util.parseConfiguredTimestamp("2026-02-24 12:34:56.789"));
+    }
+
+    @Test
+    public void parseConfiguredTimestamp_正常ケース_ミリ秒なしフォーマットにマッチする場合_LocalDateTimeが返ること() {
+        DateTimeFormatUtil util = createUtil();
+        assertEquals(LocalDateTime.of(2026, 2, 24, 12, 34, 56),
+                util.parseConfiguredTimestamp("2026-02-24 12:34:56"));
+    }
+
+    @Test
+    public void parseConfiguredTimestamp_正常ケース_マッチしない場合_nullが返ること() {
+        DateTimeFormatUtil util = createUtil();
+        assertNull(util.parseConfiguredTimestamp("bad-timestamp"));
+    }
+
     private static DateTimeFormatUtil createUtil() {
         CsvDateTimeFormatProperties props = mock(CsvDateTimeFormatProperties.class);
         when(props.getDate()).thenReturn("yyyy-MM-dd");
         when(props.getTime()).thenReturn("HH:mm:ss");
+        when(props.getDateTime()).thenReturn("yyyy-MM-dd HH:mm:ss");
         when(props.getDateTimeWithMillis()).thenReturn("yyyy-MM-dd HH:mm:ss.SSS");
         return new DateTimeFormatUtil(props);
     }

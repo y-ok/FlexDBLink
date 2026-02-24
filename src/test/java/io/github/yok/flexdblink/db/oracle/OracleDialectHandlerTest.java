@@ -44,6 +44,9 @@ import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -1206,6 +1209,21 @@ public class OracleDialectHandlerTest {
     }
 
     @Test
+    public void parseTime_正常ケース_設定済みフォーマッタが成功する_設定値のTimeが返ること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        DateTimeFormatUtil formatter = extractFormatter(handler);
+        LocalTime expected = LocalTime.of(14, 5, 30);
+        when(formatter.parseConfiguredTime("14:05:30")).thenReturn(expected);
+
+        Method m = OracleDialectHandler.class.getDeclaredMethod("parseTime", String.class,
+                String.class);
+        m.setAccessible(true);
+
+        Time result = (Time) m.invoke(handler, "14:05:30", "TIME_COL");
+        assertEquals(Time.valueOf(expected), result);
+    }
+
+    @Test
     void parseOffsetTime_正常ケース_コロン形式と非コロン形式を指定する_OffsetTimeへ変換されること() throws Exception {
         OracleDialectHandler handler = createHandler();
         Method method = OracleDialectHandler.class.getDeclaredMethod("parseOffsetTime",
@@ -1808,6 +1826,108 @@ public class OracleDialectHandlerTest {
         SQLException ex = assertThrows(SQLException.class, () -> handler.hasNotNullLobColumn(conn,
                 "APP", "TBL", new Column[] {new Column("CLOB_COL", DataType.CLOB)}));
         assertEquals("rs-close-error", ex.getMessage());
+    }
+
+    @Test
+    public void parseDate_正常ケース_設定済みフォーマッタが成功する_設定値のDateが返ること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        DateTimeFormatUtil formatter = extractFormatter(handler);
+        LocalDate expected = LocalDate.of(2026, 2, 15);
+        when(formatter.parseConfiguredDate("2026-02-15")).thenReturn(expected);
+
+        Method m = OracleDialectHandler.class.getDeclaredMethod("parseDate", String.class,
+                String.class);
+        m.setAccessible(true);
+
+        Date result = (Date) m.invoke(handler, "2026-02-15", "COL");
+        assertEquals(Date.valueOf(expected), result);
+    }
+
+    @Test
+    public void parseDate_異常ケース_全フォーマッタが失敗する_DataSetExceptionが送出されること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+
+        Method m = OracleDialectHandler.class.getDeclaredMethod("parseDate", String.class,
+                String.class);
+        m.setAccessible(true);
+
+        InvocationTargetException ex = assertThrows(InvocationTargetException.class,
+                () -> m.invoke(handler, "not-a-valid-date-xx", "COL"));
+        assertInstanceOf(DataSetException.class, ex.getCause());
+    }
+
+    @Test
+    public void parseTimestamp_正常ケース_設定済みフォーマッタが成功する_設定値のTimestampが返ること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+        DateTimeFormatUtil formatter = extractFormatter(handler);
+        LocalDateTime expected = LocalDateTime.of(2026, 2, 15, 1, 2, 3);
+        when(formatter.parseConfiguredTimestamp("2026-02-15 01:02:03")).thenReturn(expected);
+
+        Method m = OracleDialectHandler.class.getDeclaredMethod("parseTimestamp", String.class,
+                String.class);
+        m.setAccessible(true);
+
+        Timestamp result = (Timestamp) m.invoke(handler, "2026-02-15 01:02:03", "TS_COL");
+        assertEquals(Timestamp.valueOf(expected), result);
+    }
+
+    @Test
+    public void formatDateTimeColumn_正常ケース_通常のTimestampを指定する_フォーマット値が返ること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+        DateTimeFormatUtil formatter = extractFormatter(handler);
+        when(formatter.formatJdbcDateTime(any(String.class), any(), any()))
+                .thenReturn("2026-02-15 01:02:03");
+
+        Timestamp ts = new Timestamp(System.currentTimeMillis());
+        String result = handler.formatDateTimeColumn("COL", ts, mock(Connection.class));
+
+        assertEquals("2026-02-15 01:02:03", result);
+    }
+
+    @Test
+    public void formatDateTimeColumn_異常ケース_formatJdbcDateTimeが例外をスローする_toStringが返ること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+        DateTimeFormatUtil formatter = extractFormatter(handler);
+        when(formatter.formatJdbcDateTime(any(String.class), any(), any()))
+                .thenThrow(new RuntimeException("format-fail"));
+
+        Timestamp ts = Timestamp.valueOf("2026-02-15 01:02:03");
+        String result = handler.formatDateTimeColumn("COL", ts, mock(Connection.class));
+
+        assertEquals(ts.toString(), result);
+    }
+
+    @Test
+    public void logTableDefinition_正常ケース_列メタデータが空である_例外なく処理されること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+        Connection conn = mock(Connection.class);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        ResultSet rs = mock(ResultSet.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        when(meta.getColumns(null, "APP", "TBL", null)).thenReturn(rs);
+        when(rs.next()).thenReturn(false);
+
+        handler.logTableDefinition(conn, "APP", "TBL", "db1");
+        verify(meta).getColumns(null, "APP", "TBL", null);
+    }
+
+    @Test
+    public void logTableDefinition_異常ケース_getColumnsでSQLExceptionが発生する_SQLExceptionが再スローされること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+        Connection conn = mock(Connection.class);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        when(meta.getColumns(null, "APP", "TBL", null))
+                .thenThrow(new SQLException("meta-error"));
+
+        assertThrows(SQLException.class,
+                () -> handler.logTableDefinition(conn, "APP", "TBL", "db1"));
     }
 
     /**

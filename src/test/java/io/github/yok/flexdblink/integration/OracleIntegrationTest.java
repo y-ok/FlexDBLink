@@ -84,7 +84,7 @@ class OracleIntegrationTest {
             }
 
             try (ResultSet rs = st.executeQuery(
-                    "SELECT ID, VC_COL, NCHAR_COL, BF_COL, BD_COL, IV_YM_COL, IV_DS_COL, RAW_COL, CLOB_COL, NCLOB_COL, BLOB_COL, LOB_KIND "
+                    "SELECT ID, VC_COL, NCHAR_COL, BF_COL, BD_COL, DATE_COL, TS_COL, IV_YM_COL, IV_DS_COL, RAW_COL, CLOB_COL, NCLOB_COL, BLOB_COL, LOB_KIND "
                             + "FROM IT_TYPED_MAIN WHERE ID = 101")) {
 
                 assertTrue(rs.next(),
@@ -95,6 +95,9 @@ class OracleIntegrationTest {
                         .compareTo(new BigDecimal("1.25")));
                 assertEquals(0, BigDecimal.valueOf(rs.getDouble("BD_COL"))
                         .compareTo(new BigDecimal("10.125")));
+                assertEquals(java.sql.Date.valueOf("2024-02-01"), rs.getDate("DATE_COL"));
+                assertEquals(java.sql.Timestamp.valueOf("2024-02-01 01:02:03.123"),
+                        rs.getTimestamp("TS_COL"));
                 assertEquals("1-2", rs.getString("IV_YM_COL"));
                 assertEquals("1 2:3:4.0", rs.getString("IV_DS_COL"));
 

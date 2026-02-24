@@ -83,7 +83,7 @@ public class SqlServerIntegrationTest {
 
             try (ResultSet rs = st.executeQuery(
                     "SELECT ID, VC_COL, CHAR_COL, NVC_COL, NCHAR_COL, NUM_COL, BF_COL, BD_COL, "
-                            + "DATE_COL, TIME_COL, RAW_COL, CLOB_COL, NCLOB_COL, BLOB_COL, LOB_KIND "
+                            + "DATE_COL, TIME_COL, TS_COL, RAW_COL, CLOB_COL, NCLOB_COL, BLOB_COL, LOB_KIND "
                             + "FROM IT_TYPED_MAIN WHERE ID=101")) {
 
                 assertTrue(rs.next(), "IT_TYPED_MAIN に ID=101 が存在しません。");
@@ -97,6 +97,10 @@ public class SqlServerIntegrationTest {
                         .compareTo(new BigDecimal("1.25")));
                 assertEquals(0, BigDecimal.valueOf(rs.getDouble("BD_COL"))
                         .compareTo(new BigDecimal("10.125")));
+                assertEquals(java.sql.Date.valueOf("2026-02-10"), rs.getDate("DATE_COL"));
+                assertEquals(java.sql.Time.valueOf("01:02:03"), rs.getTime("TIME_COL"));
+                assertEquals(java.sql.Timestamp.valueOf("2026-02-10 01:02:03"),
+                        rs.getTimestamp("TS_COL"));
 
                 byte[] rawCol = rs.getBytes("RAW_COL");
                 assertTrue(Arrays.equals(new byte[] {0x0A, 0x0B, 0x0C, 0x21}, rawCol),

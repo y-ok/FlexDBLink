@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
@@ -22,9 +23,14 @@ import io.github.yok.flexdblink.config.FilePatternConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.core.DataDumper;
 import io.github.yok.flexdblink.core.DataLoader;
+import io.github.yok.flexdblink.core.SetupRunner;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.util.ErrorHandler;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.Function;
@@ -322,6 +328,162 @@ class MainTest {
             IllegalStateException ex =
                     assertThrows(IllegalStateException.class, () -> main.run("--dump", ""));
             assertEquals("Scenario name is required in dump mode.", ex.getMessage());
+        } finally {
+            ErrorHandler.restoreExitForCurrentThread();
+        }
+    }
+
+    @Test
+    void run_正常ケース_setupモードでSetupRunnerが実行されること() {
+        try (MockedConstruction<SetupRunner> mocked = mockConstruction(SetupRunner.class,
+                (runner, ctx) -> doNothing().when(runner).execute(anyList()))) {
+
+            main.run("--setup");
+
+            SetupRunner runner = mocked.constructed().get(0);
+            verify(runner).execute(eq(List.of("db1")));
+        }
+    }
+
+    @Test
+    void run_正常ケース_setup短縮オプションでSetupRunnerが実行されること() {
+        try (MockedConstruction<SetupRunner> mocked = mockConstruction(SetupRunner.class,
+                (runner, ctx) -> doNothing().when(runner).execute(anyList()))) {
+
+            main.run("-s", "--target", "dbA");
+
+            SetupRunner runner = mocked.constructed().get(0);
+            verify(runner).execute(eq(List.of("dbA")));
+        }
+    }
+
+    @Test
+    void run_正常ケース_confirmBeforeLoadfalseのとき確認なしでloadが実行されること() {
+        when(dbUnitConfig.isConfirmBeforeLoad()).thenReturn(false);
+
+        try (MockedConstruction<DataLoader> mocked = mockConstruction(DataLoader.class)) {
+            main.run("--load", "myscenario");
+
+            DataLoader loader = mocked.constructed().get(0);
+            verify(loader).execute(eq("myscenario"), eq(List.of("db1")));
+        }
+    }
+
+    @Test
+    void run_正常ケース_confirmBeforeLoadtrueでy入力のときloadが実行されること() throws Exception {
+        when(dbUnitConfig.isConfirmBeforeLoad()).thenReturn(true);
+
+        InputStream originalIn = System.in;
+        System.setIn(new ByteArrayInputStream("y\n".getBytes(StandardCharsets.UTF_8)));
+        try (MockedConstruction<DataLoader> mocked = mockConstruction(DataLoader.class)) {
+            main.run("--load", "myscenario");
+
+            DataLoader loader = mocked.constructed().get(0);
+            verify(loader).execute(eq("myscenario"), eq(List.of("db1")));
+        } finally {
+            System.setIn(originalIn);
+        }
+    }
+
+    @Test
+    void run_正常ケース_confirmBeforeLoadtrueでyes入力のときloadが実行されること() throws Exception {
+        when(dbUnitConfig.isConfirmBeforeLoad()).thenReturn(true);
+
+        InputStream originalIn = System.in;
+        System.setIn(new ByteArrayInputStream("yes\n".getBytes(StandardCharsets.UTF_8)));
+        try (MockedConstruction<DataLoader> mocked = mockConstruction(DataLoader.class)) {
+            main.run("--load", "myscenario");
+
+            DataLoader loader = mocked.constructed().get(0);
+            verify(loader).execute(eq("myscenario"), eq(List.of("db1")));
+        } finally {
+            System.setIn(originalIn);
+        }
+    }
+
+    @Test
+    void run_正常ケース_confirmBeforeLoadtrueでn入力のときloadがキャンセルされること() throws Exception {
+        when(dbUnitConfig.isConfirmBeforeLoad()).thenReturn(true);
+
+        InputStream originalIn = System.in;
+        System.setIn(new ByteArrayInputStream("n\n".getBytes(StandardCharsets.UTF_8)));
+        try (MockedConstruction<DataLoader> mocked = mockConstruction(DataLoader.class)) {
+            main.run("--load", "myscenario");
+
+            assertTrue(mocked.constructed().isEmpty());
+        } finally {
+            System.setIn(originalIn);
+        }
+    }
+
+    @Test
+    void run_正常ケース_confirmBeforeLoadtrueでEnterのみ入力のときloadがキャンセルされること() throws Exception {
+        when(dbUnitConfig.isConfirmBeforeLoad()).thenReturn(true);
+
+        InputStream originalIn = System.in;
+        System.setIn(new ByteArrayInputStream("\n".getBytes(StandardCharsets.UTF_8)));
+        try (MockedConstruction<DataLoader> mocked = mockConstruction(DataLoader.class)) {
+            main.run("--load", "myscenario");
+
+            assertTrue(mocked.constructed().isEmpty());
+        } finally {
+            System.setIn(originalIn);
+        }
+    }
+
+    @Test
+    void main_正常ケース_setDefaultPropertiesが呼ばれること() {
+        try (MockedConstruction<SpringApplication> mocked =
+                mockConstruction(SpringApplication.class, (mock, ctx) -> {
+                    when(mock.run(any(String[].class))).thenReturn(null);
+                })) {
+
+            Main.main(new String[] {"--load", "myscenario"});
+
+            SpringApplication app = mocked.constructed().get(0);
+            verify(app).setDefaultProperties(anyMap());
+            verify(app).setAddCommandLineProperties(false);
+            verify(app).run(eq("--load"), eq("myscenario"));
+        }
+    }
+
+    @Test
+    void run_異常ケース_confirmBeforeLoad時にIOExceptionが発生する_ErrorHandlerが呼ばれること()
+            throws Exception {
+        when(dbUnitConfig.isConfirmBeforeLoad()).thenReturn(true);
+
+        InputStream originalIn = System.in;
+        System.setIn(new InputStream() {
+            @Override
+            public int read() throws IOException {
+                throw new IOException("io-fail");
+            }
+
+            @Override
+            public int read(byte[] b, int off, int len) throws IOException {
+                throw new IOException("io-fail");
+            }
+        });
+        try (MockedStatic<ErrorHandler> eh = mockStatic(ErrorHandler.class)) {
+            eh.when(() -> ErrorHandler.errorAndExit(anyString(), any(Throwable.class)))
+                    .thenAnswer(inv -> null);
+            main.run("--load", "myscenario");
+            eh.verify(() -> ErrorHandler.errorAndExit(eq("Failed to read user input."),
+                    any(IOException.class)));
+        } finally {
+            System.setIn(originalIn);
+        }
+    }
+
+    @Test
+    void run_異常ケース_setup実行で例外が発生する_ErrorHandlerからIllegalStateExceptionが送出されること() {
+        ErrorHandler.disableExitForCurrentThread();
+        try (MockedConstruction<SetupRunner> mocked = mockConstruction(SetupRunner.class,
+                (runner, ctx) -> doThrow(new RuntimeException("setupBoom")).when(runner)
+                        .execute(anyList()))) {
+            IllegalStateException ex = assertThrows(IllegalStateException.class,
+                    () -> main.run("--setup"));
+            assertTrue(ex.getMessage().contains("Fatal error: setupBoom"));
         } finally {
             ErrorHandler.restoreExitForCurrentThread();
         }

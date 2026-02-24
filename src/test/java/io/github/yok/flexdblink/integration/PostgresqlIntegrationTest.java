@@ -12,8 +12,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.sql.Time;
+import java.sql.Timestamp;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -96,6 +99,9 @@ public class PostgresqlIntegrationTest {
                         .compareTo(new BigDecimal("1.25")));
                 assertEquals(0, BigDecimal.valueOf(rs.getDouble("BD_COL"))
                         .compareTo(new BigDecimal("10.125")));
+                assertEquals(Date.valueOf("2026-02-10"), rs.getDate("DATE_COL"));
+                assertEquals(Time.valueOf("01:02:03"), rs.getTime("TIME_COL"));
+                assertEquals(Timestamp.valueOf("2026-02-10 01:02:03"), rs.getTimestamp("TS_COL"));
 
                 byte[] rawCol = rs.getBytes("RAW_COL");
                 assertTrue(Arrays.equals(new byte[] {0x0A, 0x0B, 0x0C, 0x21}, rawCol),
