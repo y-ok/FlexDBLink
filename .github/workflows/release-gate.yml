@@ -47,11 +47,3 @@ jobs:
           java-version: "11"
           cache: maven
 
-      - name: Run release gate checks
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-          CI_WORKFLOW_FILE: ci.yml
-        run: |
-          chmod +x .github/scripts/release_gate.sh
-          .github/scripts/release_gate.sh

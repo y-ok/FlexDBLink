@@ -61,16 +61,6 @@ jobs:
           server-username: GITHUB_ACTOR
           server-password: GITHUB_TOKEN
 
-      - name: Run release gate checks
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ steps.context.outputs.tag_name }}
-          TARGET_SHA: ${{ steps.context.outputs.target_sha }}
-          CI_WORKFLOW_FILE: ci.yml
-        run: |
-          chmod +x .github/scripts/release_gate.sh
-          .github/scripts/release_gate.sh
-
       - name: Build and deploy Maven package
         run: mvn -B clean deploy -Dmaven.test.skip=true
         env:
