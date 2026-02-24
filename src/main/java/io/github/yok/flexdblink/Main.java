@@ -7,12 +7,17 @@ import io.github.yok.flexdblink.config.FilePatternConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.core.DataDumper;
 import io.github.yok.flexdblink.core.DataLoader;
+import io.github.yok.flexdblink.core.SetupRunner;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.util.ErrorHandler;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
@@ -83,6 +88,11 @@ public class Main implements CommandLineRunner {
      */
     public static void main(String[] args) {
         SpringApplication app = new SpringApplication(Main.class);
+        // Default to conf/ so that -Dspring.config.additional-location is not required.
+        // If the system property is explicitly set, it takes precedence over this default.
+        Map<String, Object> defaults = new HashMap<>();
+        defaults.put("spring.config.additional-location", "optional:file:conf/");
+        app.setDefaultProperties(defaults);
         app.setAddCommandLineProperties(false);
         app.run(args);
     }
@@ -116,6 +126,10 @@ public class Main implements CommandLineRunner {
                     mode = "dump";
                     scenario = (i + 1 < args.length ? args[++i] : null);
                     break;
+                case "--setup":
+                case "-s":
+                    mode = "setup";
+                    break;
                 case "--target":
                 case "-t":
                     if (i + 1 < args.length) {
@@ -135,6 +149,20 @@ public class Main implements CommandLineRunner {
         }
         if ("dump".equals(mode) && (scenario == null || scenario.isEmpty())) {
             ErrorHandler.errorAndExit("Scenario name is required in dump mode.");
+        }
+        if ("load".equals(mode) && dbUnitConfig.isConfirmBeforeLoad()) {
+            System.out.printf("Load data? Scenario=[%s], Target DBs=%s [y/N]: ", scenario,
+                    targetDbIds);
+            System.out.flush();
+            try {
+                String input = new BufferedReader(new InputStreamReader(System.in)).readLine();
+                if (!"y".equalsIgnoreCase(input) && !"yes".equalsIgnoreCase(input)) {
+                    log.info("Load cancelled by user.");
+                    return;
+                }
+            } catch (java.io.IOException e) {
+                ErrorHandler.errorAndExit("Failed to read user input.", e);
+            }
         }
 
         // Additional tweak: when --target is not specified (empty list), use all DB IDs from
@@ -158,6 +186,13 @@ public class Main implements CommandLineRunner {
                         dumpConfig).execute(scenario, targetDbIds);
 
                 log.info("Data load completed. Scenario [{}]", scenario);
+
+            } else if ("setup".equals(mode)) {
+                log.info("Starting setup. Target DBs {}", targetDbIds);
+
+                new SetupRunner(connectionConfig, dialectHandlerProvider).execute(targetDbIds);
+
+                log.info("Setup completed.");
 
             } else {
                 log.info("Starting data dump. Scenario [{}], Target DBs [{}]", scenario,
