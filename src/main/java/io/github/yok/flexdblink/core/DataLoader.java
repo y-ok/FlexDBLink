@@ -33,6 +33,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.dbunit.database.DatabaseConnection;
 import org.dbunit.database.IDatabaseConnection;
 import org.dbunit.dataset.Column;
@@ -327,13 +328,13 @@ public class DataLoader {
             TableOrderingFile.ensure(dir);
 
             // Load table list from table-ordering.txt
-            Path orderPath = new File(dir, "table-ordering.txt").toPath();
+            Path orderPath = new File(dir, TableOrderingFile.FILE_NAME).toPath();
             if (!Files.exists(orderPath)) {
                 log.info("[{}] No table-ordering.txt found → skipping", dbId);
                 return;
             }
             List<String> tables = Files.readAllLines(orderPath, StandardCharsets.UTF_8).stream()
-                    .map(String::trim).filter(s -> !s.isEmpty()).collect(Collectors.toList());
+                    .map(String::trim).filter(StringUtils::isNotEmpty).collect(Collectors.toList());
 
             if (tables.isEmpty()) {
                 log.info("[{}] No tables → skipping", dbId);

@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FileUtils;
 import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.lang3.ArrayUtils;
 
 /**
  * Utility class for managing the {@code table-ordering.txt} temporary file.
@@ -21,10 +22,10 @@ import org.apache.commons.io.FilenameUtils;
  * </p>
  *
  * <ul>
- * <li>{@link #write(File, List)} – writes a pre-computed table list (used by DataDumper).</li>
- * <li>{@link #ensure(File)} – regenerates the file from dataset files present in a directory (used
+ * <li>{@link #write(File, List)} - writes a pre-computed table list (used by DataDumper).</li>
+ * <li>{@link #ensure(File)} - regenerates the file from dataset files present in a directory (used
  * by DataLoader).</li>
- * <li>{@link #delete(File)} – deletes the file after the operation completes.</li>
+ * <li>{@link #delete(File)} - deletes the file after the operation completes.</li>
  * </ul>
  *
  * @author Yasuharu.Okawauchi
@@ -32,7 +33,7 @@ import org.apache.commons.io.FilenameUtils;
 @Slf4j
 public final class TableOrderingFile {
 
-    static final String FILE_NAME = "table-ordering.txt";
+    public static final String FILE_NAME = "table-ordering.txt";
 
     private TableOrderingFile() {
         // Utility class; do not instantiate.
@@ -79,7 +80,7 @@ public final class TableOrderingFile {
             return DataFormat.CSV.matches(ext) || DataFormat.JSON.matches(ext)
                     || DataFormat.YAML.matches(ext) || DataFormat.XML.matches(ext);
         });
-        int fileCount = (dataFiles == null) ? 0 : dataFiles.length;
+        int fileCount = ArrayUtils.getLength(dataFiles);
 
         FileUtils.deleteQuietly(orderFile);
 

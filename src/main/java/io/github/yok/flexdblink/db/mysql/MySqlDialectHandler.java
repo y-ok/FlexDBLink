@@ -56,6 +56,7 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.dbunit.database.DatabaseConfig;
 import org.dbunit.database.DatabaseConnection;
 import org.dbunit.dataset.Column;
@@ -226,7 +227,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
         } catch (SQLException e) {
             schema = jdbcConn.getCatalog();
         }
-        if (schema == null || schema.isBlank()) {
+        if (StringUtils.isBlank(schema)) {
             schema = "testdb";
         }
 
@@ -621,16 +622,6 @@ public class MySqlDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Indicates whether LOB processing via streaming APIs is supported.
-     *
-     * @return {@code true}
-     */
-    @Override
-    public boolean supportsLobStreamByStream() {
-        return true;
-    }
-
-    /**
      * Formats date/time values as CSV strings using the shared formatter abstraction.
      *
      * <p>
@@ -731,75 +722,6 @@ public class MySqlDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Returns SQL to fetch the next sequence value.
-     *
-     * @param sequenceName sequence name
-     * @return SQL
-     */
-    @Override
-    public String getNextSequenceSql(String sequenceName) {
-        throw new UnsupportedOperationException("MySQL does not support sequences");
-    }
-
-    /**
-     * Returns the SQL template used to retrieve generated keys after INSERT.
-     *
-     * <p>
-     * MySQL typically uses {@code RETURNING} directly in the insert SQL in upper layer. This
-     * handler returns an empty string.
-     * </p>
-     *
-     * @return empty string
-     */
-    @Override
-    public String getGeneratedKeyRetrievalSql() {
-        return "";
-    }
-
-    /**
-     * Indicates whether {@code getGeneratedKeys()} is supported.
-     *
-     * @return {@code true}
-     */
-    @Override
-    public boolean supportsGetGeneratedKeys() {
-        return true;
-    }
-
-    /**
-     * Indicates whether sequences are supported.
-     *
-     * @return {@code true}
-     */
-    @Override
-    public boolean supportsSequences() {
-        return false;
-    }
-
-    /**
-     * Indicates whether identity columns are supported.
-     *
-     * @return {@code true}
-     */
-    @Override
-    public boolean supportsIdentityColumns() {
-        return true;
-    }
-
-    /**
-     * Applies pagination to a SELECT statement.
-     *
-     * @param baseSql base SELECT SQL
-     * @param offset rows to skip
-     * @param limit max rows to fetch
-     * @return SELECT with MySQL pagination
-     */
-    @Override
-    public String applyPagination(String baseSql, int offset, int limit) {
-        return baseSql + " LIMIT " + offset + ", " + limit;
-    }
-
-    /**
      * Quotes an identifier (table/column name) using backticks.
      *
      * @param identifier identifier to quote
@@ -808,119 +730,6 @@ public class MySqlDialectHandler implements DbDialectHandler {
     @Override
     public String quoteIdentifier(String identifier) {
         return "`" + identifier + "`";
-    }
-
-    /**
-     * Returns the boolean TRUE literal.
-     *
-     * @return "TRUE"
-     */
-    @Override
-    public String getBooleanTrueLiteral() {
-        return "TRUE";
-    }
-
-    /**
-     * Returns the boolean FALSE literal.
-     *
-     * @return "FALSE"
-     */
-    @Override
-    public String getBooleanFalseLiteral() {
-        return "FALSE";
-    }
-
-    /**
-     * Returns the SQL function to get the current timestamp.
-     *
-     * @return "CURRENT_TIMESTAMP"
-     */
-    @Override
-    public String getCurrentTimestampFunction() {
-        return "CURRENT_TIMESTAMP";
-    }
-
-    /**
-     * Formats a {@link LocalDateTime} as a MySQL timestamp literal.
-     *
-     * @param dateTime LocalDateTime value
-     * @return SQL literal
-     */
-    @Override
-    public String formatDateLiteral(LocalDateTime dateTime) {
-        return "TIMESTAMP '" + dateTime.toString().replace('T', ' ') + "'";
-    }
-
-    /**
-     * Builds an UPSERT statement using {@code INSERT ... ON DUPLICATE KEY UPDATE}.
-     *
-     * @param tableName target table name
-     * @param keyColumns conflict key columns
-     * @param insertColumns insert columns
-     * @param updateColumns update columns
-     * @return MySQL upsert SQL
-     */
-    @Override
-    public String buildUpsertSql(String tableName, List<String> keyColumns,
-            List<String> insertColumns, List<String> updateColumns) {
-        StringBuilder sb = new StringBuilder();
-        sb.append("INSERT INTO ");
-        sb.append(tableName);
-        sb.append(" (");
-        sb.append(String.join(", ", insertColumns));
-        sb.append(") VALUES (");
-
-        List<String> marks = new ArrayList<>();
-        for (int i = 0; i < insertColumns.size(); i++) {
-            marks.add("?");
-        }
-        sb.append(String.join(", ", marks));
-        sb.append(") ON DUPLICATE KEY UPDATE ");
-
-        List<String> sets = new ArrayList<>();
-        for (String col : updateColumns) {
-            sets.add(col + " = VALUES(" + col + ")");
-        }
-        sb.append(String.join(", ", sets));
-
-        return sb.toString();
-    }
-
-    /**
-     * Returns SQL to create a temporary table.
-     *
-     * @param tempTableName temp table name
-     * @param columns column definition map (columnName → SQL type literal)
-     * @return CREATE TEMP TABLE SQL
-     */
-    @Override
-    public String getCreateTempTableSql(String tempTableName, Map<String, String> columns) {
-        List<String> defs = new ArrayList<>();
-        for (Map.Entry<String, String> e : columns.entrySet()) {
-            defs.add(e.getKey() + " " + e.getValue());
-        }
-        return "CREATE TEMPORARY TABLE " + tempTableName + " (" + String.join(", ", defs) + ")";
-    }
-
-    /**
-     * Applies {@code FOR UPDATE} to a SELECT statement.
-     *
-     * @param baseSql base SQL
-     * @return SQL with FOR UPDATE
-     */
-    @Override
-    public String applyForUpdate(String baseSql) {
-        return baseSql + " FOR UPDATE";
-    }
-
-    /**
-     * Indicates whether batch updates are supported.
-     *
-     * @return {@code true}
-     */
-    @Override
-    public boolean supportsBatchUpdates() {
-        return true;
     }
 
     /**

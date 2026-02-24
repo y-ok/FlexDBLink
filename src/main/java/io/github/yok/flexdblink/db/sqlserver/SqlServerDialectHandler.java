@@ -45,7 +45,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
@@ -75,8 +74,6 @@ public class SqlServerDialectHandler implements DbDialectHandler {
 
     private static final IDataTypeFactory SQLSERVER_TYPE_FACTORY =
             new CustomSqlServerDataTypeFactory();
-    private static final DateTimeFormatter DATE_TIME_FORMATTER =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter FLEXIBLE_LOCAL_TIME_PARSER_COLON =
             new DateTimeFormatterBuilder().appendPattern("HH:mm").optionalStart()
                     .appendPattern(":ss").optionalEnd().optionalStart()
@@ -451,16 +448,6 @@ public class SqlServerDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Returns whether stream-based LOB processing is supported.
-     *
-     * @return {@code true}
-     */
-    @Override
-    public boolean supportsLobStreamByStream() {
-        return true;
-    }
-
-    /**
      * Formats date/time value using shared formatter.
      *
      * @param columnName column name
@@ -528,70 +515,6 @@ public class SqlServerDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Returns SQL to fetch next sequence value.
-     *
-     * @param sequenceName sequence name
-     * @return SQL
-     */
-    @Override
-    public String getNextSequenceSql(String sequenceName) {
-        return "SELECT NEXT VALUE FOR " + quoteIdentifier(sequenceName);
-    }
-
-    /**
-     * Returns SQL template used to retrieve generated keys.
-     *
-     * @return empty string
-     */
-    @Override
-    public String getGeneratedKeyRetrievalSql() {
-        return "";
-    }
-
-    /**
-     * Returns whether getGeneratedKeys is supported.
-     *
-     * @return {@code true}
-     */
-    @Override
-    public boolean supportsGetGeneratedKeys() {
-        return true;
-    }
-
-    /**
-     * Returns whether sequences are supported.
-     *
-     * @return {@code true}
-     */
-    @Override
-    public boolean supportsSequences() {
-        return true;
-    }
-
-    /**
-     * Returns whether identity columns are supported.
-     *
-     * @return {@code true}
-     */
-    @Override
-    public boolean supportsIdentityColumns() {
-        return true;
-    }
-
-    /**
-     * Applies SQL Server pagination.
-     *
-     * @param baseSql base SQL
-     * @param offset offset rows
-     * @param limit fetch rows
-     * @return paginated SQL
-     */
-    @Override
-    public String applyPagination(String baseSql, int offset, int limit) {
-        return baseSql + " OFFSET " + offset + " ROWS FETCH NEXT " + limit + " ROWS ONLY";
-    }
-
-    /**
      * Quotes SQL Server identifier.
      *
      * @param identifier identifier
@@ -600,121 +523,6 @@ public class SqlServerDialectHandler implements DbDialectHandler {
     @Override
     public String quoteIdentifier(String identifier) {
         return "[" + identifier + "]";
-    }
-
-    /**
-     * Returns SQL Server TRUE literal.
-     *
-     * @return true literal
-     */
-    @Override
-    public String getBooleanTrueLiteral() {
-        return "1";
-    }
-
-    /**
-     * Returns SQL Server FALSE literal.
-     *
-     * @return false literal
-     */
-    @Override
-    public String getBooleanFalseLiteral() {
-        return "0";
-    }
-
-    /**
-     * Returns SQL Server current timestamp function.
-     *
-     * @return current timestamp function
-     */
-    @Override
-    public String getCurrentTimestampFunction() {
-        return "SYSDATETIME()";
-    }
-
-    /**
-     * Formats SQL Server datetime literal.
-     *
-     * @param dateTime datetime value
-     * @return datetime literal
-     */
-    @Override
-    public String formatDateLiteral(LocalDateTime dateTime) {
-        return "CAST('" + DATE_TIME_FORMATTER.format(dateTime) + "' AS DATETIME2)";
-    }
-
-    /**
-     * Builds SQL Server MERGE statement.
-     *
-     * @param tableName table name
-     * @param keyColumns key columns
-     * @param insertColumns insert columns
-     * @param updateColumns update columns
-     * @return merge sql
-     */
-    @Override
-    public String buildUpsertSql(String tableName, List<String> keyColumns,
-            List<String> insertColumns, List<String> updateColumns) {
-        String target = quoteIdentifier(tableName);
-        String sourceAlias = "src";
-        String targetAlias = "tgt";
-        String usingSelect = insertColumns.stream().map(c -> "? AS " + quoteIdentifier(c))
-                .collect(Collectors.joining(", "));
-        String onClause =
-                keyColumns
-                        .stream().map(c -> targetAlias + "." + quoteIdentifier(c) + " = "
-                                + sourceAlias + "." + quoteIdentifier(c))
-                        .collect(Collectors.joining(" AND "));
-        String updateSet =
-                updateColumns
-                        .stream().map(c -> targetAlias + "." + quoteIdentifier(c) + " = "
-                                + sourceAlias + "." + quoteIdentifier(c))
-                        .collect(Collectors.joining(", "));
-        String insertCols =
-                insertColumns.stream().map(this::quoteIdentifier).collect(Collectors.joining(", "));
-        String insertVals = insertColumns.stream().map(c -> sourceAlias + "." + quoteIdentifier(c))
-                .collect(Collectors.joining(", "));
-
-        return "MERGE INTO " + target + " AS " + targetAlias + " USING (SELECT " + usingSelect
-                + ") AS " + sourceAlias + " ON " + onClause + " WHEN MATCHED THEN UPDATE SET "
-                + updateSet + " WHEN NOT MATCHED THEN INSERT (" + insertCols + ") VALUES ("
-                + insertVals + ");";
-    }
-
-    /**
-     * Returns SQL for creating SQL Server temporary table.
-     *
-     * @param tempTableName temporary table name
-     * @param columns columns map
-     * @return create temp table SQL
-     */
-    @Override
-    public String getCreateTempTableSql(String tempTableName, Map<String, String> columns) {
-        String defs = columns.entrySet().stream()
-                .map(e -> quoteIdentifier(e.getKey()) + " " + e.getValue())
-                .collect(Collectors.joining(", "));
-        return "CREATE TABLE #" + tempTableName + " (" + defs + ")";
-    }
-
-    /**
-     * Applies SQL Server update lock hint.
-     *
-     * @param baseSql base SQL
-     * @return SQL with update lock
-     */
-    @Override
-    public String applyForUpdate(String baseSql) {
-        return baseSql + " WITH (UPDLOCK, ROWLOCK)";
-    }
-
-    /**
-     * Returns whether batch updates are supported.
-     *
-     * @return {@code true}
-     */
-    @Override
-    public boolean supportsBatchUpdates() {
-        return true;
     }
 
     /**

@@ -1,6 +1,7 @@
 package io.github.yok.flexdblink.config;
 
 import lombok.Data;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -31,7 +32,7 @@ public class PathsConfig {
      * @throws IllegalStateException if {@code dataPath} has not been set
      */
     public String getLoad() {
-        if (dataPath == null || dataPath.isBlank()) {
+        if (StringUtils.isBlank(dataPath)) {
             throw new IllegalStateException(
                     "data-path is not configured. Please set 'data-path' in application.yml.");
         }
@@ -45,7 +46,7 @@ public class PathsConfig {
      * @throws IllegalStateException if {@code dataPath} has not been set
      */
     public String getDump() {
-        if (dataPath == null || dataPath.isBlank()) {
+        if (StringUtils.isBlank(dataPath)) {
             throw new IllegalStateException(
                     "data-path is not configured. Please set 'data-path' in application.yml.");
         }

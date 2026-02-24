@@ -772,36 +772,6 @@ class LobFileExporterTest {
     }
 
     @Test
-    void export_異常ケース_テーブルのパターン定義がnullである_IllegalStateExceptionが送出されること() throws Exception {
-        FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
-        DbDialectHandler dialectHandler = createDialectHandlerMock();
-        when(dialectHandler.quoteIdentifier(any()))
-                .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
-        when(filePatternConfig.getPatternsForTable("TNOPAT")).thenReturn(null);
-
-        Connection conn = mock(Connection.class);
-        Statement stmt = mock(Statement.class);
-        when(conn.createStatement()).thenReturn(stmt);
-        ResultSet rs = mock(ResultSet.class);
-        when(stmt.executeQuery("SELECT * FROM \"TNOPAT\"")).thenReturn(rs);
-        ResultSetMetaData md = mock(ResultSetMetaData.class);
-        when(rs.getMetaData()).thenReturn(md);
-        when(md.getColumnCount()).thenReturn(1);
-        when(md.getColumnLabel(1)).thenReturn("ID");
-        when(md.getColumnType(1)).thenReturn(Types.INTEGER);
-        when(rs.next()).thenReturn(false);
-
-        Path dbDirPath = Files.createDirectories(tempDir.resolve("db_no_pattern"));
-        Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
-        Path csvPath = dbDirPath.resolve("TNOPAT.csv");
-        Files.writeString(csvPath, "ID\n1\n", StandardCharsets.UTF_8);
-
-        assertThrows(IllegalStateException.class,
-                () -> new LobFileExporter(filePatternConfig).export(conn, "TNOPAT",
-                        dbDirPath.toFile(), filesDirPath.toFile(), "APP", dialectHandler));
-    }
-
-    @Test
     void export_正常ケース_ヘッダにない列を含む_未定義列は無視されること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DbDialectHandler dialectHandler = createDialectHandlerMock();

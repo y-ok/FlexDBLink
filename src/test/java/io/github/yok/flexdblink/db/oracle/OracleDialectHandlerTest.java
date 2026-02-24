@@ -44,7 +44,6 @@ import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -82,49 +81,6 @@ public class OracleDialectHandlerTest {
     void quoteIdentifier_正常ケース_識別子を引用符で囲む_ダブルクォート付き文字列であること() throws Exception {
         OracleDialectHandler handler = createHandler();
         assertEquals("\"A1\"", handler.quoteIdentifier("A1"));
-    }
-
-    @Test
-    void applyPagination_正常ケース_offsetとlimitを指定する_Oracle形式SQLであること() throws Exception {
-        OracleDialectHandler handler = createHandler();
-        assertEquals("SELECT * FROM T OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY",
-                handler.applyPagination("SELECT * FROM T", 5, 10));
-    }
-
-    @Test
-    void formatDateLiteral_正常ケース_LocalDateTimeを指定する_TO_DATE式であること() throws Exception {
-        OracleDialectHandler handler = createHandler();
-        assertEquals("TO_DATE('2026-02-15 16:00:01','YYYY-MM-DD HH24:MI:SS')",
-                handler.formatDateLiteral(LocalDateTime.of(2026, 2, 15, 16, 0, 1)));
-    }
-
-    @Test
-    void buildUpsertSql_正常ケース_keyinsertupdateを指定する_MERGE文であること() throws Exception {
-        OracleDialectHandler handler = createHandler();
-        String sql = handler.buildUpsertSql("TBL", List.of("ID"), List.of("NAME"), List.of("NAME"));
-        assertTrue(sql.contains("MERGE INTO \"TBL\""));
-        assertTrue(sql.contains("ON (t.\"ID\" = s.\"ID\")"));
-        assertTrue(sql.contains("UPDATE SET t.\"NAME\" = s.\"NAME\""));
-        assertTrue(sql.contains("INSERT (\"ID\",\"NAME\") VALUES (s.\"ID\",s.\"NAME\")"));
-    }
-
-    @Test
-    void buildUpsertSql_正常ケース_insert列が空である_key列のみのMERGE文であること() throws Exception {
-        OracleDialectHandler handler = createHandler();
-        String sql = handler.buildUpsertSql("TBL", List.of("ID"), List.of(), List.of("ID"));
-        assertTrue(sql.contains("USING (SELECT ? AS \"ID\" FROM DUAL)"));
-        assertTrue(sql.contains("INSERT (\"ID\") VALUES (s.\"ID\")"));
-    }
-
-    @Test
-    void getCreateTempTableSql_正常ケース_列定義を指定する_GTT作成SQLであること() throws Exception {
-        OracleDialectHandler handler = createHandler();
-        String sql = handler.getCreateTempTableSql("TMP_TBL",
-                Map.of("ID", "NUMBER", "NAME", "VARCHAR2(20)"));
-        assertTrue(sql.contains("CREATE GLOBAL TEMPORARY TABLE \"TMP_TBL\""));
-        assertTrue(sql.contains("\"ID\" NUMBER"));
-        assertTrue(sql.contains("\"NAME\" VARCHAR2(20)"));
-        assertTrue(sql.endsWith("ON COMMIT PRESERVE ROWS"));
     }
 
     @Test
@@ -1046,16 +1002,6 @@ public class OracleDialectHandlerTest {
     @Test
     void supports系_正常ケース_Oracle方言の固定値を返す_期待値であること() throws Exception {
         OracleDialectHandler handler = createHandler();
-        assertTrue(handler.supportsLobStreamByStream());
-        assertTrue(handler.supportsGetGeneratedKeys());
-        assertTrue(handler.supportsSequences());
-        assertFalse(handler.supportsIdentityColumns());
-        assertTrue(handler.supportsBatchUpdates());
-        assertEquals("1", handler.getBooleanTrueLiteral());
-        assertEquals("0", handler.getBooleanFalseLiteral());
-        assertEquals("CURRENT_TIMESTAMP", handler.getCurrentTimestampFunction());
-        assertEquals(" RETURNING %s INTO ?", handler.getGeneratedKeyRetrievalSql());
-        assertEquals("SELECT SEQ1.NEXTVAL FROM DUAL", handler.getNextSequenceSql("SEQ1"));
         assertNotNull(handler.getDataTypeFactory());
     }
 
@@ -1519,12 +1465,6 @@ public class OracleDialectHandlerTest {
         assertFalse((boolean) method.invoke(handler, nullNameType));
         assertTrue((boolean) method.invoke(handler, unknownNameType));
         assertFalse((boolean) method.invoke(handler, knownType));
-    }
-
-    @Test
-    void applyForUpdate_正常ケース_SELECT文を指定する_FORUPDATE句が付与されること() throws Exception {
-        OracleDialectHandler handler = createHandler();
-        assertEquals("SELECT 1 FROM DUAL FOR UPDATE", handler.applyForUpdate("SELECT 1 FROM DUAL"));
     }
 
     @Test

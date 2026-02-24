@@ -61,13 +61,6 @@ public interface DbDialectValueOperations {
             throws IOException, DataSetException;
 
     /**
-     * Returns whether stream-based LOB operations are supported.
-     *
-     * @return true when supported
-     */
-    boolean supportsLobStreamByStream();
-
-    /**
      * Formats temporal value for CSV.
      *
      * @param columnName column name

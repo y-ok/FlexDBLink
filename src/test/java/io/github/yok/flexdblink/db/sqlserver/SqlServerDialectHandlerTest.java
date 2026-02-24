@@ -40,7 +40,6 @@ import java.sql.Types;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import javax.sql.rowset.serial.SerialBlob;
@@ -81,75 +80,9 @@ public class SqlServerDialectHandlerTest {
     }
 
     @Test
-    public void applyPagination_正常ケース_offsetlimitを指定する_OffsetFetch形式が返ること() throws Exception {
-        SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
-        assertEquals("SELECT * FROM T OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY",
-                handler.applyPagination("SELECT * FROM T", 5, 10));
-    }
-
-    @Test
     public void quoteIdentifier_正常ケース_識別子を指定する_角括弧で囲まれること() throws Exception {
         SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
         assertEquals("[ID]", handler.quoteIdentifier("ID"));
-    }
-
-    @Test
-    public void booleanLiteral_正常ケース_真偽値リテラルを取得する_10が返ること() throws Exception {
-        SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
-        assertEquals("1", handler.getBooleanTrueLiteral());
-        assertEquals("0", handler.getBooleanFalseLiteral());
-    }
-
-    @Test
-    public void getCurrentTimestampFunction_正常ケース_関数を取得する_SYSDATETIMEが返ること() throws Exception {
-        SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
-        assertEquals("SYSDATETIME()", handler.getCurrentTimestampFunction());
-    }
-
-    @Test
-    public void formatDateLiteral_正常ケース_日時を指定する_DATETIME2キャスト文字列が返ること() throws Exception {
-        SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
-        String actual = handler.formatDateLiteral(LocalDateTime.of(2026, 2, 19, 7, 0, 1));
-        assertEquals("CAST('2026-02-19 07:00:01' AS DATETIME2)", actual);
-    }
-
-    @Test
-    public void buildUpsertSql_正常ケース_列定義を指定する_MERGE文が返ること() throws Exception {
-        SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
-        String sql = handler.buildUpsertSql("T_MAIN", List.of("ID"), List.of("ID", "NAME"),
-                List.of("NAME"));
-        assertTrue(sql.startsWith("MERGE INTO [T_MAIN] AS tgt"));
-        assertTrue(sql.contains("WHEN MATCHED THEN UPDATE SET"));
-        assertTrue(sql.contains("WHEN NOT MATCHED THEN INSERT ([ID], [NAME]) VALUES"));
-    }
-
-    @Test
-    public void getCreateTempTableSql_正常ケース_列定義を指定する_ハッシュ始まりの作成SQLが返ること() throws Exception {
-        SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
-        Map<String, String> columns = new LinkedHashMap<>();
-        columns.put("ID", "BIGINT");
-        columns.put("NAME", "NVARCHAR(20)");
-        String sql = handler.getCreateTempTableSql("TMP_MAIN", columns);
-        assertEquals("CREATE TABLE #TMP_MAIN ([ID] BIGINT, [NAME] NVARCHAR(20))", sql);
-    }
-
-    @Test
-    public void applyForUpdate_正常ケース_select文を指定する_ロックヒント付きSQLが返ること() throws Exception {
-        SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
-        assertEquals("SELECT * FROM T WITH (UPDLOCK, ROWLOCK)",
-                handler.applyForUpdate("SELECT * FROM T"));
-    }
-
-    @Test
-    public void supportsFlags_正常ケース_各種サポートフラグを確認する_true系と空文字が返ること() throws Exception {
-        SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
-        assertTrue(handler.supportsGetGeneratedKeys());
-        assertTrue(handler.supportsSequences());
-        assertTrue(handler.supportsIdentityColumns());
-        assertTrue(handler.supportsBatchUpdates());
-        assertTrue(handler.supportsLobStreamByStream());
-        assertEquals("", handler.getGeneratedKeyRetrievalSql());
-        assertEquals("SELECT NEXT VALUE FOR [SEQ1]", handler.getNextSequenceSql("SEQ1"));
     }
 
     @Test

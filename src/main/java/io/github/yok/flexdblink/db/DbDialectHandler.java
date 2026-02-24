@@ -11,5 +11,5 @@ package io.github.yok.flexdblink.db;
  * @author Yasuharu.Okawauchi
  */
 public interface DbDialectHandler extends DbDialectConnectionOperations,
-        DbDialectMetadataOperations, DbDialectValueOperations, DbDialectSqlOperations {
+        DbDialectMetadataOperations, DbDialectValueOperations {
 }

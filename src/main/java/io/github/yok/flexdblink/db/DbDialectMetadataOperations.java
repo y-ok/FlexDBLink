@@ -94,4 +94,12 @@ public interface DbDialectMetadataOperations {
      */
     void logTableDefinition(Connection connection, String schema, String table, String loggerName)
             throws SQLException;
+
+    /**
+     * Quotes identifier in dialect style.
+     *
+     * @param identifier identifier
+     * @return quoted identifier
+     */
+    String quoteIdentifier(String identifier);
 }

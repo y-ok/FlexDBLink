@@ -27,6 +27,7 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 import org.apache.commons.csv.QuoteMode;
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * Exports BLOB/CLOB columns from a database table to individual files, and updates the
@@ -84,7 +85,7 @@ class LobFileExporter {
         try (CSVParser p = CSVParser.parse(csvFile, StandardCharsets.UTF_8, headerFmt)) {
             CSVRecord hr = p.iterator().next();
             for (String h : hr) {
-                headers.add(h.trim().replaceAll("^\"|\"$", ""));
+                headers.add(StringUtils.strip(h.trim(), "\""));
             }
         }
 
@@ -109,10 +110,6 @@ class LobFileExporter {
 
         // 4) Log BLOB/CLOB patterns
         Map<String, String> tablePatterns = filePatternConfig.getPatternsForTable(table);
-        if (tablePatterns == null) {
-            throw new IllegalStateException(
-                    "No definition for \"" + table + "\" found in file-patterns.");
-        }
         String joined = tablePatterns.entrySet().stream()
                 .map(e -> e.getKey() + " : " + e.getValue()).collect(Collectors.joining(", "));
         log.debug("BLOB/CLOB output filename patterns: [{}]", joined);

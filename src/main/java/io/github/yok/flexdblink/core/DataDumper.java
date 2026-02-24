@@ -26,6 +26,8 @@ import java.util.Map;
 import java.util.function.Function;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.dbunit.database.DatabaseConnection;
 
 /**
@@ -94,7 +96,7 @@ public class DataDumper {
      */
     public void execute(String scenario, List<String> targetDbIds) {
         // Validate scenario name
-        if (scenario == null || scenario.isEmpty()) {
+        if (StringUtils.isEmpty(scenario)) {
             ErrorHandler.errorAndExit("Scenario name is required in --dump mode.");
         }
 
@@ -282,10 +284,7 @@ public class DataDumper {
     private List<String> fetchTargetTables(Connection conn, String schema,
             List<String> excludeTables) throws SQLException {
         List<String> tables = new ArrayList<>();
-        List<String> effectiveExcludeTables = excludeTables;
-        if (effectiveExcludeTables == null) {
-            effectiveExcludeTables = new ArrayList<>();
-        }
+        List<String> effectiveExcludeTables = ObjectUtils.getIfNull(excludeTables, ArrayList::new);
         DatabaseMetaData meta = conn.getMetaData();
         try (ResultSet rs = meta.getTables(null, schema, "%", new String[] {"TABLE"})) {
             while (rs.next()) {

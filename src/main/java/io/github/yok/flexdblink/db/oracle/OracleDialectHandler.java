@@ -61,6 +61,7 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.dbunit.database.DatabaseConfig;
 import org.dbunit.database.DatabaseConnection;
 import org.dbunit.dataset.Column;
@@ -388,8 +389,8 @@ public class OracleDialectHandler implements DbDialectHandler {
     @Override
     public Object convertCsvValueToDbType(String table, String column, String csvValue)
             throws DataSetException {
-        String str = (csvValue != null ? csvValue.trim() : null);
-        if (str == null || str.isEmpty()) {
+        String str = StringUtils.trimToNull(csvValue);
+        if (StringUtils.isEmpty(str)) {
             return null;
         }
         ResolvedColumnSpec resolved = resolveColumnSpec(table, column);
@@ -570,16 +571,6 @@ public class OracleDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Indicates whether LOB processing via streaming APIs is supported.
-     *
-     * @return {@code true}
-     */
-    @Override
-    public boolean supportsLobStreamByStream() {
-        return true;
-    }
-
-    /**
      * Formats date/time (including INTERVAL) values as CSV strings.
      *
      * @param column column name
@@ -753,8 +744,8 @@ public class OracleDialectHandler implements DbDialectHandler {
      */
     @Override
     public Object parseDateTimeValue(String column, String csvValue) throws Exception {
-        String str = (csvValue != null ? csvValue.trim() : null);
-        if (str == null || str.isEmpty()) {
+        String str = StringUtils.trimToNull(csvValue);
+        if (StringUtils.isEmpty(str)) {
             return null;
         }
         if (str.matches("\\d+-\\d+")) {
@@ -895,70 +886,6 @@ public class OracleDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Returns SQL to fetch the next sequence value.
-     *
-     * @param sequenceName sequence name
-     * @return SQL
-     */
-    @Override
-    public String getNextSequenceSql(String sequenceName) {
-        return String.format("SELECT %s.NEXTVAL FROM DUAL", sequenceName);
-    }
-
-    /**
-     * Returns the SQL template used to retrieve generated keys after INSERT.
-     *
-     * @return SQL template
-     */
-    @Override
-    public String getGeneratedKeyRetrievalSql() {
-        return " RETURNING %s INTO ?";
-    }
-
-    /**
-     * Indicates whether {@code getGeneratedKeys()} is supported.
-     *
-     * @return {@code true}
-     */
-    @Override
-    public boolean supportsGetGeneratedKeys() {
-        return true;
-    }
-
-    /**
-     * Indicates whether sequences are supported.
-     *
-     * @return {@code true}
-     */
-    @Override
-    public boolean supportsSequences() {
-        return true;
-    }
-
-    /**
-     * Indicates whether IDENTITY columns are supported.
-     *
-     * @return {@code false}
-     */
-    @Override
-    public boolean supportsIdentityColumns() {
-        return false;
-    }
-
-    /**
-     * Applies pagination to a SELECT statement.
-     *
-     * @param baseSql base SELECT SQL
-     * @param offset rows to skip
-     * @param limit max rows to fetch
-     * @return SELECT with dialect-specific pagination
-     */
-    @Override
-    public String applyPagination(String baseSql, int offset, int limit) {
-        return String.format("%s OFFSET %d ROWS FETCH NEXT %d ROWS ONLY", baseSql, offset, limit);
-    }
-
-    /**
      * Quotes an identifier (table/column name) using double quotes.
      *
      * @param identifier identifier to quote
@@ -967,122 +894,6 @@ public class OracleDialectHandler implements DbDialectHandler {
     @Override
     public String quoteIdentifier(String identifier) {
         return "\"" + identifier + "\"";
-    }
-
-    /**
-     * Returns the boolean TRUE literal.
-     *
-     * @return "1"
-     */
-    @Override
-    public String getBooleanTrueLiteral() {
-        return "1";
-    }
-
-    /**
-     * Returns the boolean FALSE literal.
-     *
-     * @return "0"
-     */
-    @Override
-    public String getBooleanFalseLiteral() {
-        return "0";
-    }
-
-    /**
-     * Returns the SQL function to get the current timestamp.
-     *
-     * @return "CURRENT_TIMESTAMP"
-     */
-    @Override
-    public String getCurrentTimestampFunction() {
-        return "CURRENT_TIMESTAMP";
-    }
-
-    /**
-     * Formats a {@link LocalDateTime} as a SQL date/time literal.
-     *
-     * @param dateTime LocalDateTime value
-     * @return SQL using TO_DATE
-     */
-    @Override
-    public String formatDateLiteral(LocalDateTime dateTime) {
-        return String.format("TO_DATE('%s','YYYY-MM-DD HH24:MI:SS')",
-                dateTime.format(DATE_LITERAL_FMT));
-    }
-
-    /**
-     * Builds a MERGE (UPSERT) statement.
-     *
-     * @param table table name
-     * @param keyCols key columns
-     * @param insertCols INSERT columns
-     * @param updateCols UPDATE columns
-     * @return MERGE SQL
-     */
-    @Override
-    public String buildUpsertSql(String table, List<String> keyCols, List<String> insertCols,
-            List<String> updateCols) {
-        String sourceCols = keyCols.stream().map(c -> "? AS " + quoteIdentifier(c))
-                .collect(Collectors.joining(", "))
-                + (insertCols.isEmpty() ? ""
-                        : ", " + insertCols.stream().map(c -> "? AS " + quoteIdentifier(c))
-                                .collect(Collectors.joining(", ")));
-        String onClause =
-                keyCols.stream().map(c -> String.format("t.%1$s = s.%1$s", quoteIdentifier(c)))
-                        .collect(Collectors.joining(" AND "));
-        String updateSet =
-                updateCols.stream().map(c -> String.format("t.%1$s = s.%1$s", quoteIdentifier(c)))
-                        .collect(Collectors.joining(", "));
-        List<String> allInsertCols = new ArrayList<>(keyCols);
-        allInsertCols.addAll(insertCols);
-        String insertColsSql =
-                allInsertCols.stream().map(this::quoteIdentifier).collect(Collectors.joining(","));
-        String insertValuesSql = allInsertCols.stream().map(c -> "s." + quoteIdentifier(c))
-                .collect(Collectors.joining(","));
-        return String.format(
-                "MERGE INTO %s t USING (SELECT %s FROM DUAL) s ON (%s) "
-                        + "WHEN MATCHED THEN UPDATE SET %s "
-                        + "WHEN NOT MATCHED THEN INSERT (%s) VALUES (%s)",
-                quoteIdentifier(table), sourceCols, onClause, updateSet, insertColsSql,
-                insertValuesSql);
-    }
-
-    /**
-     * Returns SQL to create a global temporary table.
-     *
-     * @param table table name
-     * @param columnsAndTypes map of column → type literal
-     * @return CREATE GLOBAL TEMPORARY TABLE SQL
-     */
-    @Override
-    public String getCreateTempTableSql(String table, Map<String, String> columnsAndTypes) {
-        String colsDefinition = columnsAndTypes.entrySet().stream()
-                .map(e -> quoteIdentifier(e.getKey()) + " " + e.getValue())
-                .collect(Collectors.joining(", "));
-        return String.format("CREATE GLOBAL TEMPORARY TABLE %s (%s) ON COMMIT PRESERVE ROWS",
-                quoteIdentifier(table), colsDefinition);
-    }
-
-    /**
-     * Applies a SELECT ... FOR UPDATE clause.
-     *
-     * @param baseSql base SELECT SQL
-     * @return SQL with FOR UPDATE
-     */
-    @Override
-    public String applyForUpdate(String baseSql) {
-        return baseSql + " FOR UPDATE";
-    }
-
-    /**
-     * Indicates whether batch updates are supported.
-     *
-     * @return {@code true} (batch updates supported)
-     */
-    @Override
-    public boolean supportsBatchUpdates() {
-        return true;
     }
 
     /**

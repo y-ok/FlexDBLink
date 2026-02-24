@@ -40,7 +40,6 @@ import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
-import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -66,45 +65,6 @@ public class PostgresqlDialectHandlerTest {
     void quoteIdentifier_正常ケース_識別子を指定する_ダブルクォート付き文字列が返ること() throws Exception {
         PostgresqlDialectHandler handler = createHandler();
         assertEquals("\"A1\"", handler.quoteIdentifier("A1"));
-    }
-
-    @Test
-    void applyPagination_正常ケース_offsetlimitを指定する_PostgreSQL形式SQLが返ること() throws Exception {
-        PostgresqlDialectHandler handler = createHandler();
-        assertEquals("SELECT * FROM T LIMIT 10 OFFSET 5",
-                handler.applyPagination("SELECT * FROM T", 5, 10));
-    }
-
-    @Test
-    void formatDateLiteral_正常ケース_LocalDateTimeを指定する_TIMESTAMPリテラルが返ること() throws Exception {
-        PostgresqlDialectHandler handler = createHandler();
-        assertEquals("TIMESTAMP '2026-02-15 16:00:01'",
-                handler.formatDateLiteral(LocalDateTime.of(2026, 2, 15, 16, 0, 1)));
-    }
-
-    @Test
-    void buildUpsertSql_正常ケース_keyinsertupdateを指定する_ONCONFLICT文が返ること() throws Exception {
-        PostgresqlDialectHandler handler = createHandler();
-        String sql =
-                handler.buildUpsertSql("t1", List.of("id"), List.of("id", "name"), List.of("name"));
-        assertTrue(sql.contains("INSERT INTO t1"));
-        assertTrue(sql.contains("ON CONFLICT (id)"));
-        assertTrue(sql.contains("name = EXCLUDED.name"));
-    }
-
-    @Test
-    void getCreateTempTableSql_正常ケース_列定義を指定する_CREATETEMP文が返ること() throws Exception {
-        PostgresqlDialectHandler handler = createHandler();
-        String sql = handler.getCreateTempTableSql("tmp_t", Map.of("id", "bigint", "name", "text"));
-        assertTrue(sql.contains("CREATE TEMP TABLE tmp_t"));
-        assertTrue(sql.contains("id bigint"));
-        assertTrue(sql.contains("name text"));
-    }
-
-    @Test
-    void applyForUpdate_正常ケース_SELECT文を指定する_FORUPDATE句が付与されること() throws Exception {
-        PostgresqlDialectHandler handler = createHandler();
-        assertEquals("SELECT 1 FOR UPDATE", handler.applyForUpdate("SELECT 1"));
     }
 
     @Test
@@ -686,21 +646,6 @@ public class PostgresqlDialectHandlerTest {
         assertTrue((boolean) m.invoke(handler, otherType));
         assertTrue((boolean) m.invoke(handler, unknownName));
         assertFalse((boolean) m.invoke(handler, DataType.VARCHAR));
-    }
-
-    @Test
-    void publicApi_正常ケース_定数系メソッドを呼び出す_期待値が返ること() throws Exception {
-        PostgresqlDialectHandler handler = createHandler();
-        assertTrue(handler.supportsLobStreamByStream());
-        assertEquals("SELECT nextval('seq_01')", handler.getNextSequenceSql("seq_01"));
-        assertEquals("", handler.getGeneratedKeyRetrievalSql());
-        assertTrue(handler.supportsGetGeneratedKeys());
-        assertTrue(handler.supportsSequences());
-        assertTrue(handler.supportsIdentityColumns());
-        assertEquals("TRUE", handler.getBooleanTrueLiteral());
-        assertEquals("FALSE", handler.getBooleanFalseLiteral());
-        assertEquals("CURRENT_TIMESTAMP", handler.getCurrentTimestampFunction());
-        assertTrue(handler.supportsBatchUpdates());
     }
 
     @Test
