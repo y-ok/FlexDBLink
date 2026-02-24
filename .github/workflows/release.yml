@@ -37,17 +37,18 @@ jobs:
           fetch-depth: 0
 
       - name: Resolve release context
+        id: context
         run: |
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "TAG_NAME=${{ github.event.workflow_run.head_branch }}" >> "${GITHUB_ENV}"
-            echo "TARGET_SHA=${{ github.event.workflow_run.head_sha }}" >> "${GITHUB_ENV}"
+            echo "tag_name=${{ github.event.workflow_run.head_branch }}" >> "${GITHUB_OUTPUT}"
+            echo "target_sha=${{ github.event.workflow_run.head_sha }}" >> "${GITHUB_OUTPUT}"
           else
             if ! git rev-parse "refs/tags/${{ inputs.tag }}" >/dev/null 2>&1; then
               echo "::error::GATE_TAG_NOT_FOUND: tag '${{ inputs.tag }}' not found."
               exit 17
             fi
-            echo "TAG_NAME=${{ inputs.tag }}" >> "${GITHUB_ENV}"
-            echo "TARGET_SHA=$(git rev-list -n 1 "refs/tags/${{ inputs.tag }}")" >> "${GITHUB_ENV}"
+            echo "tag_name=${{ inputs.tag }}" >> "${GITHUB_OUTPUT}"
+            echo "target_sha=$(git rev-list -n 1 "refs/tags/${{ inputs.tag }}")" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Set up JDK 11
@@ -63,8 +64,8 @@ jobs:
       - name: Run release gate checks
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG_NAME: ${{ env.TAG_NAME }}
-          TARGET_SHA: ${{ env.TARGET_SHA }}
+          TAG_NAME: ${{ steps.context.outputs.tag_name }}
+          TARGET_SHA: ${{ steps.context.outputs.target_sha }}
           CI_WORKFLOW_FILE: ci.yml
         run: |
           chmod +x .github/scripts/release_gate.sh
@@ -79,8 +80,8 @@ jobs:
       - name: Create GitHub Release and upload assets
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.TAG_NAME }}
-          name: ${{ env.TAG_NAME }}
+          tag_name: ${{ steps.context.outputs.tag_name }}
+          name: ${{ steps.context.outputs.tag_name }}
           generate_release_notes: true
           files: |
             target/FlexDBLink.jar

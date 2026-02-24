@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>io.github.yok</groupId>
 	<artifactId>flexdblink</artifactId>
-	<version>0.1.6</version>
+	<version>0.1.7</version>
 	<name>FlexDBLink</name>
 	<description>Manage DB test data as text (CSV/JSON/YAML/XML ↔ DB), with LOB files and JUnit 5 + Spring integration for Oracle/PostgreSQL/MySQL/SQL Server.</description>
 	<url>https://github.com/y-ok/FlexDBLink</url>
