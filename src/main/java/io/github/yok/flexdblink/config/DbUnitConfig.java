@@ -5,18 +5,12 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Configuration class that binds the {@code dbunit} section in {@code application.yml}. Centralizes
- * the behavior of {@code DataLoader} and {@code DataDumper}.
+ * Configuration class that binds the {@code dbunit} section in {@code application.yml}.
  *
  * <p>
- * <strong>Supported modes:</strong>
+ * Centralizes DBUnit-related runtime settings used by {@code DataLoader} and {@code DataDumper},
+ * such as the default load scenario directory and confirmation behavior.
  * </p>
- * <ul>
- * <li>{@link DataTypeFactoryMode#ORACLE}: Use the factory for Oracle</li>
- * <li>{@link DataTypeFactoryMode#POSTGRESQL}: Use the factory for PostgreSQL</li>
- * <li>{@link DataTypeFactoryMode#MYSQL}: Use the factory for MySQL</li>
- * <li>{@link DataTypeFactoryMode#SQLSERVER}: Use the factory for SQL Server</li>
- * </ul>
  *
  * @author Yasuharu.Okawauchi
  */
@@ -24,18 +18,6 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "dbunit")
 @Data
 public class DbUnitConfig {
-
-    /**
-     * Specifies the operation mode of the DataTypeFactory. One of the following values can be set:
-     *
-     * <ul>
-     * <li>{@link DataTypeFactoryMode#ORACLE}: Use the factory for Oracle</li>
-     * <li>{@link DataTypeFactoryMode#POSTGRESQL}: Use the factory for PostgreSQL</li>
-     * <li>{@link DataTypeFactoryMode#MYSQL}: Use the factory for MySQL</li>
-     * <li>{@link DataTypeFactoryMode#SQLSERVER}: Use the factory for SQL Server</li>
-     * </ul>
-     */
-    private DataTypeFactoryMode dataTypeFactoryMode = DataTypeFactoryMode.ORACLE;
 
     /**
      * Directory name used for initial data loading.

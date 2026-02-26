@@ -2,7 +2,6 @@ package io.github.yok.flexdblink.integration;
 
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.config.CsvDateTimeFormatProperties;
-import io.github.yok.flexdblink.config.DataTypeFactoryMode;
 import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.FilePatternConfig;
@@ -36,8 +35,8 @@ import org.testcontainers.oracle.OracleContainer;
  * Utility class for Oracle integration tests.
  *
  * <p>
- * Runs Flyway against a Testcontainers-managed Oracle instance and exercises
- * FlexDBLink (DataLoader / DataDumper) in a production-like configuration.
+ * Runs Flyway against a Testcontainers-managed Oracle instance and exercises FlexDBLink (DataLoader
+ * / DataDumper) in a production-like configuration.
  * </p>
  *
  * <h2>Expected test resource layout</h2>
@@ -72,8 +71,8 @@ final class OracleIntegrationSupport {
      * Starts the Oracle container and initializes the test schema with Flyway (all migrations).
      *
      * <p>
-     * Runs Flyway clean → migrate on every call to ensure the DB is in a clean state
-     * at the start of each test.
+     * Runs Flyway clean → migrate on every call to ensure the DB is in a clean state at the start
+     * of each test.
      * </p>
      *
      * @param container Oracle container
@@ -98,9 +97,9 @@ final class OracleIntegrationSupport {
     }
 
     private static void migrateWithoutFk(OracleContainer container) {
-        Flyway flyway = Flyway
-                .configure().cleanDisabled(false).dataSource(container.getJdbcUrl(),
-                        container.getUsername(), container.getPassword())
+        Flyway flyway = Flyway.configure().cleanDisabled(false)
+                .dataSource(container.getJdbcUrl(), container.getUsername(),
+                        container.getPassword())
                 .locations("classpath:db/migration/oracle").target("2").load();
         flyway.clean();
         flyway.migrate();
@@ -390,7 +389,6 @@ final class OracleIntegrationSupport {
      */
     static DbUnitConfig dbUnitConfig() {
         DbUnitConfig cfg = new DbUnitConfig();
-        cfg.setDataTypeFactoryMode(DataTypeFactoryMode.ORACLE);
         cfg.setPreDirName("pre");
         return cfg;
     }
@@ -475,8 +473,8 @@ final class OracleIntegrationSupport {
      * Holds the full set of configuration objects needed to run an integration test.
      *
      * <p>
-     * Aggregates the dependencies (PathsConfig, ConnectionConfig, etc.) required to
-     * create {@link DataLoader} and {@link DataDumper} instances.
+     * Aggregates the dependencies (PathsConfig, ConnectionConfig, etc.) required to create
+     * {@link DataLoader} and {@link DataDumper} instances.
      * </p>
      */
     static final class Runtime {

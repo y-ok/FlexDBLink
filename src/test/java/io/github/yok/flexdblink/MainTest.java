@@ -26,6 +26,8 @@ import io.github.yok.flexdblink.core.DataLoader;
 import io.github.yok.flexdblink.core.SetupRunner;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
+import io.github.yok.flexdblink.db.DbUnitConfigFactory;
+import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import io.github.yok.flexdblink.util.ErrorHandler;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
@@ -50,7 +52,7 @@ class MainTest {
     private ConnectionConfig connectionConfig;
     private FilePatternConfig filePatternConfig;
     private DumpConfig dumpConfig;
-    private DbDialectHandlerFactory dialectFactory;
+    private TestDbDialectHandlerFactory dialectFactory;
 
     private Main main;
 
@@ -67,9 +69,8 @@ class MainTest {
 
         filePatternConfig = mock(FilePatternConfig.class);
         dumpConfig = mock(DumpConfig.class);
-        dialectFactory = mock(DbDialectHandlerFactory.class);
-
-        when(dialectFactory.create(any())).thenReturn(mock(DbDialectHandler.class));
+        dialectFactory = new TestDbDialectHandlerFactory();
+        dialectFactory.setHandlerToReturn(mock(DbDialectHandler.class));
         when(dbUnitConfig.getPreDirName()).thenReturn("preScenario");
 
         main = new Main(pathsConfig, dbUnitConfig, connectionConfig, filePatternConfig, dumpConfig,
@@ -107,7 +108,7 @@ class MainTest {
     void run_異常ケース_シナリオ未指定時にErrorHandlerが呼ばれること() {
         Main sut = new Main(mock(PathsConfig.class), mock(DbUnitConfig.class),
                 mock(ConnectionConfig.class), mock(FilePatternConfig.class), mock(DumpConfig.class),
-                mock(DbDialectHandlerFactory.class));
+                new TestDbDialectHandlerFactory());
 
         try (MockedStatic<ErrorHandler> mocked = mockStatic(ErrorHandler.class)) {
             mocked.when(() -> ErrorHandler.errorAndExit(anyString())).thenAnswer(inv -> {
@@ -214,8 +215,9 @@ class MainTest {
                     ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
                     entry.setId("dbX");
                     DbDialectHandler handler = mock(DbDialectHandler.class);
-                    when(dialectFactory.create(entry)).thenReturn(handler);
+                    dialectFactory.setHandlerToReturn(handler);
                     assertEquals(handler, dialectProvider.apply(entry));
+                    assertEquals(entry, dialectFactory.getLastEntry());
                 })) {
 
             main.run("--load", "myscenario");
@@ -236,8 +238,9 @@ class MainTest {
                     entry.setId("db1");
                     entry.setUser(null);
                     DbDialectHandler handler = mock(DbDialectHandler.class);
-                    when(dialectFactory.create(entry)).thenReturn(handler);
+                    dialectFactory.setHandlerToReturn(handler);
                     assertEquals(handler, dialectProvider.apply(entry));
+                    assertEquals(entry, dialectFactory.getLastEntry());
                 })) {
             main.run("--load", "myscenario");
             DataLoader loader = mocked.constructed().get(0);
@@ -271,10 +274,36 @@ class MainTest {
         try {
             Main sut = new Main(mock(PathsConfig.class), mock(DbUnitConfig.class),
                     mock(ConnectionConfig.class), mock(FilePatternConfig.class),
-                    mock(DumpConfig.class), mock(DbDialectHandlerFactory.class));
+                    mock(DumpConfig.class), new TestDbDialectHandlerFactory());
             assertThrows(IllegalStateException.class, () -> sut.run("--dump"));
         } finally {
             ErrorHandler.restoreExitForCurrentThread();
+        }
+    }
+
+    private static class TestDbDialectHandlerFactory extends DbDialectHandlerFactory {
+
+        private DbDialectHandler handlerToReturn;
+
+        private ConnectionConfig.Entry lastEntry;
+
+        TestDbDialectHandlerFactory() {
+            super(new DbUnitConfig(), new DumpConfig(), new PathsConfig(),
+                    mock(DateTimeFormatSupport.class), new DbUnitConfigFactory());
+        }
+
+        void setHandlerToReturn(DbDialectHandler handlerToReturn) {
+            this.handlerToReturn = handlerToReturn;
+        }
+
+        ConnectionConfig.Entry getLastEntry() {
+            return lastEntry;
+        }
+
+        @Override
+        public DbDialectHandler create(ConnectionConfig.Entry entry) {
+            lastEntry = entry;
+            return handlerToReturn;
         }
     }
 

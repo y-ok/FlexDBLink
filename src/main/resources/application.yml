@@ -1,7 +1,6 @@
 data-path: /absolute/path/to/project-root
 
 dbunit:
-  dataTypeFactoryMode: ORACLE
   pre-dir-name: pre
   confirm-before-load: false    # true: prompt for confirmation before --load executes
   csv:

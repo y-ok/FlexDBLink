@@ -13,6 +13,7 @@ import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.Locale;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.dbunit.database.DatabaseConfig;
@@ -24,9 +25,10 @@ import org.springframework.stereotype.Component;
  * Factory class that creates a {@link DbDialectHandler} according to the database type.
  *
  * <p>
- * The selected handler is based on {@link DbUnitConfig}'s DataTypeFactoryMode. This factory creates
- * handlers for Oracle, PostgreSQL, MySQL, and SQL Server modes. In addition, dump-related settings
- * such as {@link DumpConfig#excludeTables} are passed to each handler.
+ * The selected handler is resolved per {@link ConnectionConfig.Entry} using
+ * {@code connections[].driver-class} first and the JDBC URL as a fallback. This factory creates
+ * handlers for Oracle, PostgreSQL, MySQL, and SQL Server. In addition, dump-related settings such
+ * as {@link DumpConfig#excludeTables} are passed to each handler.
  * </p>
  *
  * @author Yasuharu.Okawauchi
@@ -36,7 +38,7 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class DbDialectHandlerFactory {
 
-    // DBUnit settings (includes dataTypeFactoryMode, preDirName)
+    // DBUnit settings used by dialect handlers (e.g., preDirName, confirmBeforeLoad)
     private final DbUnitConfig dbUnitConfig;
 
     // Dump settings (e.g., exclude-tables)
@@ -55,7 +57,7 @@ public class DbDialectHandlerFactory {
      * Creates a {@link DbDialectHandler} based on the provided connection entry.
      *
      * <p>
-     * Supported DataTypeFactoryMode:
+     * Supported database types (resolved from {@code driver-class} or JDBC URL):
      * </p>
      * <ul>
      * <li>{@code ORACLE}: instantiate {@link OracleDialectHandler}</li>
@@ -70,7 +72,7 @@ public class DbDialectHandlerFactory {
      */
     public DbDialectHandler create(ConnectionConfig.Entry entry) {
         try {
-            DataTypeFactoryMode mode = dbUnitConfig.getDataTypeFactoryMode();
+            DataTypeFactoryMode mode = resolveMode(entry);
             if (mode == DataTypeFactoryMode.ORACLE) {
                 return createOracle(entry);
             }
@@ -80,12 +82,7 @@ public class DbDialectHandlerFactory {
             if (mode == DataTypeFactoryMode.MYSQL) {
                 return createMySql(entry);
             }
-            if (mode == DataTypeFactoryMode.SQLSERVER) {
-                return createSqlServer(entry);
-            }
-            String msg = "Unsupported DataTypeFactoryMode: " + mode;
-            log.error(msg);
-            throw new IllegalArgumentException(msg);
+            return createSqlServer(entry);
 
         } catch (SQLException e) {
             log.error("Failed to establish JDBC connection or initialize session", e);
@@ -99,6 +96,102 @@ public class DbDialectHandlerFactory {
             log.error("Unexpected error during DbDialectHandler creation", e);
             throw new IllegalStateException("Failed to create DbDialectHandler", e);
         }
+    }
+
+    /**
+     * Resolves the database type for a connection entry.
+     *
+     * <p>
+     * Resolution priority is {@code driver-class} first, then JDBC URL.
+     * </p>
+     *
+     * @param entry connection entry
+     * @return resolved database type
+     * @throws IllegalArgumentException if the database type cannot be determined
+     */
+    private DataTypeFactoryMode resolveMode(ConnectionConfig.Entry entry) {
+        DataTypeFactoryMode fromDriverClass = resolveModeFromDriverClass(entry.getDriverClass());
+        if (fromDriverClass != null) {
+            return fromDriverClass;
+        }
+
+        DataTypeFactoryMode fromUrl = resolveModeFromJdbcUrl(entry.getUrl());
+        if (fromUrl != null) {
+            return fromUrl;
+        }
+
+        String message = "Unsupported database dialect for connection id=" + entry.getId()
+                + " (driver-class=" + entry.getDriverClass() + ", url=" + entry.getUrl() + ")";
+        throw new IllegalArgumentException(message);
+    }
+
+    /**
+     * Resolves the database type from a JDBC driver class name.
+     *
+     * @param driverClass JDBC driver class name
+     * @return resolved database type, or {@code null} when not recognized
+     */
+    private DataTypeFactoryMode resolveModeFromDriverClass(String driverClass) {
+        String normalized = normalizeLower(driverClass);
+        if (normalized == null) {
+            return null;
+        }
+        if ("oracle.jdbc.oracledriver".equals(normalized)) {
+            return DataTypeFactoryMode.ORACLE;
+        }
+        if ("org.postgresql.driver".equals(normalized)) {
+            return DataTypeFactoryMode.POSTGRESQL;
+        }
+        if ("com.mysql.cj.jdbc.driver".equals(normalized)
+                || "com.mysql.jdbc.driver".equals(normalized)) {
+            return DataTypeFactoryMode.MYSQL;
+        }
+        if ("com.microsoft.sqlserver.jdbc.sqlserverdriver".equals(normalized)) {
+            return DataTypeFactoryMode.SQLSERVER;
+        }
+        return null;
+    }
+
+    /**
+     * Resolves the database type from a JDBC URL.
+     *
+     * @param jdbcUrl JDBC URL
+     * @return resolved database type, or {@code null} when not recognized
+     */
+    private DataTypeFactoryMode resolveModeFromJdbcUrl(String jdbcUrl) {
+        String normalized = normalizeLower(jdbcUrl);
+        if (normalized == null) {
+            return null;
+        }
+        if (normalized.startsWith("jdbc:oracle:")) {
+            return DataTypeFactoryMode.ORACLE;
+        }
+        if (normalized.startsWith("jdbc:postgresql:")) {
+            return DataTypeFactoryMode.POSTGRESQL;
+        }
+        if (normalized.startsWith("jdbc:mysql:")) {
+            return DataTypeFactoryMode.MYSQL;
+        }
+        if (normalized.startsWith("jdbc:sqlserver:")) {
+            return DataTypeFactoryMode.SQLSERVER;
+        }
+        return null;
+    }
+
+    /**
+     * Normalizes a string for case-insensitive comparison.
+     *
+     * @param value source string
+     * @return lower-case value, or {@code null} when input is {@code null} or blank
+     */
+    private String normalizeLower(String value) {
+        if (value == null) {
+            return null;
+        }
+        if (value.isBlank()) {
+            return null;
+        }
+        return value.toLowerCase(Locale.ROOT);
     }
 
     /**

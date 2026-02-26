@@ -2,7 +2,6 @@ package io.github.yok.flexdblink.integration;
 
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.config.CsvDateTimeFormatProperties;
-import io.github.yok.flexdblink.config.DataTypeFactoryMode;
 import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.FilePatternConfig;
@@ -215,7 +214,6 @@ final class SqlServerIntegrationSupport {
 
     static DbUnitConfig dbUnitConfig() {
         DbUnitConfig cfg = new DbUnitConfig();
-        cfg.setDataTypeFactoryMode(DataTypeFactoryMode.SQLSERVER);
         cfg.setPreDirName("pre");
         return cfg;
     }

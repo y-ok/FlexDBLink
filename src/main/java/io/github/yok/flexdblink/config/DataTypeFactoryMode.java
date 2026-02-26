@@ -1,12 +1,11 @@
 package io.github.yok.flexdblink.config;
 
 /**
- * Enumerates the selection modes for {@code IDataTypeFactory} and
- * {@link io.github.yok.flexdblink.db.DbDialectHandler} used by DBUnit.
+ * Enumerates supported database dialect types used internally by DBUnit-related components.
  *
  * <p>
- * Each constant selects the handler and data type factory corresponding to a specific database
- * product.
+ * Each constant represents a database product for selecting a dialect handler and data type
+ * factory.
  * </p>
  *
  * <ul>

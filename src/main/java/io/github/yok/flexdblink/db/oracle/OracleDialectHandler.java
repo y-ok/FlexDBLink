@@ -238,7 +238,7 @@ public class OracleDialectHandler implements DbDialectHandler {
      *
      * @param dbConn DBUnit {@link DatabaseConnection}
      * @param dumpConfig dump.exclude-tables configuration
-     * @param dbUnitConfig dbunit.dataTypeFactoryMode/preDirName configuration
+     * @param dbUnitConfig dbunit configuration (for example, preDirName)
      * @param configFactory {@link DbUnitConfigFactory} (for common DBUnit configuration)
      * @param dateTimeFormatter date/time formatter utility
      * @param pathsConfig data-path → load/dump path configuration

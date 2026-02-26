@@ -1,6 +1,7 @@
 package io.github.yok.flexdblink.db;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -36,33 +37,72 @@ import org.mockito.MockedStatic;
 class DbDialectHandlerFactoryTest {
 
     /**
-     * Throws any checked exception as-is from lambda expressions.
+     * Invokes the private resolveMode method.
      *
-     * @param throwable exception to throw
-     * @param <T> inferred return type of caller context
-     * @return never returns
+     * @param factory target factory
+     * @param entry connection entry
+     * @return resolved mode
+     * @throws Exception when reflection fails
      */
-    private static <T> T sneakyThrow(Throwable throwable) {
-        DbDialectHandlerFactoryTest.<RuntimeException>throwAny(throwable);
-        return null;
+    private DataTypeFactoryMode invokeResolveMode(DbDialectHandlerFactory factory,
+            ConnectionConfig.Entry entry) throws Exception {
+        Method method = DbDialectHandlerFactory.class.getDeclaredMethod("resolveMode",
+                ConnectionConfig.Entry.class);
+        method.setAccessible(true);
+        return (DataTypeFactoryMode) method.invoke(factory, entry);
     }
 
     /**
-     * Generic throwing helper used by {@link #sneakyThrow(Throwable)}.
+     * Invokes the private resolveModeFromDriverClass method.
      *
-     * @param throwable exception to throw
-     * @param <E> throwable type
-     * @throws E always thrown
+     * @param factory target factory
+     * @param driverClass driver class name
+     * @return resolved mode or {@code null}
+     * @throws Exception when reflection fails
      */
-    @SuppressWarnings("unchecked")
-    private static <E extends Throwable> void throwAny(Throwable throwable) throws E {
-        throw (E) throwable;
+    private DataTypeFactoryMode invokeResolveModeFromDriverClass(DbDialectHandlerFactory factory,
+            String driverClass) throws Exception {
+        Method method = DbDialectHandlerFactory.class
+                .getDeclaredMethod("resolveModeFromDriverClass", String.class);
+        method.setAccessible(true);
+        return (DataTypeFactoryMode) method.invoke(factory, driverClass);
+    }
+
+    /**
+     * Invokes the private resolveModeFromJdbcUrl method.
+     *
+     * @param factory target factory
+     * @param jdbcUrl JDBC URL
+     * @return resolved mode or {@code null}
+     * @throws Exception when reflection fails
+     */
+    private DataTypeFactoryMode invokeResolveModeFromJdbcUrl(DbDialectHandlerFactory factory,
+            String jdbcUrl) throws Exception {
+        Method method = DbDialectHandlerFactory.class.getDeclaredMethod("resolveModeFromJdbcUrl",
+                String.class);
+        method.setAccessible(true);
+        return (DataTypeFactoryMode) method.invoke(factory, jdbcUrl);
+    }
+
+    /**
+     * Invokes the private normalizeLower method.
+     *
+     * @param factory target factory
+     * @param value input value
+     * @return normalized value or {@code null}
+     * @throws Exception when reflection fails
+     */
+    private String invokeNormalizeLower(DbDialectHandlerFactory factory, String value)
+            throws Exception {
+        Method method =
+                DbDialectHandlerFactory.class.getDeclaredMethod("normalizeLower", String.class);
+        method.setAccessible(true);
+        return (String) method.invoke(factory, value);
     }
 
     @Test
-    void create_正常ケース_oracleモードを指定する_OracleDialectHandlerが返ること() throws Exception {
+    void create_正常ケース_OracleURLを指定する_OracleDialectHandlerが返ること() throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.ORACLE);
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
@@ -71,7 +111,7 @@ class DbDialectHandlerFactoryTest {
                 pathsConfig, dateTimeFormatUtil, configFactory);
 
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
-        entry.setUrl("jdbc:mock");
+        entry.setUrl("jdbc:oracle:thin:@localhost:1521/OPEDB");
         entry.setUser("app");
         entry.setPassword("pw");
 
@@ -89,7 +129,9 @@ class DbDialectHandlerFactoryTest {
                             when(mock.getDataTypeFactory()).thenReturn(dataTypeFactory);
                         })) {
 
-            driverManagerMock.when(() -> DriverManager.getConnection("jdbc:mock", "app", "pw"))
+            driverManagerMock
+                    .when(() -> DriverManager
+                            .getConnection("jdbc:oracle:thin:@localhost:1521/OPEDB", "app", "pw"))
                     .thenReturn(jdbc);
 
             DbDialectHandler actual = factory.create(entry);
@@ -101,9 +143,8 @@ class DbDialectHandlerFactoryTest {
     }
 
     @Test
-    void create_異常ケース_oracleモードでSQL例外が発生する_IllegalStateExceptionが送出されること() {
+    void create_異常ケース_Oracle接続でSQL例外が発生する_IllegalStateExceptionが送出されること() {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.ORACLE);
         DbDialectHandlerFactory factory =
                 new DbDialectHandlerFactory(dbUnitConfig, new DumpConfig(), new PathsConfig(),
                         mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
@@ -112,6 +153,7 @@ class DbDialectHandlerFactoryTest {
         entry.setUrl("jdbc:mock");
         entry.setUser("app");
         entry.setPassword("pw");
+        entry.setDriverClass("oracle.jdbc.OracleDriver");
 
         try (MockedStatic<DriverManager> driverManagerMock = mockStatic(DriverManager.class)) {
             driverManagerMock.when(() -> DriverManager.getConnection("jdbc:mock", "app", "pw"))
@@ -123,9 +165,8 @@ class DbDialectHandlerFactoryTest {
     }
 
     @Test
-    void create_正常ケース_sqlserverモードを指定する_SqlServerDialectHandlerが返ること() throws Exception {
+    void create_正常ケース_SQLServerURLを指定する_SqlServerDialectHandlerが返ること() throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.SQLSERVER);
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
@@ -166,9 +207,8 @@ class DbDialectHandlerFactoryTest {
     }
 
     @Test
-    void create_正常ケース_mysqlモードを指定する_MySqlDialectHandlerが返ること() throws Exception {
+    void create_正常ケース_MySQLURLを指定する_MySqlDialectHandlerが返ること() throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.MYSQL);
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
@@ -208,9 +248,8 @@ class DbDialectHandlerFactoryTest {
     }
 
     @Test
-    void create_正常ケース_postgresqlモードを指定する_PostgresqlDialectHandlerが返ること() throws Exception {
+    void create_正常ケース_PostgreSQLURLを指定する_PostgresqlDialectHandlerが返ること() throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.POSTGRESQL);
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
@@ -254,7 +293,6 @@ class DbDialectHandlerFactoryTest {
     void create_異常ケース_DBUnit初期化でDataSetExceptionが発生する_IllegalStateExceptionが送出されること()
             throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.ORACLE);
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
@@ -266,6 +304,7 @@ class DbDialectHandlerFactoryTest {
         entry.setUrl("jdbc:mock");
         entry.setUser("app");
         entry.setPassword("pw");
+        entry.setDriverClass("oracle.jdbc.OracleDriver");
 
         Connection jdbc = mock(Connection.class);
         DatabaseConfig databaseConfig = mock(DatabaseConfig.class);
@@ -277,8 +316,9 @@ class DbDialectHandlerFactoryTest {
                         });
                 MockedConstruction<OracleDialectHandler> handlerMock =
                         mockConstruction(OracleDialectHandler.class, (mock, context) -> {
-                            when(mock.getDataTypeFactory()).thenAnswer(
-                                    invocation -> sneakyThrow(new DataSetException("x")));
+                            when(mock.getDataTypeFactory()).thenAnswer(invocation -> {
+                                throw new DataSetException("x");
+                            });
                         })) {
             driverManagerMock.when(() -> DriverManager.getConnection("jdbc:mock", "app", "pw"))
                     .thenReturn(jdbc);
@@ -293,7 +333,6 @@ class DbDialectHandlerFactoryTest {
     void create_異常ケース_DBUnit設定時にRuntimeExceptionが発生する_IllegalStateExceptionが送出されること()
             throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.ORACLE);
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
@@ -305,6 +344,7 @@ class DbDialectHandlerFactoryTest {
         entry.setUrl("jdbc:mock");
         entry.setUser("app");
         entry.setPassword("pw");
+        entry.setDriverClass("oracle.jdbc.OracleDriver");
 
         Connection jdbc = mock(Connection.class);
         DatabaseConfig databaseConfig = mock(DatabaseConfig.class);
@@ -329,33 +369,123 @@ class DbDialectHandlerFactoryTest {
     }
 
     @Test
-    void create_異常ケース_DataTypeFactoryModeがnullである_IllegalStateExceptionが送出されること() {
-        DbUnitConfig dbUnitConfig = mock(DbUnitConfig.class);
-        when(dbUnitConfig.getDataTypeFactoryMode()).thenReturn(null);
+    void private_正常ケース_resolveModeを呼び出す_driverClassがOracleのときORACLEが返ること() throws Exception {
+        DbDialectHandlerFactory factory =
+                new DbDialectHandlerFactory(new DbUnitConfig(), new DumpConfig(), new PathsConfig(),
+                        mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setDriverClass("oracle.jdbc.OracleDriver");
+        entry.setUrl("jdbc:postgresql://localhost:5432/testdb");
+
+        assertEquals(DataTypeFactoryMode.ORACLE, invokeResolveMode(factory, entry));
+    }
+
+    @Test
+    void private_正常ケース_resolveModeを呼び出す_driverClassがPostgreSQLのときPOSTGRESQLが返ること()
+            throws Exception {
+        DbDialectHandlerFactory factory =
+                new DbDialectHandlerFactory(new DbUnitConfig(), new DumpConfig(), new PathsConfig(),
+                        mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setDriverClass("org.postgresql.Driver");
+        entry.setUrl("jdbc:mysql://localhost:3306/testdb");
+
+        assertEquals(DataTypeFactoryMode.POSTGRESQL, invokeResolveMode(factory, entry));
+    }
+
+    @Test
+    void private_正常ケース_resolveModeを呼び出す_driverClassがMySQLのときMYSQLが返ること() throws Exception {
+        DbDialectHandlerFactory factory =
+                new DbDialectHandlerFactory(new DbUnitConfig(), new DumpConfig(), new PathsConfig(),
+                        mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setDriverClass("com.mysql.cj.jdbc.Driver");
+        entry.setUrl("jdbc:sqlserver://localhost:1433;databaseName=testdb");
+
+        assertEquals(DataTypeFactoryMode.MYSQL, invokeResolveMode(factory, entry));
+    }
+
+    @Test
+    void private_正常ケース_resolveModeFromDriverClassを呼び出す_旧MySQLドライバを指定する_MYSQLが返ること()
+            throws Exception {
+        DbDialectHandlerFactory factory =
+                new DbDialectHandlerFactory(new DbUnitConfig(), new DumpConfig(), new PathsConfig(),
+                        mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+
+        assertEquals(DataTypeFactoryMode.MYSQL,
+                invokeResolveModeFromDriverClass(factory, "com.mysql.jdbc.Driver"));
+    }
+
+    @Test
+    void private_正常ケース_resolveModeを呼び出す_driverClassがSQLServerのときSQLSERVERが返ること() throws Exception {
+        DbDialectHandlerFactory factory =
+                new DbDialectHandlerFactory(new DbUnitConfig(), new DumpConfig(), new PathsConfig(),
+                        mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setDriverClass("com.microsoft.sqlserver.jdbc.SQLServerDriver");
+        entry.setUrl("jdbc:oracle:thin:@localhost:1521/OPEDB");
+
+        assertEquals(DataTypeFactoryMode.SQLSERVER, invokeResolveMode(factory, entry));
+    }
+
+    @Test
+    void create_異常ケース_接続情報からDB種別を判定できない_IllegalStateExceptionが送出されること() {
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
         DateTimeFormatUtil dateTimeFormatUtil = mock(DateTimeFormatUtil.class);
-        DbDialectHandlerFactory factory = new DbDialectHandlerFactory(dbUnitConfig, dumpConfig,
-                pathsConfig, dateTimeFormatUtil, configFactory);
+        DbDialectHandlerFactory factory = new DbDialectHandlerFactory(new DbUnitConfig(),
+                dumpConfig, pathsConfig, dateTimeFormatUtil, configFactory);
 
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
-        entry.setUrl("jdbc:mock");
+        entry.setId("DBX");
+        entry.setUrl("jdbc:unknown://localhost/db");
         entry.setUser("app");
         entry.setPassword("pw");
+        entry.setDriverClass("com.example.UnknownDriver");
 
         IllegalStateException ex =
                 assertThrows(IllegalStateException.class, () -> factory.create(entry));
         assertEquals("Failed to create DbDialectHandler", ex.getMessage());
         assertTrue(ex.getCause() instanceof IllegalArgumentException);
+        assertTrue(ex.getCause().getMessage().contains("DBX"));
+    }
+
+    @Test
+    void private_正常ケース_resolveModeFromJdbcUrlを呼び出す_未知URLを指定する_nullが返ること() throws Exception {
+        DbDialectHandlerFactory factory =
+                new DbDialectHandlerFactory(new DbUnitConfig(), new DumpConfig(), new PathsConfig(),
+                        mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+
+        assertNull(invokeResolveModeFromJdbcUrl(factory, "jdbc:unknown://localhost/db"));
+    }
+
+    @Test
+    void private_正常ケース_resolveModeFromJdbcUrlを呼び出す_nullを指定する_nullが返ること() throws Exception {
+        DbDialectHandlerFactory factory =
+                new DbDialectHandlerFactory(new DbUnitConfig(), new DumpConfig(), new PathsConfig(),
+                        mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+
+        assertNull(invokeResolveModeFromJdbcUrl(factory, null));
+    }
+
+    @Test
+    void private_正常ケース_normalizeLowerを呼び出す_blank文字列を指定する_nullが返ること() throws Exception {
+        DbDialectHandlerFactory factory =
+                new DbDialectHandlerFactory(new DbUnitConfig(), new DumpConfig(), new PathsConfig(),
+                        mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+
+        assertNull(invokeNormalizeLower(factory, "   "));
     }
 
     @Test
     void private_正常ケース_resolveMySqlDatabaseを呼び出す_URL形式ごとにDB名が解決されること() throws Exception {
-        DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.MYSQL);
         DbDialectHandlerFactory factory =
-                new DbDialectHandlerFactory(dbUnitConfig, new DumpConfig(), new PathsConfig(),
+                new DbDialectHandlerFactory(new DbUnitConfig(), new DumpConfig(), new PathsConfig(),
                         mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
 
         Method method = DbDialectHandlerFactory.class.getDeclaredMethod("resolveMySqlDatabase",
@@ -374,10 +504,8 @@ class DbDialectHandlerFactoryTest {
 
     @Test
     void private_正常ケース_resolveSqlServerSchemaを呼び出す_dboが返ること() throws Exception {
-        DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        dbUnitConfig.setDataTypeFactoryMode(DataTypeFactoryMode.SQLSERVER);
         DbDialectHandlerFactory factory =
-                new DbDialectHandlerFactory(dbUnitConfig, new DumpConfig(), new PathsConfig(),
+                new DbDialectHandlerFactory(new DbUnitConfig(), new DumpConfig(), new PathsConfig(),
                         mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
 
         Method method = DbDialectHandlerFactory.class.getDeclaredMethod("resolveSqlServerSchema",

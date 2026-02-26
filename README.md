@@ -78,9 +78,6 @@ Edit `conf/application.yml` to set connection details and the data path.
 ```yaml
 data-path: /path/to/your/data
 
-dbunit:
-  dataTypeFactoryMode: ORACLE   # ORACLE / POSTGRESQL / MYSQL / SQLSERVER
-
 connections:
   - id: DB1
     url: jdbc:oracle:thin:@localhost:1521/OPEDB
@@ -93,9 +90,6 @@ connections:
 
 ```yaml
 data-path: /path/to/your/data
-
-dbunit:
-  dataTypeFactoryMode: ORACLE
 
 connections:
   - id: DB1
@@ -111,6 +105,11 @@ connections:
 ```
 
 > Use `--target DB1,DB2` to restrict processing to specific DB IDs. When omitted, all connections are targeted.
+>
+> Dialect is resolved per connection entry. The tool checks `connections[].driver-class` first and
+> falls back to the JDBC URL. Supported dialects: `ORACLE`, `POSTGRESQL`, `MYSQL`, `SQLSERVER`.
+> If one connection cannot be resolved to a supported dialect, the tool fails with an error that
+> includes the target connection ID.
 
 ### 3. Place Your Dataset
 
@@ -308,7 +307,6 @@ The filename template is controlled by `file-patterns`.
 data-path: /absolute/path/to/data
 
 dbunit:
-  dataTypeFactoryMode: ORACLE   # ORACLE / POSTGRESQL / MYSQL / SQLSERVER
   pre-dir-name: pre             # Initial load directory name (default: pre)
   csv:
     format:
@@ -352,7 +350,6 @@ dump:
 | Key | Required | Description |
 |-----|----------|-------------|
 | `data-path` | ✅ | Base path for CSV and LOB files |
-| `dbunit.dataTypeFactoryMode` | ✅ | Target DB type |
 | `dbunit.pre-dir-name` | | Initial load directory name (default: `pre`) |
 | `dbunit.confirm-before-load` | | When `true`, shows a confirmation prompt before `--load` executes (default: `false`) |
 | `dbunit.csv.format.date` | | **Dump output format** and **preferred parse format on load** for DATE (default: `yyyy-MM-dd`) |
@@ -360,6 +357,10 @@ dump:
 | `dbunit.csv.format.dateTime` | | **Dump output format** and **preferred parse format on load** for TIMESTAMP (default: `yyyy-MM-dd HH:mm:ss`) |
 | `dbunit.csv.format.dateTimeWithMillis` | | **Dump output format** and **preferred parse format on load** for TIMESTAMP with milliseconds (default: `yyyy-MM-dd HH:mm:ss.SSS`) |
 | `connections[].id` | ✅ | DB identifier, matched against the `--target` option |
+| `connections[].url` | ✅ | JDBC URL. Fallback dialect detection source when `driver-class` is omitted |
+| `connections[].user` | ✅ | Database user name |
+| `connections[].password` | | Database password |
+| `connections[].driver-class` | | Preferred dialect detection source for each connection entry |
 | `file-patterns` | | LOB filename templates for dump. Generate a template with `--setup`, then edit and maintain manually |
 | `dump.exclude-tables` | | Tables to exclude from dump |
 

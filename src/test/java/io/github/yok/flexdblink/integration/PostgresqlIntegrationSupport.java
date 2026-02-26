@@ -2,7 +2,6 @@ package io.github.yok.flexdblink.integration;
 
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.config.CsvDateTimeFormatProperties;
-import io.github.yok.flexdblink.config.DataTypeFactoryMode;
 import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.FilePatternConfig;
@@ -31,8 +30,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * Utility class for PostgreSQL integration tests.
  *
  * <p>
- * Initializes PostgreSQL via Testcontainers + Flyway and runs FlexDBLink (DataLoader/DataDumper)
- * in a production-like configuration.
+ * Initializes PostgreSQL via Testcontainers + Flyway and runs FlexDBLink (DataLoader/DataDumper) in
+ * a production-like configuration.
  * </p>
  *
  * <ul>
@@ -49,8 +48,8 @@ final class PostgresqlIntegrationSupport {
      * Starts the PostgreSQL container and initializes the test schema with Flyway (all migrations).
      *
      * <p>
-     * Runs Flyway clean → migrate on every call to ensure the DB is in a clean state
-     * at the start of each test.
+     * Runs Flyway clean → migrate on every call to ensure the DB is in a clean state at the start
+     * of each test.
      * </p>
      *
      * @param container PostgreSQL container
@@ -273,7 +272,6 @@ final class PostgresqlIntegrationSupport {
      */
     static DbUnitConfig dbUnitConfig() {
         DbUnitConfig cfg = new DbUnitConfig();
-        cfg.setDataTypeFactoryMode(DataTypeFactoryMode.POSTGRESQL);
         cfg.setPreDirName("pre");
         return cfg;
     }
@@ -320,8 +318,8 @@ final class PostgresqlIntegrationSupport {
      * Creates a {@link FilePatternConfig} with the default LOB file naming patterns.
      *
      * <p>
-     * DataDumper uses these patterns to derive LOB file names when writing
-     * {@code file:xxxx} references into the output CSV.
+     * DataDumper uses these patterns to derive LOB file names when writing {@code file:xxxx}
+     * references into the output CSV.
      * </p>
      *
      * @return FilePatternConfig
@@ -402,7 +400,8 @@ final class PostgresqlIntegrationSupport {
          * @return DataLoader
          */
         DataLoader newLoader() {
-            return new DataLoader(pathsConfig, connectionConfig, dialectFactory::create, dbUnitConfig, dumpConfig);
+            return new DataLoader(pathsConfig, connectionConfig, dialectFactory::create,
+                    dbUnitConfig, dumpConfig);
         }
 
         /**

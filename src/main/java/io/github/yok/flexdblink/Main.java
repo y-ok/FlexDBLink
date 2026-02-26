@@ -49,9 +49,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
  *
  * <p>
  * The DB dialect handler is created via {@link DbDialectHandlerFactory}.<br>
- * According to {@code dbunit.dataTypeFactoryMode} in {@code application.yml}, a
- * {@link io.github.yok.flexdblink.db.DbDialectHandler} for Oracle / PostgreSQL / MySQL / SQL Server
- * is selected.
+ * A {@link io.github.yok.flexdblink.db.DbDialectHandler} for Oracle / PostgreSQL / MySQL / SQL
+ * Server is selected for each connection entry using {@code driver-class} first and the JDBC URL as
+ * a fallback.
  * </p>
  *
  * <p>
