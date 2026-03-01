@@ -208,11 +208,15 @@ This builds all modules and installs the following artifacts to the local Maven 
 
 | Module | Artifact | Location |
 | --- | --- | --- |
-| `flexdblink-parent` | POM | `flexdblink-parent/0.1.7/` |
-| `flexdblink` | JAR | `flexdblink/0.1.7/` |
-| `flexdblink-maven-plugin` | Maven plugin JAR | `flexdblink-maven-plugin/0.1.7/` |
+| `flexdblink-parent` | POM | `flexdblink-parent/<version>/` |
+| `flexdblink` | JAR | `flexdblink/<version>/` |
+| `flexdblink-maven-plugin` | Maven plugin JAR | `flexdblink-maven-plugin/<version>/` |
 
 The core module also produces `flexdblink.jar` and `FlexDBLink-distribution.zip` under `flexdblink/target/`.
+
+Installed and deployed child-module artifacts publish flattened consumer POMs. Downstream builds can
+resolve `flexdblink` and `flexdblink-maven-plugin` without pre-installing or pre-deploying
+`flexdblink-parent`.
 
 ### Core Module (`flexdblink`)
 
