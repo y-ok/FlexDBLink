@@ -1,11 +1,9 @@
 name: Release
 
 on:
-  workflow_run:
-    workflows:
-      - Release Gate
-    types:
-      - completed
+  push:
+    tags:
+      - "*"
   workflow_dispatch:
     inputs:
       tag:
@@ -20,7 +18,6 @@ permissions:
 
 jobs:
   release:
-    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -33,22 +30,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || inputs.tag }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: Resolve release context
         id: context
         run: |
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            echo "tag_name=${{ github.event.workflow_run.head_branch }}" >> "${GITHUB_OUTPUT}"
-            echo "target_sha=${{ github.event.workflow_run.head_sha }}" >> "${GITHUB_OUTPUT}"
-          else
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             if ! git rev-parse "refs/tags/${{ inputs.tag }}" >/dev/null 2>&1; then
               echo "::error::GATE_TAG_NOT_FOUND: tag '${{ inputs.tag }}' not found."
               exit 17
             fi
             echo "tag_name=${{ inputs.tag }}" >> "${GITHUB_OUTPUT}"
             echo "target_sha=$(git rev-list -n 1 "refs/tags/${{ inputs.tag }}")" >> "${GITHUB_OUTPUT}"
+          else
+            echo "tag_name=${{ github.ref_name }}" >> "${GITHUB_OUTPUT}"
+            echo "target_sha=$(git rev-list -n 1 "${GITHUB_REF}")" >> "${GITHUB_OUTPUT}"
           fi
 
       - name: Set up JDK 11
@@ -62,7 +59,7 @@ jobs:
           server-password: GITHUB_TOKEN
 
       - name: Build and deploy Maven package
-        run: mvn -B clean deploy -Dmaven.test.skip=true
+        run: mvn -B clean deploy -Dmaven.test.skip=true -pl flexdblink
         env:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -74,10 +71,10 @@ jobs:
           name: ${{ steps.context.outputs.tag_name }}
           generate_release_notes: true
           files: |
-            target/FlexDBLink.jar
-            target/FlexDBLink-exec.jar
-            target/FlexDBLink-all.jar
-            target/FlexDBLink-*-all.jar
-            target/flexdblink-*-all.jar
-            target/FlexDBLink-sources.jar
-            target/FlexDBLink-distribution.zip
+            flexdblink/target/FlexDBLink.jar
+            flexdblink/target/FlexDBLink-exec.jar
+            flexdblink/target/FlexDBLink-all.jar
+            flexdblink/target/FlexDBLink-*-all.jar
+            flexdblink/target/flexdblink-*-all.jar
+            flexdblink/target/FlexDBLink-sources.jar
+            flexdblink/target/FlexDBLink-distribution.zip
