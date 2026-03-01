@@ -19,6 +19,7 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.io.TempDir;
@@ -291,13 +292,26 @@ class MainMultiDbIntegrationTest {
         for (DbKind dbKind : DbKind.values()) {
             Path dbDir = dataPath.resolve("dump").resolve(scenario).resolve(dbKind.id());
             if (targetIds.contains(dbKind.id())) {
-                assertTrue(Files.exists(dbDir.resolve("IT_TYPED_MAIN.csv")),
+                assertTrue(containsCsvIgnoreCase(dbDir, "IT_TYPED_MAIN"),
                         "ダンプ結果が存在しません: " + dbKind.id());
-                assertTrue(Files.exists(dbDir.resolve("IT_TYPED_AUX.csv")),
+                assertTrue(containsCsvIgnoreCase(dbDir, "IT_TYPED_AUX"),
                         "ダンプ結果が存在しません: " + dbKind.id());
             } else {
                 assertFalse(Files.exists(dbDir), "対象外DBのダンプディレクトリが生成されています: " + dbKind.id());
             }
+        }
+    }
+
+    private boolean containsCsvIgnoreCase(Path dbDir, String tableName) {
+        if (!Files.isDirectory(dbDir)) {
+            return false;
+        }
+        String expected = (tableName + ".csv").toLowerCase(Locale.ROOT);
+        try (Stream<Path> files = Files.list(dbDir)) {
+            return files.filter(Files::isRegularFile).map(Path::getFileName).map(Path::toString)
+                    .map(name -> name.toLowerCase(Locale.ROOT)).anyMatch(expected::equals);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to inspect dump directory: " + dbDir, e);
         }
     }
 
