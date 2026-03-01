@@ -124,15 +124,15 @@ public class OracleDialectHandler implements DbDialectHandler {
                     .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd()
                     .appendOffset("+HH:MM", "Z").toFormatter();
 
-    // OffsetTime 用（コロン形式）: HH:mm[:ss][.fraction]±HH:MM
+    // OffsetTime with colon separator: HH:mm[:ss][.fraction]±HH:MM
     private static final DateTimeFormatter FLEXIBLE_OFFSET_TIME_PARSER_COLON =
             new DateTimeFormatterBuilder().appendPattern("HH:mm").optionalStart()
                     .appendPattern(":ss").optionalEnd().optionalStart()
                     .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd()
-                    // ここは "+HH:mm"（大文字MMはNG）
+                    // Use "+HH:mm" here; uppercase MM is invalid.
                     .appendOffset("+HH:mm", "Z").toFormatter(Locale.ENGLISH);
 
-    // OffsetTime 用（非コロン形式）: HHmm[ss][.fraction]±HHmm
+    // OffsetTime without colon separator: HHmm[ss][.fraction]±HHmm
     private static final DateTimeFormatter FLEXIBLE_OFFSET_TIME_PARSER_NO_COLON =
             new DateTimeFormatterBuilder().appendPattern("HHmm").optionalStart().appendPattern("ss")
                     .optionalEnd().optionalStart()

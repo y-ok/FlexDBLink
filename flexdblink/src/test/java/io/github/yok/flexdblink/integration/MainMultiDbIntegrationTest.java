@@ -108,7 +108,7 @@ class MainMultiDbIntegrationTest {
         try {
             main.run("--setup", "--target", targetCsv);
             String yaml = Files.readString(configFile);
-            assertTrue(yaml.contains("file-patterns"), "file-patterns が生成されていません");
+            assertTrue(yaml.contains("file-patterns"), "file-patterns was not generated");
 
             clearTargetTestTables(targets);
 
@@ -282,7 +282,7 @@ class MainMultiDbIntegrationTest {
     private int countRows(Connection conn, String tableName) throws Exception {
         try (Statement st = conn.createStatement();
                 ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM " + tableName)) {
-            assertTrue(rs.next(), "COUNT(*) の結果が取得できません: " + tableName);
+            assertTrue(rs.next(), "COUNT(*) did not return a row: " + tableName);
             return rs.getInt(1);
         }
     }
@@ -293,11 +293,12 @@ class MainMultiDbIntegrationTest {
             Path dbDir = dataPath.resolve("dump").resolve(scenario).resolve(dbKind.id());
             if (targetIds.contains(dbKind.id())) {
                 assertTrue(containsCsvIgnoreCase(dbDir, "IT_TYPED_MAIN"),
-                        "ダンプ結果が存在しません: " + dbKind.id());
+                        "Dump output for IT_TYPED_MAIN was not created: " + dbKind.id());
                 assertTrue(containsCsvIgnoreCase(dbDir, "IT_TYPED_AUX"),
-                        "ダンプ結果が存在しません: " + dbKind.id());
+                        "Dump output for IT_TYPED_AUX was not created: " + dbKind.id());
             } else {
-                assertFalse(Files.exists(dbDir), "対象外DBのダンプディレクトリが生成されています: " + dbKind.id());
+                assertFalse(Files.exists(dbDir),
+                        "Dump directory was created for a non-target DB: " + dbKind.id());
             }
         }
     }
