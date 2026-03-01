@@ -25,7 +25,7 @@ The JUnit 5 extension automates per-test data setup and rollback, enabling **Git
 ### How FlexDBLink solves them
 
 | Problem | Solution |
-|---------|----------|
+| --------- | ---------- |
 | Manual SQL for data management | Manage with text files: CSV/JSON/YAML/XML |
 | Difficulty handling LOB data | Reference external files with `file:filename` |
 | Manual DB cleanup before/after tests | Automatic load and rollback with `@LoadData` |
@@ -48,8 +48,8 @@ The JUnit 5 extension automates per-test data setup and rollback, enabling **Git
 ## Requirements
 
 | Requirement | Details |
-|-------------|---------|
-| Java | 11 or higher (CI verified: **Java 11 / 17 / 21**) |
+| ------------- | --------- |
+| Java | 11 or higher (CI verified: core on **11 / 17 / 21 / 25**, plugin on **11**) |
 | OS | Windows / macOS / Linux |
 
 > When using Oracle, you need to provide `oracle.jdbc.OracleDriver` (`ojdbc8`) separately.
@@ -62,7 +62,7 @@ The JUnit 5 extension automates per-test data setup and rollback, enabling **Git
 
 Download the latest `FlexDBLink-distribution.zip` from [GitHub Releases](https://github.com/y-ok/FlexDBLink/releases) and extract it.
 
-```
+```bash
 FlexDBLink/
   flexdblink.jar
   conf/
@@ -73,7 +73,7 @@ FlexDBLink/
 
 Edit `conf/application.yml` to set connection details and the data path.
 
-**Single DB**
+#### **Single DB**
 
 ```yaml
 data-path: /path/to/your/data
@@ -86,7 +86,7 @@ connections:
     driver-class: oracle.jdbc.OracleDriver
 ```
 
-**Multiple DBs** (just add more entries under `connections`)
+#### **Multiple DBs** (just add more entries under `connections`)
 
 ```yaml
 data-path: /path/to/your/data
@@ -115,7 +115,7 @@ connections:
 
 Place CSV files under `data-path`. The filename corresponds to the table name.
 
-```
+```bash
 /path/to/your/data/
   load/
     pre/
@@ -188,13 +188,58 @@ java -jar flexdblink.jar -s                   # --setup
 
 ## Building from Source (for developers)
 
-**Requirement**: Maven 3.9 or higher
+**Requirements**: Java 11+, Maven 3.9+, Docker (for integration tests with Testcontainers)
 
-```bash
-mvn clean package -Dmaven.test.skip=true
+### Project Structure
+
+```text
+FlexDBLink/                         ← Aggregator POM (flexdblink-parent)
+├── flexdblink/                     ← Core module (CLI + JUnit 5 extension)
+└── flexdblink-maven-plugin/        ← Maven plugin module (load/dump goals)
 ```
 
-This produces `flexdblink.jar` and `FlexDBLink-distribution.zip` under `target/`.
+### Build All Modules
+
+```bash
+mvn clean install -DskipTests
+```
+
+This builds all modules and installs the following artifacts to the local Maven repository (`~/.m2/repository/io/github/yok/`):
+
+| Module | Artifact | Location |
+| --- | --- | --- |
+| `flexdblink-parent` | POM | `flexdblink-parent/0.1.7/` |
+| `flexdblink` | JAR | `flexdblink/0.1.7/` |
+| `flexdblink-maven-plugin` | Maven plugin JAR | `flexdblink-maven-plugin/0.1.7/` |
+
+The core module also produces `flexdblink.jar` and `FlexDBLink-distribution.zip` under `flexdblink/target/`.
+
+### Core Module (`flexdblink`)
+
+```bash
+# Run unit tests + integration tests (requires Docker for Testcontainers)
+mvn clean test -pl flexdblink
+
+# Build distribution archive
+mvn clean package -pl flexdblink -DskipTests
+```
+
+### Maven Plugin Module (`flexdblink-maven-plugin`)
+
+```bash
+# Run all tests: unit (surefire) + integration (failsafe, requires Docker)
+# -am automatically builds the dependent core module first
+mvn clean verify -pl flexdblink-maven-plugin -am
+```
+
+### CI Matrix
+
+The CI pipeline (`ci.yml`) runs:
+
+| Job | Java Versions | Description |
+| --- | ------------- | ----------- |
+| `test-and-coverage` | 11, 17, 21, 25 | Core module tests with JaCoCo coverage |
+| `maven-plugin-test` | 11 | Plugin unit + integration tests |
 
 ---
 
@@ -205,7 +250,7 @@ java -jar flexdblink.jar [OPTIONS]
 ```
 
 | Option | Short | Description |
-|--------|-------|-------------|
+| -------- | ------- | ------------- |
 | `--load [scenario]` | `-l` | Load mode. Uses `pre` (or `pre-dir-name` from `application.yml`) when no scenario is specified |
 | `--dump <scenario>` | `-d` | Dump mode. Scenario name is required |
 | `--setup` | `-s` | Setup mode. Scans the DB schema for LOB columns and auto-generates `file-patterns` in `application.yml` |
@@ -215,8 +260,7 @@ java -jar flexdblink.jar [OPTIONS]
 
 ### Example Output
 
-<details>
-<summary>Load execution log (<code>--load COMMON</code>)</summary>
+#### **Load execution log (--load COMMON)**
 
 ```bash
 $ java -jar flexdblink.jar --load COMMON
@@ -241,10 +285,7 @@ INFO : [DB1] Table[CHAR_CLOB_TEST_TABLE]    Scenario (INSERT only) | inserted=1
 INFO : == Data loading to all DBs has completed ==
 ```
 
-</details>
-
-<details>
-<summary>Dump execution log (<code>--dump COMMON</code>)</summary>
+#### **Dump execution log (--dump COMMON)**
 
 ```bash
 $ java -jar flexdblink.jar --dump COMMON
@@ -257,13 +298,11 @@ INFO : [DB1] Table[CHAR_CLOB_TEST_TABLE] dumped-records=2, BLOB/CLOB file-output
 INFO : === All DB dumps completed: Output [dump/COMMON] ===
 ```
 
-</details>
-
 ---
 
 ## Directory Structure (under `data-path`)
 
-```
+```bash
 <data-path>/
   load/
     pre/
@@ -348,7 +387,7 @@ dump:
 ```
 
 | Key | Required | Description |
-|-----|----------|-------------|
+| ----- | ---------- | ------------- |
 | `data-path` | ✅ | Base path for CSV and LOB files |
 | `dbunit.pre-dir-name` | | Initial load directory name (default: `pre`) |
 | `dbunit.confirm-before-load` | | When `true`, shows a confirmation prompt before `--load` executes (default: `false`) |
@@ -363,6 +402,97 @@ dump:
 | `connections[].driver-class` | | Preferred dialect detection source for each connection entry |
 | `file-patterns` | | LOB filename templates for dump. Generate a template with `--setup`, then edit and maintain manually |
 | `dump.exclude-tables` | | Tables to exclude from dump |
+
+---
+
+## Maven Plugin (`flexdblink-maven-plugin`)
+
+FlexDBLink can also be used as a Maven plugin wrapper for `load` and `dump`, while reusing the
+existing core logic (`DataLoader` / `DataDumper`).
+
+### Configuration Split
+
+- Store DB connection settings in `~/.m2/settings.xml` (`servers/server`)
+- Store `dataPath`, `filePatterns`, and `dbunit` settings in your POM plugin configuration
+
+### `settings.xml` Example
+
+```xml
+<settings>
+  <servers>
+    <server>
+      <id>flexdblink-db1</id>
+      <username>app_user</username>
+      <password>password</password>
+      <configuration>
+        <dbId>DB1</dbId>
+        <url>jdbc:postgresql://localhost:5432/app</url>
+        <driverClass>org.postgresql.Driver</driverClass>
+      </configuration>
+    </server>
+  </servers>
+</settings>
+```
+
+### POM Plugin Example
+
+```xml
+<plugin>
+  <groupId>io.github.yok</groupId>
+  <artifactId>flexdblink-maven-plugin</artifactId>
+  <version>${flexdblink.version}</version>
+  <configuration>
+    <serverIds>
+      <serverId>flexdblink-db1</serverId>
+    </serverIds>
+
+    <dataPath>${project.basedir}/src/test/resources/dbunit</dataPath>
+
+    <dbunit>
+      <preDirName>pre</preDirName>
+      <csv>
+        <format>
+          <date>yyyy-MM-dd</date>
+          <time>HH:mm:ss</time>
+          <dateTime>yyyy-MM-dd HH:mm:ss</dateTime>
+          <dateTimeWithMillis>yyyy-MM-dd HH:mm:ss.SSS</dateTimeWithMillis>
+        </format>
+      </csv>
+      <config>
+        <allowEmptyFields>true</allowEmptyFields>
+        <batchedStatements>true</batchedStatements>
+        <batchSize>100</batchSize>
+      </config>
+    </dbunit>
+
+    <filePatterns>
+      <pattern>
+        <tableName>employee</tableName>
+        <columnName>photo</columnName>
+        <filename>employee/${ID}_photo.bin</filename>
+      </pattern>
+    </filePatterns>
+  </configuration>
+</plugin>
+```
+
+### Commands
+
+- `mvn flexdblink:load` → loads `pre` only
+- `mvn flexdblink:load -Dflexdblink.scenario=scenario1` → loads `pre` and `scenario1`
+- `mvn flexdblink:dump` → dumps to `${dataPath}/dump/<yyyyMMddHHmmss>`
+- `mvn flexdblink:dump -Dflexdblink.scenario=scenario1` → dumps to `${dataPath}/dump/scenario1`
+
+### VS Code Classpath Note
+
+If you see `is not on the classpath of project flexdblink, only syntax errors are reported`,
+open the repository with the included workspace file `FlexDBLink.code-workspace`.
+The workspace intentionally registers only the repository root and relies on Maven import for
+subprojects (including `flexdblink-maven-plugin`) to avoid duplicate project registration.
+
+If the warning still appears after opening the workspace, run `Java: Clean Java Language Server Workspace`
+from the VS Code command palette and reopen the workspace.
+If needed, also run `Maven: Reload Projects`.
 
 ---
 
@@ -397,7 +527,7 @@ class UserMapperTest {
 
 ### Test Resource Layout Convention
 
-```
+```bash
 # Multi-DB tests
 src/test/resources/<package>/<TestClassName>/<scenario>/input/<dbName>/*.csv
 src/test/resources/<package>/<TestClassName>/<scenario>/input/<dbName>/files/*  # LOB content
@@ -412,7 +542,7 @@ src/test/resources/<package>/<TestClassName>/<scenario>/input/files/*           
 ### `@LoadData` Parameters
 
 | Parameter | Description |
-|-----------|-------------|
+| ----------- | ------------- |
 | `scenario` | Scenario name (directory name). E.g., `"NORMAL"`, `"ERROR_CASE"` |
 | `dbNames` | Target DB name (subdirectory name). When omitted, uses single-DB mode under `input/` |
 
@@ -423,7 +553,7 @@ src/test/resources/<package>/<TestClassName>/<scenario>/input/files/*           
 ### Oracle
 
 | SQL Type | Format / Notes |
-|----------|----------------|
+| ---------- | ---------------- |
 | `DATE` | `yyyy-MM-dd` |
 | `TIMESTAMP(6)` | `yyyy-MM-dd HH:mm:ss.SSS` |
 | `TIMESTAMP WITH TIME ZONE` / `WITH LOCAL TIME ZONE` | `yyyy-MM-dd HH:mm:ss +HHMM` |
@@ -435,7 +565,7 @@ src/test/resources/<package>/<TestClassName>/<scenario>/input/files/*           
 ### PostgreSQL
 
 | SQL Type | Format / Notes |
-|----------|----------------|
+| ---------- | ---------------- |
 | `DATE` | `yyyy-MM-dd` |
 | `TIME` | `HH:mm:ss` |
 | `TIMESTAMP` | `yyyy-MM-dd HH:mm:ss[.fraction]` |
@@ -446,7 +576,7 @@ src/test/resources/<package>/<TestClassName>/<scenario>/input/files/*           
 ### MySQL
 
 | SQL Type | Format / Notes |
-|----------|----------------|
+| ---------- | ---------------- |
 | `DATE` | `yyyy-MM-dd` |
 | `TIME` | `HH:mm:ss` |
 | `DATETIME` / `TIMESTAMP` | `yyyy-MM-dd HH:mm:ss[.fraction]` |
@@ -457,7 +587,7 @@ src/test/resources/<package>/<TestClassName>/<scenario>/input/files/*           
 ### SQL Server
 
 | SQL Type | Format / Notes |
-|----------|----------------|
+| ---------- | ---------------- |
 | `DATE` | `yyyy-MM-dd` |
 | `TIME` | `HH:mm:ss` |
 | `DATETIME2` | `yyyy-MM-dd HH:mm:ss[.fraction]` |
@@ -474,7 +604,7 @@ If no match is found, the following formats are attempted in order (applies to a
 ### Date (DATE)
 
 | Format | Example |
-|--------|---------|
+| -------- | --------- |
 | `yyyy-MM-dd` (ISO) | `2026-02-25` |
 | `yyyy/MM/dd` | `2026/02/25` |
 | `yyyyMMdd` (basic ISO) | `20260225` |
@@ -484,7 +614,7 @@ If no match is found, the following formats are attempted in order (applies to a
 ### Time (TIME)
 
 | Format | Example |
-|--------|---------|
+| -------- | --------- |
 | `HH:mm:ss[.fraction]` (seconds and fractional seconds are optional) | `14:30:00.123456789` |
 | `HH:mm` | `14:30` |
 | `HHmmss[.fraction]` (no delimiter) | `143000.123` |

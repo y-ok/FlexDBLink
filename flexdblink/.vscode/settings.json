@@ -1,6 +1,6 @@
 {
   "java.format.settings.profile": "GoogleStyle",
-  "java.format.settings.url": "config/formatter/eclipse-java-google-style.xml",
+  "java.format.settings.url": "../../config/formatter/eclipse-java-google-style.xml",
   "java.completion.importOrder": [
     ""
   ],
@@ -24,5 +24,7 @@
   },
   "java.debug.settings.onBuildFailureProceed": true,
   "liveServer.settings.port": 5501,
-  "java.configuration.updateBuildConfiguration": "automatic"
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.import.maven.enabled": true,
+  "java.server.launchMode": "Standard"
 }
