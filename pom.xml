@@ -4,7 +4,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>io.github.yok</groupId>
 	<artifactId>flexdblink-parent</artifactId>
-	<version>0.1.7</version>
+	<version>0.2.0</version>
 	<packaging>pom</packaging>
 	<name>FlexDBLink Parent</name>
 	<description>Manage DB test data as text (CSV/JSON/YAML/XML ↔ DB), with LOB files and JUnit 5 + Spring integration for Oracle/PostgreSQL/MySQL/SQL Server.</description>
