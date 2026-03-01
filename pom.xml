@@ -94,6 +94,7 @@
 	</dependencyManagement>
 	<modules>
 		<module>flexdblink</module>
+		<module>flexdblink-maven-plugin</module>
 	</modules>
 	<!-- Javadoc Setting -->
 	<organization>
