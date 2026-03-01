@@ -1,0 +1,605 @@
+package io.github.yok.flexdblink.integration;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import io.github.yok.flexdblink.util.ErrorHandler;
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Stream;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.testcontainers.mssqlserver.MSSQLServerContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+
+/**
+ * Integration tests for FlexDBLink against a SQL Server container.
+ *
+ * <p>
+ * Covers: DataLoader / DataDumper (CSV + LOB {@code file:} references).
+ * </p>
+ */
+@Testcontainers
+public class SqlServerIntegrationTest {
+
+    private static final Set<String> NUMERIC_COLUMNS =
+            Set.of("ID", "MAIN_ID", "NUM_COL", "BF_COL", "BD_COL");
+
+    @TempDir
+    public Path tempDir;
+
+    @Container
+    private static final MSSQLServerContainer sqlserver = createSqlServer();
+
+    private static MSSQLServerContainer createSqlServer() {
+        MSSQLServerContainer container =
+                new MSSQLServerContainer("mcr.microsoft.com/mssql/server:2019-latest");
+        container.acceptLicense();
+        return container;
+    }
+
+    @BeforeEach
+    public void setup_正常ケース_SQLServerコンテナにFlywayを実行する_マイグレーションが完了すること() {
+        SqlServerIntegrationSupport.prepareDatabase(sqlserver);
+    }
+
+    @Test
+    public void execute_正常ケース_SQLServer型をロードする_全列値が登録されること() throws Exception {
+        Path dataPath = tempDir.resolve("ss_load_data");
+        SqlServerIntegrationSupport.Runtime runtime =
+                SqlServerIntegrationSupport.prepareRuntime(sqlserver, dataPath, true);
+
+        SqlServerIntegrationSupport.executeLoad(runtime, "pre");
+
+        try (Connection conn = SqlServerIntegrationSupport.openConnection(sqlserver);
+                Statement st = conn.createStatement()) {
+
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                assertTrue(rs.next(), "COUNT(*) の結果が取得できません: IT_TYPED_MAIN");
+                assertEquals(6, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next(), "COUNT(*) の結果が取得できません: IT_TYPED_AUX");
+                assertEquals(2, rs.getInt(1));
+            }
+
+            try (ResultSet rs = st.executeQuery(
+                    "SELECT ID, VC_COL, CHAR_COL, NVC_COL, NCHAR_COL, NUM_COL, BF_COL, BD_COL, "
+                            + "DATE_COL, TIME_COL, TS_COL, RAW_COL, CLOB_COL, NCLOB_COL, BLOB_COL, LOB_KIND "
+                            + "FROM IT_TYPED_MAIN WHERE ID=101")) {
+
+                assertTrue(rs.next(), "IT_TYPED_MAIN に ID=101 が存在しません。");
+                assertEquals("load-xml", rs.getString("VC_COL"));
+                assertEquals("na-xml", rs.getString("CHAR_COL").trim());
+                assertEquals("load-nvc", rs.getString("NVC_COL"));
+                assertEquals("na-nchar", rs.getString("NCHAR_COL").trim());
+                assertEquals(0, new BigDecimal(rs.getString("NUM_COL"))
+                        .compareTo(new BigDecimal("123.456")));
+                assertEquals(0, BigDecimal.valueOf(rs.getFloat("BF_COL"))
+                        .compareTo(new BigDecimal("1.25")));
+                assertEquals(0, BigDecimal.valueOf(rs.getDouble("BD_COL"))
+                        .compareTo(new BigDecimal("10.125")));
+                assertEquals(java.sql.Date.valueOf("2026-02-10"), rs.getDate("DATE_COL"));
+                assertEquals(java.sql.Time.valueOf("01:02:03"), rs.getTime("TIME_COL"));
+                assertEquals(java.sql.Timestamp.valueOf("2026-02-10 01:02:03"),
+                        rs.getTimestamp("TS_COL"));
+
+                byte[] rawCol = rs.getBytes("RAW_COL");
+                assertTrue(Arrays.equals(new byte[] {0x0A, 0x0B, 0x0C, 0x21}, rawCol),
+                        "RAW_COL が期待値と一致しません");
+
+                assertTrue(rs.getString("CLOB_COL").contains("<root>"));
+                assertEquals("nclob-load-xml", rs.getString("NCLOB_COL"));
+
+                byte[] actualBlob = rs.getBytes("BLOB_COL");
+                assertTrue(actualBlob != null && actualBlob.length > 0, "BLOB_COL が空です");
+
+                assertEquals("xml", rs.getString("LOB_KIND"));
+                assertFalse(rs.next(), "ID=101 が複数行です");
+            }
+        }
+    }
+
+    @Test
+    public void execute_異常ケース_日時形式が不正である_ロールバックされること() throws Exception {
+        Path dataPath = tempDir.resolve("ss_load_error_data");
+        SqlServerIntegrationSupport.Runtime runtime =
+                SqlServerIntegrationSupport.prepareRuntime(sqlserver, dataPath, true);
+
+        // TSTZ_COL を不正値にする（パース失敗→例外→ロールバック想定）
+        Path mainCsv = dataPath.resolve("load/pre/db1/IT_TYPED_MAIN.csv");
+        String csv = Files.readString(mainCsv, StandardCharsets.UTF_8);
+        csv = csv.replaceFirst(",2026-02-10 01:02:03\\+00:00,0A0B0C21,",
+                ",bad-datetimeoffset,0A0B0C21,");
+        Files.writeString(mainCsv, csv, StandardCharsets.UTF_8);
+
+        ErrorHandler.disableExitForCurrentThread();
+        try {
+            assertThrows(IllegalStateException.class,
+                    () -> SqlServerIntegrationSupport.executeLoad(runtime, "pre"));
+        } finally {
+            ErrorHandler.restoreExitForCurrentThread();
+        }
+
+        // 失敗後：件数が 0 である（ロード全体がロールバックされる想定）
+        try (Connection conn = SqlServerIntegrationSupport.openConnection(sqlserver);
+                Statement st = conn.createStatement();
+                ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+            assertTrue(rs.next());
+            assertEquals(3, rs.getInt(1));
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_SQLServer型をダンプする_CSVとLOBファイルが出力されること() throws Exception {
+        Path dataPath = tempDir.resolve("ss_dump_data");
+        SqlServerIntegrationSupport.Runtime runtime =
+                SqlServerIntegrationSupport.prepareRuntime(sqlserver, dataPath, false);
+
+        Path dbDir = SqlServerIntegrationSupport.executeDump(runtime, "ss_dump_case");
+        Path filesDir = dbDir.resolve("files");
+
+        Path mainCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
+
+        assertTrue(Files.exists(mainCsv));
+        assertTrue(Files.exists(auxCsv));
+
+        String csvText = Files.readString(mainCsv, StandardCharsets.UTF_8);
+        assertTrue(csvText.contains("file:"), "LOB列が file: 参照として出力されていません。");
+
+        // 出力された BLOB ファイルのうち、少なくとも1つはDBの varbinary(max) と一致すること
+        try (Connection conn = SqlServerIntegrationSupport.openConnection(sqlserver);
+                Statement st = conn.createStatement();
+                ResultSet rs = st.executeQuery("SELECT TOP 1 ID, BLOB_COL FROM IT_TYPED_MAIN "
+                        + "WHERE BLOB_COL IS NOT NULL ORDER BY ID")) {
+            assertTrue(rs.next(), "seed データに BLOB_COL が存在しません。");
+            long id = rs.getLong("ID");
+            byte[] expected = rs.getBytes("BLOB_COL");
+
+            Map<String, String> row = readCsvRowById(mainCsv, "ID", String.valueOf(id));
+            String ref = row.get("BLOB_COL");
+            assertTrue(ref.startsWith("file:"), "BLOB_COL が file: 参照ではありません: " + ref);
+
+            byte[] actual = Files.readAllBytes(filesDir.resolve(ref.substring("file:".length())));
+            assertArrayEquals(expected, actual, "ダンプされた BLOB ファイル内容がDBと一致しません。");
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_ロード後にダンプする_件数と全列値が一致すること() throws Exception {
+        Path dataPath = tempDir.resolve("ss_roundtrip_data");
+        SqlServerIntegrationSupport.Runtime runtime =
+                SqlServerIntegrationSupport.prepareRuntime(sqlserver, dataPath, true);
+
+        SqlServerIntegrationSupport.executeLoad(runtime, "pre");
+        Path outputDbDir = SqlServerIntegrationSupport.executeDump(runtime, "ss_roundtrip_case");
+
+        Path inputMainCsv = dataPath.resolve("load/pre/db1/IT_TYPED_MAIN.csv");
+        Path inputAuxCsv = dataPath.resolve("load/pre/db1/IT_TYPED_AUX.csv");
+        Path inputFilesDir = dataPath.resolve("load/pre/db1/files");
+
+        Path outputMainCsv = resolveFileIgnoreCase(outputDbDir, "IT_TYPED_MAIN.csv");
+        Path outputAuxCsv = resolveFileIgnoreCase(outputDbDir, "IT_TYPED_AUX.csv");
+        Path outputFilesDir = outputDbDir.resolve("files");
+
+        assertTableEquals("IT_TYPED_MAIN", "ID", inputMainCsv, outputMainCsv, inputFilesDir,
+                outputFilesDir);
+        assertTableEquals("IT_TYPED_AUX", "ID", inputAuxCsv, outputAuxCsv, inputFilesDir,
+                outputFilesDir);
+    }
+
+    // ── FK dependency resolution tests ──────────────────────────────────────
+
+    @Test
+    public void execute_正常ケース_FK制約あり_tableOrderingが毎回再生成されてロードが成功すること() throws Exception {
+        Path dataPath = tempDir.resolve("fk_load_no_ordering");
+        SqlServerIntegrationSupport.Runtime runtime =
+                SqlServerIntegrationSupport.prepareRuntime(sqlserver, dataPath, true);
+
+        SqlServerIntegrationSupport.executeLoad(runtime, "pre");
+
+        try (Connection conn = SqlServerIntegrationSupport.openConnection(sqlserver);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                assertTrue(rs.next());
+                assertEquals(6, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_FK制約あり_FK解決でアルファベット順が修正されてロードが成功すること() throws Exception {
+        Path dataPath = tempDir.resolve("fk_load_reversed_ordering");
+        SqlServerIntegrationSupport.Runtime runtime =
+                SqlServerIntegrationSupport.prepareRuntime(sqlserver, dataPath, true);
+
+        SqlServerIntegrationSupport.executeLoad(runtime, "pre");
+
+        try (Connection conn = SqlServerIntegrationSupport.openConnection(sqlserver);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                assertTrue(rs.next());
+                assertEquals(6, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_FK制約あり_ダンプが完了してCSVと件数が出力されること() throws Exception {
+        Path dataPath = tempDir.resolve("fk_dump_data");
+        SqlServerIntegrationSupport.Runtime runtime =
+                SqlServerIntegrationSupport.prepareRuntime(sqlserver, dataPath, false);
+
+        Path dbDir = SqlServerIntegrationSupport.executeDump(runtime, "fk_dump_case");
+
+        Path mainCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
+        assertTrue(Files.exists(mainCsv));
+        assertTrue(Files.exists(auxCsv));
+
+        try (Connection conn = SqlServerIntegrationSupport.openConnection(sqlserver);
+                Statement st = conn.createStatement()) {
+            int expectedMain, expectedAux;
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                rs.next();
+                expectedMain = rs.getInt(1);
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                rs.next();
+                expectedAux = rs.getInt(1);
+            }
+            long mainCsvRows = Files.lines(mainCsv).count() - 1;
+            long auxCsvRows = Files.lines(auxCsv).count() - 1;
+            assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
+            assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_FK制約あり_ロード後にダンプする_件数が一致すること() throws Exception {
+        Path dataPath = tempDir.resolve("fk_roundtrip_data");
+        SqlServerIntegrationSupport.Runtime runtime =
+                SqlServerIntegrationSupport.prepareRuntime(sqlserver, dataPath, true);
+
+        SqlServerIntegrationSupport.executeLoad(runtime, "pre");
+        Path dbDir = SqlServerIntegrationSupport.executeDump(runtime, "fk_roundtrip_case");
+
+        Path mainCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
+        assertTrue(Files.exists(mainCsv));
+        assertTrue(Files.exists(auxCsv));
+
+        long mainCsvRows = Files.lines(mainCsv).count() - 1;
+        long auxCsvRows = Files.lines(auxCsv).count() - 1;
+        assertEquals(6L, mainCsvRows, "IT_TYPED_MAIN should have 6 rows after load");
+        assertEquals(2L, auxCsvRows, "IT_TYPED_AUX should have 2 rows after load");
+    }
+
+    // ── FK constraint-free tests ──────────────────────────────────────────────
+
+    @Test
+    public void execute_正常ケース_FK制約なし_tableOrderingが毎回再生成されてロードが成功すること() throws Exception {
+        SqlServerIntegrationSupport.prepareDatabaseWithoutFk(sqlserver);
+        Path dataPath = tempDir.resolve("nofk_load_no_ordering");
+        SqlServerIntegrationSupport.Runtime runtime =
+                SqlServerIntegrationSupport.prepareRuntime(sqlserver, dataPath, true);
+
+        SqlServerIntegrationSupport.executeLoad(runtime, "pre");
+
+        try (Connection conn = SqlServerIntegrationSupport.openConnection(sqlserver);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                assertTrue(rs.next());
+                assertEquals(6, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_FK制約なし_アルファベット順でロードが成功すること() throws Exception {
+        SqlServerIntegrationSupport.prepareDatabaseWithoutFk(sqlserver);
+        Path dataPath = tempDir.resolve("nofk_load_reversed_ordering");
+        SqlServerIntegrationSupport.Runtime runtime =
+                SqlServerIntegrationSupport.prepareRuntime(sqlserver, dataPath, true);
+
+        SqlServerIntegrationSupport.executeLoad(runtime, "pre");
+
+        try (Connection conn = SqlServerIntegrationSupport.openConnection(sqlserver);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                assertTrue(rs.next());
+                assertEquals(6, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_FK制約なし_ダンプが完了してCSVと件数が出力されること() throws Exception {
+        SqlServerIntegrationSupport.prepareDatabaseWithoutFk(sqlserver);
+        Path dataPath = tempDir.resolve("nofk_dump_data");
+        SqlServerIntegrationSupport.Runtime runtime =
+                SqlServerIntegrationSupport.prepareRuntime(sqlserver, dataPath, false);
+
+        Path dbDir = SqlServerIntegrationSupport.executeDump(runtime, "nofk_dump_case");
+
+        Path mainCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
+        assertTrue(Files.exists(mainCsv));
+        assertTrue(Files.exists(auxCsv));
+
+        try (Connection conn = SqlServerIntegrationSupport.openConnection(sqlserver);
+                Statement st = conn.createStatement()) {
+            int expectedMain, expectedAux;
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
+                rs.next();
+                expectedMain = rs.getInt(1);
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                rs.next();
+                expectedAux = rs.getInt(1);
+            }
+            long mainCsvRows = Files.lines(mainCsv).count() - 1;
+            long auxCsvRows = Files.lines(auxCsv).count() - 1;
+            assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
+            assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_FK制約なし_ロード後にダンプする_件数が一致すること() throws Exception {
+        SqlServerIntegrationSupport.prepareDatabaseWithoutFk(sqlserver);
+        Path dataPath = tempDir.resolve("nofk_roundtrip_data");
+        SqlServerIntegrationSupport.Runtime runtime =
+                SqlServerIntegrationSupport.prepareRuntime(sqlserver, dataPath, true);
+
+        SqlServerIntegrationSupport.executeLoad(runtime, "pre");
+        Path dbDir = SqlServerIntegrationSupport.executeDump(runtime, "nofk_roundtrip_case");
+
+        Path mainCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
+        assertTrue(Files.exists(mainCsv));
+        assertTrue(Files.exists(auxCsv));
+
+        long mainCsvRows = Files.lines(mainCsv).count() - 1;
+        long auxCsvRows = Files.lines(auxCsv).count() - 1;
+        assertEquals(6L, mainCsvRows, "IT_TYPED_MAIN should have 6 rows after load");
+        assertEquals(2L, auxCsvRows, "IT_TYPED_AUX should have 2 rows after load");
+    }
+
+    private static void assertTableEquals(String table, String idColumn, Path inputCsv,
+            Path outputCsv, Path inputFilesDir, Path outputFilesDir) throws Exception {
+
+        Map<String, Map<String, String>> inputRows = readCsvById(inputCsv, idColumn);
+        Map<String, Map<String, String>> outputRows = readCsvById(outputCsv, idColumn);
+
+        assertEquals(inputRows.size(), outputRows.size(),
+                table + " 件数が一致しません: input=" + inputRows.size() + " output=" + outputRows.size());
+
+        for (Map.Entry<String, Map<String, String>> entry : inputRows.entrySet()) {
+            String id = entry.getKey();
+            Map<String, String> inRow = entry.getValue();
+            Map<String, String> outRow = outputRows.get(id);
+            assertTrue(outRow != null, table + " に ID=" + id + " が存在しません");
+
+            for (Map.Entry<String, String> colEntry : inRow.entrySet()) {
+                String column = colEntry.getKey();
+                String inVal = colEntry.getValue();
+                String outVal = outRow.get(column);
+                assertCellEquals(table, id, column, inVal, outVal, inputFilesDir, outputFilesDir);
+            }
+        }
+    }
+
+    private static void assertCellEquals(String table, String id, String column, String inputValue,
+            String outputValue, Path inputFilesDir, Path outputFilesDir) throws Exception {
+
+        String inVal = trimToNull(inputValue);
+        String outVal = trimToNull(outputValue);
+
+        if (inVal == null && outVal == null) {
+            return;
+        }
+
+        if (isBlobColumn(column)) {
+            byte[] inBlob = resolveBlobValue(inVal, inputFilesDir);
+            byte[] outBlob = resolveBlobValue(outVal, outputFilesDir);
+            assertArrayEquals(inBlob, outBlob, diffPrefix(table, id, column) + "バイナリ値が一致しません");
+            return;
+        }
+
+        if (isTextLobColumn(column)) {
+            String inText = resolveTextValue(inVal, inputFilesDir);
+            String outText = resolveTextValue(outVal, outputFilesDir);
+            assertEquals(inText, outText, diffPrefix(table, id, column) + "TEXT値が一致しません");
+            return;
+        }
+
+        if ("RAW_COL".equalsIgnoreCase(column)) {
+            byte[] inRaw = decodeHex(trimToEmpty(inVal));
+            byte[] outRaw = decodeHex(trimToEmpty(outVal));
+            assertArrayEquals(inRaw, outRaw, diffPrefix(table, id, column) + "RAW値が一致しません");
+            return;
+        }
+
+        if ("TSTZ_COL".equalsIgnoreCase(column)) {
+            String inNorm = normalizeDateTimeOffset(inVal);
+            String outNorm = normalizeDateTimeOffset(outVal);
+            assertEquals(inNorm, outNorm, diffPrefix(table, id, column) + "DATETIMEOFFSET値が一致しません");
+            return;
+        }
+
+        if (NUMERIC_COLUMNS.contains(column.toUpperCase())) {
+            BigDecimal inNum = new BigDecimal(trimToEmpty(inVal));
+            BigDecimal outNum = new BigDecimal(trimToEmpty(outVal));
+            assertEquals(0, inNum.compareTo(outNum), diffPrefix(table, id, column) + "数値が一致しません");
+            return;
+        }
+
+        assertEquals(trimToEmpty(inVal), trimToEmpty(outVal),
+                diffPrefix(table, id, column) + "値が一致しません");
+    }
+
+    private static boolean isBlobColumn(String column) {
+        String c = column.toUpperCase();
+        return "BLOB_COL".equals(c) || "PAYLOAD_BLOB".equals(c);
+    }
+
+    private static boolean isTextLobColumn(String column) {
+        String c = column.toUpperCase();
+        return "CLOB_COL".equals(c) || "NCLOB_COL".equals(c) || "PAYLOAD_CLOB".equals(c);
+    }
+
+    private static byte[] resolveBlobValue(String value, Path filesDir) throws IOException {
+        if (value == null || value.isEmpty()) {
+            return new byte[0];
+        }
+        if (value.startsWith("file:")) {
+            return Files.readAllBytes(filesDir.resolve(value.substring("file:".length())));
+        }
+        return decodeHex(value);
+    }
+
+    private static String resolveTextValue(String value, Path filesDir) throws IOException {
+        if (value == null) {
+            return "";
+        }
+        if (value.startsWith("file:")) {
+            return Files.readString(filesDir.resolve(value.substring("file:".length())),
+                    StandardCharsets.UTF_8);
+        }
+        return value;
+    }
+
+    /**
+     * Normalizes {@code datetimeoffset} format differences between input CSV and dump output.
+     *
+     * <p>
+     * Input CSV: {@code 2026-02-10 01:02:03+00:00}<br>
+     * Dump output: {@code 2026-02-10 01:02:03.0000000 +00:00}
+     * </p>
+     */
+    private static String normalizeDateTimeOffset(String value) {
+        if (value == null) {
+            return null;
+        }
+        // strip fractional seconds: "...03.0000000 +00:00" → "...03 +00:00"
+        String s = value.replaceFirst("\\.\\d+( [+-]\\d{2}:\\d{2})$", "$1");
+        // strip space before offset: "...03 +00:00" → "...03+00:00"
+        s = s.replaceFirst(" ([+-]\\d{2}:\\d{2})$", "$1");
+        return s;
+    }
+
+    private static String diffPrefix(String table, String id, String column) {
+        return "Table=" + table + " ID=" + id + " Column=" + column + " ";
+    }
+
+    private static String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static String trimToEmpty(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private static byte[] decodeHex(String value) {
+        if (value == null || value.isEmpty()) {
+            return new byte[0];
+        }
+        int len = value.length();
+        if ((len % 2) != 0) {
+            throw new IllegalArgumentException("Invalid hex length: " + value);
+        }
+        byte[] out = new byte[len / 2];
+        for (int i = 0; i < out.length; i++) {
+            int hi = Character.digit(value.charAt(i * 2), 16);
+            int lo = Character.digit(value.charAt(i * 2 + 1), 16);
+            if (hi < 0 || lo < 0) {
+                throw new IllegalArgumentException("Invalid hex: " + value);
+            }
+            out[i] = (byte) ((hi << 4) + lo);
+        }
+        return out;
+    }
+
+    private static Map<String, String> readCsvRowById(Path csvPath, String idColumn, String id)
+            throws IOException {
+        Map<String, Map<String, String>> rows = readCsvById(csvPath, idColumn);
+        Map<String, String> row = rows.get(id);
+        if (row == null) {
+            throw new IllegalStateException("Row not found: ID=" + id + " in " + csvPath);
+        }
+        return row;
+    }
+
+    private static Map<String, Map<String, String>> readCsvById(Path csvPath, String idColumn)
+            throws IOException {
+        Map<String, Map<String, String>> rows = new LinkedHashMap<>();
+        String normalizedIdColumn = idColumn.toUpperCase(Locale.ROOT);
+        CSVFormat format = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true)
+                .setIgnoreSurroundingSpaces(false).setTrim(false).setEscape('\\').get();
+
+        try (CSVParser parser = CSVParser.parse(csvPath, StandardCharsets.UTF_8, format)) {
+            for (CSVRecord record : parser) {
+                Map<String, String> row = new LinkedHashMap<>();
+                for (String header : parser.getHeaderMap().keySet()) {
+                    row.put(header.toUpperCase(Locale.ROOT), record.get(header));
+                }
+                rows.put(row.get(normalizedIdColumn), row);
+            }
+        }
+        return rows;
+    }
+
+    private static Path resolveFileIgnoreCase(Path dir, String fileName) throws IOException {
+        Path direct = dir.resolve(fileName);
+        if (Files.exists(direct)) {
+            return direct;
+        }
+
+        try (Stream<Path> stream = Files.list(dir)) {
+            return stream.filter(p -> p.getFileName().toString().equalsIgnoreCase(fileName))
+                    .findFirst().orElseThrow(
+                            () -> new IOException("File not found (case-insensitive): expected="
+                                    + fileName + " dir=" + dir.toAbsolutePath()));
+        }
+    }
+}
