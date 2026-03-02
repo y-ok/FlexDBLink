@@ -409,7 +409,24 @@ dump:
 
 ---
 
+## Published Maven Artifacts
+
+This repository publishes Maven artifacts via GitHub Packages for `y-ok/FlexDBLink`.
+Configure GitHub Packages access for this repository in your build environment before resolving these artifacts.
+Package overview: [GitHub Packages](https://github.com/y-ok?tab=packages&repo_name=FlexDBLink)
+
+| Artifact | Purpose | Notes |
+| ----- | ----- | ----- |
+| `io.github.yok:flexdblink` | Core library artifact with the JUnit 5 extension (`@LoadData`) | Use this dependency when consuming FlexDBLink from tests or Spring-based test suites |
+| `io.github.yok:flexdblink-maven-plugin` | Maven plugin artifact for `load` / `dump` | Use this artifact inside Maven plugin configuration |
+
+---
+
 ## Maven Plugin (`flexdblink-maven-plugin`)
+
+`flexdblink-maven-plugin` is a published GitHub Packages artifact for this repository. Use the plugin
+coordinates shown in the `POM Plugin Example` section below, and make sure GitHub Packages access is
+configured in your build environment before resolving the plugin.
 
 FlexDBLink can also be used as a Maven plugin wrapper for `load` and `dump`, while reusing the
 existing core logic (`DataLoader` / `DataDumper`).
@@ -501,6 +518,21 @@ If needed, also run `Maven: Reload Projects`.
 ---
 
 ## JUnit 5 Extension (`@LoadData`)
+
+### Maven Dependency
+
+`io.github.yok:flexdblink` is the published artifact that provides the JUnit 5 extension. Resolve
+this dependency from GitHub Packages for this repository after configuring GitHub Packages access in
+your build environment.
+
+```xml
+<dependency>
+  <groupId>io.github.yok</groupId>
+  <artifactId>flexdblink</artifactId>
+  <version>${flexdblink.version}</version>
+  <scope>test</scope>
+</dependency>
+```
 
 Simply annotate your test with `@LoadData` to automatically inject the dataset before the test and roll it back on completion.
 This integrates with Spring Test transaction management (`@Transactional`), ensuring the DB state is reliably restored after each test method.
