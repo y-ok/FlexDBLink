@@ -66,4 +66,13 @@ public class DbUnitConfigFactory {
         cfg.setProperty(DatabaseConfig.PROPERTY_BATCH_SIZE, props.getBatchSize());
         log.debug("DBUnit: batch size = {}", props.getBatchSize());
     }
+
+    /**
+     * Returns the DBUnit configuration properties currently held by this factory.
+     *
+     * @return DBUnit configuration properties
+     */
+    public DbUnitConfigProperties getProperties() {
+        return props;
+    }
 }

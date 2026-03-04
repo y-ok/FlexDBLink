@@ -242,9 +242,7 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.bbb.driver-class-name", "org.h2.Driver");
 
         TestResourceContext trc = newTrc(tempDir, props);
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, trc);
+        target.setTestResourceContext(trc);
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
 
@@ -336,14 +334,12 @@ class LoadDataExtensionTest {
         Class<?> txRecordListClass =
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecordList");
         Constructor<?> txRecordListCtor = txRecordListClass.getDeclaredConstructor();
-        txRecordListCtor.setAccessible(true);
         Object txRecordList = txRecordListCtor.newInstance();
 
         Class<?> txRecordClass =
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecord");
         Constructor<?> txRecordCtor = txRecordClass.getDeclaredConstructor(String.class,
                 PlatformTransactionManager.class, TransactionStatus.class);
-        txRecordCtor.setAccessible(true);
 
         PlatformTransactionManager tm1 = mock(PlatformTransactionManager.class);
         PlatformTransactionManager tm2 = mock(PlatformTransactionManager.class);
@@ -365,11 +361,9 @@ class LoadDataExtensionTest {
         Class<?> recClass = Class.forName(
                 "io.github.yok.flexdblink.maven.LoadDataExtension$TxInterceptorSwitchRecord");
         Constructor<?> recCtor = recClass.getDeclaredConstructor();
-        recCtor.setAccessible(true);
         Object rec = recCtor.newInstance();
 
         java.lang.reflect.Field touchedField = recClass.getDeclaredField("touched");
-        touchedField.setAccessible(true);
 
         @SuppressWarnings("unchecked")
         Map<String, Boolean> touched = (Map<String, Boolean>) touchedField.get(rec);
@@ -381,7 +375,7 @@ class LoadDataExtensionTest {
         // ApplicationContext と TransactionInterceptor（復元対象）を用意
         ApplicationContext applicationContext = mock(ApplicationContext.class);
 
-        TransactionInterceptor interceptor = new TransactionInterceptor();
+        InspectableTransactionInterceptor interceptor = new InspectableTransactionInterceptor();
         // 事前に「切り替え済み」状態を再現（beanName が設定されている状態）
         interceptor.setTransactionManagerBeanName("tmA");
 
@@ -418,11 +412,7 @@ class LoadDataExtensionTest {
         Connection original = mock(Connection.class);
         when(original.getAutoCommit()).thenReturn(true); // 委譲確認用
 
-        // private メソッド呼び出し
-        Method m = LoadDataExtension.class.getDeclaredMethod("wrapConnectionNoClose",
-                Connection.class);
-        m.setAccessible(true);
-        Connection proxy = (Connection) m.invoke(target, original);
+        Connection proxy = target.wrapConnectionNoClose(original);
 
         // Act: close() は無視されるべき
         proxy.close();
@@ -571,39 +561,27 @@ class LoadDataExtensionTest {
 
     @Test
     void testResourceContextPrivateMethods_正常ケース_profile解決と列挙変換を行う_期待値が返ること() throws Exception {
-        Class<?> cls = TestResourceContext.class;
+        assertEquals("dev", TestResourceContext.extractProfile("application-dev.properties"));
+        assertEquals("qa", TestResourceContext.extractProfile("application-qa.yml"));
+        assertEquals("prod", TestResourceContext.extractProfile("application-prod.yaml"));
+        assertEquals("", TestResourceContext.extractProfile("other.properties"));
 
-        Method extractProfile = cls.getDeclaredMethod("extractProfile", String.class);
-        extractProfile.setAccessible(true);
-        assertEquals("dev", extractProfile.invoke(null, "application-dev.properties"));
-        assertEquals("qa", extractProfile.invoke(null, "application-qa.yml"));
-        assertEquals("prod", extractProfile.invoke(null, "application-prod.yaml"));
-        assertEquals("", extractProfile.invoke(null, "other.properties"));
-
-        Method resolveActiveProfiles =
-                cls.getDeclaredMethod("resolveActiveProfiles", Properties.class);
-        resolveActiveProfiles.setAccessible(true);
         Properties p = new Properties();
         p.setProperty("spring.profiles.active", "a,b;c");
-        @SuppressWarnings("unchecked")
-        List<String> actives = (List<String>) resolveActiveProfiles.invoke(null, p);
+        List<String> actives = TestResourceContext.resolveActiveProfiles(p);
         assertEquals(List.of("a", "b", "c"), actives);
 
         System.setProperty("spring.profiles.active", "x;y");
         try {
-            @SuppressWarnings("unchecked")
-            List<String> sysActives = (List<String>) resolveActiveProfiles.invoke(null, p);
+            List<String> sysActives = TestResourceContext.resolveActiveProfiles(p);
             assertEquals(List.of("x", "y"), sysActives);
         } finally {
             System.clearProperty("spring.profiles.active");
         }
 
-        Method enumToList = cls.getDeclaredMethod("enumToList", Enumeration.class);
-        enumToList.setAccessible(true);
         Enumeration<URL> e =
                 Collections.enumeration(List.of(new URL("file:/u1"), new URL("file:/u2")));
-        @SuppressWarnings("unchecked")
-        List<URL> list = (List<URL>) enumToList.invoke(null, e);
+        List<URL> list = TestResourceContext.enumToList(e);
         assertEquals("file:/u1", list.get(0).toString());
         assertEquals("file:/u2", list.get(1).toString());
     }
@@ -618,7 +596,6 @@ class LoadDataExtensionTest {
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecord");
         Constructor<?> txCtor = txRecordClass.getDeclaredConstructor(String.class,
                 PlatformTransactionManager.class, TransactionStatus.class);
-        txCtor.setAccessible(true);
         Object txRecord = txCtor.newInstance("db1", tm, status);
         assertEquals("db1", readField(txRecordClass, txRecord, "key"));
         assertSame(tm, readField(txRecordClass, txRecord, "tm"));
@@ -628,7 +605,6 @@ class LoadDataExtensionTest {
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$Components");
         Constructor<?> compCtor = componentsClass.getDeclaredConstructor(DataSource.class,
                 PlatformTransactionManager.class);
-        compCtor.setAccessible(true);
         Object components = compCtor.newInstance(ds, tm);
         assertSame(ds, readField(componentsClass, components, "dataSource"));
         assertSame(tm, readField(componentsClass, components, "txManager"));
@@ -637,7 +613,6 @@ class LoadDataExtensionTest {
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TmWithDs");
         Constructor<?> tmWithDsCtor = tmWithDsClass.getDeclaredConstructor(String.class,
                 String.class, PlatformTransactionManager.class, DataSource.class);
-        tmWithDsCtor.setAccessible(true);
         Object tmWithDs = tmWithDsCtor.newInstance("tm1", "ds1", tm, ds);
         assertEquals("tm1", readField(tmWithDsClass, tmWithDs, "tmName"));
         assertEquals("ds1", readField(tmWithDsClass, tmWithDs, "dsName"));
@@ -648,7 +623,6 @@ class LoadDataExtensionTest {
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$NamedDs");
         Constructor<?> namedDsCtor =
                 namedDsClass.getDeclaredConstructor(String.class, DataSource.class);
-        namedDsCtor.setAccessible(true);
         Object namedDs = namedDsCtor.newInstance("ds2", ds);
         assertEquals("ds2", readField(namedDsClass, namedDs, "name"));
         assertSame(ds, readField(namedDsClass, namedDs, "ds"));
@@ -657,7 +631,6 @@ class LoadDataExtensionTest {
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$ProbeMeta");
         Constructor<?> probeCtor =
                 probeMetaClass.getDeclaredConstructor(String.class, String.class);
-        probeCtor.setAccessible(true);
         Object probe = probeCtor.newInstance("jdbc:h2:mem:x", "sa");
         assertEquals("jdbc:h2:mem:x", readField(probeMetaClass, probe, "url"));
         assertEquals("sa", readField(probeMetaClass, probe, "user"));
@@ -665,7 +638,6 @@ class LoadDataExtensionTest {
         Class<?> txSwitchClass = Class.forName(
                 "io.github.yok.flexdblink.maven.LoadDataExtension$TxInterceptorSwitchRecord");
         Constructor<?> txSwitchCtor = txSwitchClass.getDeclaredConstructor();
-        txSwitchCtor.setAccessible(true);
         Object txSwitch = txSwitchCtor.newInstance();
         Object touched = readField(txSwitchClass, txSwitch, "touched");
         assertTrue(touched instanceof Map);
@@ -673,31 +645,18 @@ class LoadDataExtensionTest {
 
     @Test
     void helperMethods_正常ケース_URL比較と正規化を実行する_期待結果が返ること() throws Exception {
-        Method simplifyUrl = LoadDataExtension.class.getDeclaredMethod("simplifyUrl", String.class);
-        simplifyUrl.setAccessible(true);
-        assertEquals("", simplifyUrl.invoke(target, new Object[] {null}));
-        assertEquals("jdbc:h2:mem:test", simplifyUrl.invoke(target, "JDBC:H2:MEM:TEST?a=1;b=2"));
+        assertEquals("", target.simplifyUrl(null));
+        assertEquals("jdbc:h2:mem:test", target.simplifyUrl("JDBC:H2:MEM:TEST?a=1;b=2"));
 
-        Method equalsIgnoreCaseSafe = LoadDataExtension.class
-                .getDeclaredMethod("equalsIgnoreCaseSafe", String.class, String.class);
-        equalsIgnoreCaseSafe.setAccessible(true);
-        assertEquals(false, equalsIgnoreCaseSafe.invoke(target, "A", null));
-        assertEquals(true, equalsIgnoreCaseSafe.invoke(target, "AbC", "aBc"));
+        assertEquals(false, target.equalsIgnoreCaseSafe("A", null));
+        assertEquals(true, target.equalsIgnoreCaseSafe("AbC", "aBc"));
 
-        Method urlRoughMatch = LoadDataExtension.class.getDeclaredMethod("urlRoughMatch",
-                String.class, String.class);
-        urlRoughMatch.setAccessible(true);
-        assertEquals(true,
-                urlRoughMatch.invoke(target, "jdbc:h2:mem:t1", "jdbc:h2:mem:t1;MODE=Oracle"));
-        assertEquals(false, urlRoughMatch.invoke(target, "", "jdbc:h2:mem:t1"));
+        assertEquals(true, target.urlRoughMatch("jdbc:h2:mem:t1", "jdbc:h2:mem:t1;MODE=Oracle"));
+        assertEquals(false, target.urlRoughMatch("", "jdbc:h2:mem:t1"));
     }
 
     @Test
     void probeDataSourceMeta_正常ケース_メタデータ取得可否を判定する_成功時はProbeMeta失敗時はnullが返ること() throws Exception {
-        Method probeDataSourceMeta =
-                LoadDataExtension.class.getDeclaredMethod("probeDataSourceMeta", DataSource.class);
-        probeDataSourceMeta.setAccessible(true);
-
         Connection okConn = mock(Connection.class);
         DatabaseMetaData md = mock(DatabaseMetaData.class);
         when(okConn.getMetaData()).thenReturn(md);
@@ -705,14 +664,14 @@ class LoadDataExtensionTest {
         when(md.getUserName()).thenReturn("sa");
         DataSource okDs = mock(DataSource.class);
         when(okDs.getConnection()).thenReturn(okConn);
-        Object meta = probeDataSourceMeta.invoke(target, okDs);
+        Object meta = target.probeDataSourceMeta(okDs);
         assertNotNull(meta);
         assertEquals("jdbc:h2:mem:ok", readField(meta.getClass(), meta, "url"));
         assertEquals("sa", readField(meta.getClass(), meta, "user"));
 
         DataSource ngDs = mock(DataSource.class);
         when(ngDs.getConnection()).thenThrow(new RuntimeException("x"));
-        Object nullMeta = probeDataSourceMeta.invoke(target, ngDs);
+        Object nullMeta = target.probeDataSourceMeta(ngDs);
         assertEquals(null, nullMeta);
     }
 
@@ -724,31 +683,19 @@ class LoadDataExtensionTest {
                 .thenThrow(new RuntimeException("missing"));
         when(ac.getBean("dataSource", DataSource.class)).thenThrow(new RuntimeException("missing"));
 
-        Method resolveTxManagerSingle = LoadDataExtension.class
-                .getDeclaredMethod("resolveTxManagerSingle", ApplicationContext.class);
-        resolveTxManagerSingle.setAccessible(true);
-        assertThrows(Exception.class, () -> resolveTxManagerSingle.invoke(target, ac));
-
-        Method resolveDataSourceSingle = LoadDataExtension.class
-                .getDeclaredMethod("resolveDataSourceSingle", ApplicationContext.class);
-        resolveDataSourceSingle.setAccessible(true);
-        assertThrows(Exception.class, () -> resolveDataSourceSingle.invoke(target, ac));
+        assertThrows(Exception.class, () -> target.resolveTxManagerSingle(ac));
+        assertThrows(Exception.class, () -> target.resolveDataSourceSingle(ac));
     }
 
     @Test
     void resolveTxManagerByDataSource_正常異常ケース_TM候補数を判定する_単一は返却し複数ゼロは例外であること() throws Exception {
-        Method resolveTxManagerByDataSource =
-                LoadDataExtension.class.getDeclaredMethod("resolveTxManagerByDataSource",
-                        ApplicationContext.class, String.class, DataSource.class);
-        resolveTxManagerByDataSource.setAccessible(true);
-
         DataSource ds = mock(DataSource.class);
         ApplicationContext single = mock(ApplicationContext.class);
         DataSourceTransactionManager tm = new DataSourceTransactionManager(ds);
         when(single.getBeanNamesForType(PlatformTransactionManager.class))
                 .thenReturn(new String[] {"tm1"});
         when(single.getBean("tm1", PlatformTransactionManager.class)).thenReturn(tm);
-        Object resolved = resolveTxManagerByDataSource.invoke(target, single, "db1", ds);
+        Object resolved = target.resolveTxManagerByDataSource(single, "db1", ds);
         assertSame(tm, resolved);
 
         ApplicationContext none = mock(ApplicationContext.class);
@@ -756,8 +703,7 @@ class LoadDataExtensionTest {
                 .thenReturn(new String[] {"tm1"});
         when(none.getBean("tm1", PlatformTransactionManager.class))
                 .thenReturn(new DataSourceTransactionManager(mock(DataSource.class)));
-        assertThrows(Exception.class,
-                () -> resolveTxManagerByDataSource.invoke(target, none, "db1", ds));
+        assertThrows(Exception.class, () -> target.resolveTxManagerByDataSource(none, "db1", ds));
 
         ApplicationContext multiple = mock(ApplicationContext.class);
         when(multiple.getBeanNamesForType(PlatformTransactionManager.class))
@@ -767,7 +713,7 @@ class LoadDataExtensionTest {
         when(multiple.getBean("tm2", PlatformTransactionManager.class))
                 .thenReturn(new DataSourceTransactionManager(ds));
         assertThrows(Exception.class,
-                () -> resolveTxManagerByDataSource.invoke(target, multiple, "db1", ds));
+                () -> target.resolveTxManagerByDataSource(multiple, "db1", ds));
     }
 
     @Test
@@ -800,30 +746,21 @@ class LoadDataExtensionTest {
         when(applicationContext.getBean("tmA", PlatformTransactionManager.class))
                 .thenReturn(transactionManager);
 
-        TransactionInterceptor interceptor = new TransactionInterceptor();
+        InspectableTransactionInterceptor interceptor = new InspectableTransactionInterceptor();
         Map<String, TransactionInterceptor> interceptors = new HashMap<>();
         interceptors.put("txInterceptor", interceptor);
         when(applicationContext.getBeansOfType(TransactionInterceptor.class))
                 .thenReturn(interceptors);
 
-        Method setTxInterceptorDefaultManager = LoadDataExtension.class.getDeclaredMethod(
-                "setTxInterceptorDefaultManager", ExtensionContext.class, ApplicationContext.class,
-                PlatformTransactionManager.class, String.class);
-        setTxInterceptorDefaultManager.setAccessible(true);
-
-        Method restoreTxInterceptorDefaultManager = LoadDataExtension.class
-                .getDeclaredMethod("restoreTxInterceptorDefaultManager", ExtensionContext.class);
-        restoreTxInterceptorDefaultManager.setAccessible(true);
-
         // Act
-        setTxInterceptorDefaultManager.invoke(target, context, applicationContext,
-                transactionManager, "single");
+        target.setTxInterceptorDefaultManager(context, applicationContext, transactionManager,
+                "single");
         assertEquals("tmA", readTxManagerBeanName(interceptor));
 
         try (MockedStatic<SpringExtension> mocked = Mockito.mockStatic(SpringExtension.class)) {
             mocked.when(() -> SpringExtension.getApplicationContext(context))
                     .thenReturn(applicationContext);
-            restoreTxInterceptorDefaultManager.invoke(target, context);
+            target.restoreTxInterceptorDefaultManager(context);
         }
 
         // Assert
@@ -840,7 +777,6 @@ class LoadDataExtensionTest {
         Class<?> txRecordListClass =
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecordList");
         Constructor<?> txRecordListConstructor = txRecordListClass.getDeclaredConstructor();
-        txRecordListConstructor.setAccessible(true);
         Object txRecordList = txRecordListConstructor.newInstance();
 
         PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
@@ -849,7 +785,6 @@ class LoadDataExtensionTest {
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecord");
         Constructor<?> txRecordConstructor = txRecordClass.getDeclaredConstructor(String.class,
                 PlatformTransactionManager.class, TransactionStatus.class);
-        txRecordConstructor.setAccessible(true);
         Object txRecord =
                 txRecordConstructor.newInstance("db1", transactionManager, transactionStatus);
         @SuppressWarnings("unchecked")
@@ -858,12 +793,8 @@ class LoadDataExtensionTest {
 
         doReturn(txRecordList).when(store).get("TX_RECORDS", txRecordListClass);
 
-        Method rollbackAllIfBegan = LoadDataExtension.class.getDeclaredMethod("rollbackAllIfBegan",
-                ExtensionContext.class);
-        rollbackAllIfBegan.setAccessible(true);
-
         // Act
-        rollbackAllIfBegan.invoke(target, context);
+        target.rollbackAllIfBegan(context);
 
         // Assert
         verify(transactionManager, times(1)).rollback(transactionStatus);
@@ -876,9 +807,7 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.db1.url", "jdbc:h2:mem:match");
         props.setProperty("spring.datasource.db1.username", "sa");
         TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, trc);
+        target.setTestResourceContext(trc);
 
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
@@ -896,12 +825,8 @@ class LoadDataExtensionTest {
         when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"ds1"});
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds);
 
-        Method resolveComponentsForDbId = LoadDataExtension.class.getDeclaredMethod(
-                "resolveComponentsForDbId", ApplicationContext.class, String.class);
-        resolveComponentsForDbId.setAccessible(true);
-
         // Act
-        Object components = resolveComponentsForDbId.invoke(target, ac, "db1");
+        Object components = target.resolveComponentsForDbId(ac, "db1");
 
         // Assert
         Class<?> componentsClass =
@@ -918,13 +843,8 @@ class LoadDataExtensionTest {
         mkDirs(base.resolve("db2"));
         writeToFile(base.resolve("ignore.txt"), "x");
 
-        Method listDbIdsFromFolder =
-                LoadDataExtension.class.getDeclaredMethod("listDbIdsFromFolder", Path.class);
-        listDbIdsFromFolder.setAccessible(true);
-
         // Act
-        @SuppressWarnings("unchecked")
-        Set<String> dbIds = (Set<String>) listDbIdsFromFolder.invoke(target, base);
+        Set<String> dbIds = target.listDbIdsFromFolder(base);
 
         // Assert
         assertEquals(Set.of("db1", "db2"), dbIds);
@@ -941,13 +861,8 @@ class LoadDataExtensionTest {
         when(applicationContext.getBean("dataSource1", DataSource.class)).thenReturn(ds1);
         when(applicationContext.getBean("dataSource2", DataSource.class)).thenReturn(ds2);
 
-        Method findBeanNameByInstance = LoadDataExtension.class.getDeclaredMethod(
-                "findBeanNameByInstance", ApplicationContext.class, Class.class, Object.class);
-        findBeanNameByInstance.setAccessible(true);
-
         // Act
-        Object resolved =
-                findBeanNameByInstance.invoke(target, applicationContext, DataSource.class, ds2);
+        Object resolved = target.findBeanNameByInstance(applicationContext, DataSource.class, ds2);
 
         // Assert
         assertEquals("dataSource2", resolved);
@@ -963,9 +878,7 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:s1");
         props.setProperty("spring.datasource.username", "sa");
         TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, trc);
+        target.setTestResourceContext(trc);
 
         ExtensionContext context = mock(ExtensionContext.class);
         Store store = mock(Store.class);
@@ -1002,10 +915,6 @@ class LoadDataExtensionTest {
                 .thenReturn(Collections.emptyMap());
         when(tm.getTransaction(Mockito.any())).thenReturn(status);
 
-        Method loadScenarioParticipating = LoadDataExtension.class.getDeclaredMethod(
-                "loadScenarioParticipating", ExtensionContext.class, String.class, String[].class);
-        loadScenarioParticipating.setAccessible(true);
-
         // Act / Assert
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
                 MockedStatic<DataSourceUtils> dsUtils = Mockito.mockStatic(DataSourceUtils.class);
@@ -1017,7 +926,7 @@ class LoadDataExtensionTest {
             dsUtils.when(() -> DataSourceUtils.getConnection(ds)).thenReturn(conn);
 
             assertDoesNotThrow(
-                    () -> loadScenarioParticipating.invoke(target, context, "S1", new String[0]));
+                    () -> target.loadScenarioParticipating(context, "S1", new String[0]));
 
             DataLoader loader = loaders.constructed().get(0);
             verify(loader, times(1)).executeWithConnection(Mockito.any(), Mockito.any(),
@@ -1035,21 +944,15 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.db1.url", "jdbc:h2:mem:db1");
         props.setProperty("spring.datasource.db1.username", "sa");
         TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, trc);
+        target.setTestResourceContext(trc);
 
         ExtensionContext context = mock(ExtensionContext.class);
         when(context.getStore(Mockito.any(Namespace.class))).thenReturn(mock(Store.class));
 
-        Method loadScenarioParticipating = LoadDataExtension.class.getDeclaredMethod(
-                "loadScenarioParticipating", ExtensionContext.class, String.class, String[].class);
-        loadScenarioParticipating.setAccessible(true);
-
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class)) {
             spring.when(() -> SpringExtension.getApplicationContext(context))
                     .thenReturn(mock(ApplicationContext.class));
-            assertThrows(Exception.class, () -> loadScenarioParticipating.invoke(target, context,
+            assertThrows(Exception.class, () -> target.loadScenarioParticipating(context,
                     "S_MULTI_MISSING", new String[] {"db1", "db2"}));
         }
     }
@@ -1064,9 +967,7 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.db1.url", "jdbc:h2:mem:match");
         props.setProperty("spring.datasource.db1.username", "sa");
         TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, trc);
+        target.setTestResourceContext(trc);
 
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
@@ -1088,10 +989,6 @@ class LoadDataExtensionTest {
         ExtensionContext context = mock(ExtensionContext.class);
         when(context.getStore(Mockito.any(Namespace.class))).thenReturn(mock(Store.class));
 
-        Method loadScenarioParticipating = LoadDataExtension.class.getDeclaredMethod(
-                "loadScenarioParticipating", ExtensionContext.class, String.class, String[].class);
-        loadScenarioParticipating.setAccessible(true);
-
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
                 MockedStatic<TransactionSynchronizationManager> txSync =
                         Mockito.mockStatic(TransactionSynchronizationManager.class)) {
@@ -1099,7 +996,7 @@ class LoadDataExtensionTest {
             txSync.when(TransactionSynchronizationManager::isActualTransactionActive)
                     .thenReturn(true);
             txSync.when(() -> TransactionSynchronizationManager.hasResource(ds)).thenReturn(false);
-            assertThrows(Exception.class, () -> loadScenarioParticipating.invoke(target, context,
+            assertThrows(Exception.class, () -> target.loadScenarioParticipating(context,
                     "S_MULTI_ACTIVE", new String[] {"db1"}));
         }
     }
@@ -1108,12 +1005,8 @@ class LoadDataExtensionTest {
     void pickPrimary_正常ケース_primaryが1件のみ存在する_primary候補が返ること() throws Exception {
         DataSource ds1 = mock(DataSource.class);
         DataSource ds2 = mock(DataSource.class);
-        Class<?> namedDsClass =
-                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$NamedDs");
-        Constructor<?> ctor = namedDsClass.getDeclaredConstructor(String.class, DataSource.class);
-        ctor.setAccessible(true);
-        Object n1 = ctor.newInstance("ds1", ds1);
-        Object n2 = ctor.newInstance("ds2", ds2);
+        LoadDataExtension.NamedDs n1 = new LoadDataExtension.NamedDs("ds1", ds1);
+        LoadDataExtension.NamedDs n2 = new LoadDataExtension.NamedDs("ds2", ds2);
 
         ConfigurableApplicationContext ac = mock(ConfigurableApplicationContext.class);
         ConfigurableListableBeanFactory bf = mock(ConfigurableListableBeanFactory.class);
@@ -1127,11 +1020,8 @@ class LoadDataExtensionTest {
         when(bd1.isPrimary()).thenReturn(false);
         when(bd2.isPrimary()).thenReturn(true);
 
-        Method pickPrimary = LoadDataExtension.class.getDeclaredMethod("pickPrimary",
-                ApplicationContext.class, List.class);
-        pickPrimary.setAccessible(true);
-        Object picked = pickPrimary.invoke(target, ac, List.of(n1, n2));
-        assertEquals("ds2", readField(namedDsClass, picked, "name"));
+        LoadDataExtension.NamedDs picked = target.pickPrimary(ac, List.of(n1, n2));
+        assertEquals("ds2", picked.name);
     }
 
     @Test
@@ -1140,12 +1030,8 @@ class LoadDataExtensionTest {
         DataSource ds2 = mock(DataSource.class);
         DataSource ds3 = mock(DataSource.class);
 
-        Class<?> namedDsClass =
-                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$NamedDs");
-        Constructor<?> ctor = namedDsClass.getDeclaredConstructor(String.class, DataSource.class);
-        ctor.setAccessible(true);
-        Object n1 = ctor.newInstance("ds1", ds1);
-        Object n2 = ctor.newInstance("ds2", ds2);
+        LoadDataExtension.NamedDs n1 = new LoadDataExtension.NamedDs("ds1", ds1);
+        LoadDataExtension.NamedDs n2 = new LoadDataExtension.NamedDs("ds2", ds2);
 
         ApplicationContext ac = mock(ApplicationContext.class);
         when(ac.getBeanNamesForType(PlatformTransactionManager.class))
@@ -1153,22 +1039,19 @@ class LoadDataExtensionTest {
         when(ac.getBean("tm1", PlatformTransactionManager.class))
                 .thenReturn(new DataSourceTransactionManager(ds2));
 
-        Method pickSingleReferencedByTm = LoadDataExtension.class.getDeclaredMethod(
-                "pickSingleReferencedByTm", ApplicationContext.class, List.class);
-        pickSingleReferencedByTm.setAccessible(true);
-        Object picked = pickSingleReferencedByTm.invoke(target, ac, List.of(n1, n2));
-        assertEquals("ds2", readField(namedDsClass, picked, "name"));
+        LoadDataExtension.NamedDs picked = target.pickSingleReferencedByTm(ac, List.of(n1, n2));
+        assertEquals("ds2", picked.name);
 
         when(ac.getBeanNamesForType(PlatformTransactionManager.class))
                 .thenReturn(new String[] {"tm1", "tm2"});
         when(ac.getBean("tm2", PlatformTransactionManager.class))
                 .thenReturn(new DataSourceTransactionManager(ds1));
-        Object ambiguous = pickSingleReferencedByTm.invoke(target, ac, List.of(n1, n2));
+        LoadDataExtension.NamedDs ambiguous = target.pickSingleReferencedByTm(ac, List.of(n1, n2));
         assertEquals(null, ambiguous);
 
         when(ac.getBean("tm2", PlatformTransactionManager.class))
                 .thenReturn(new DataSourceTransactionManager(ds3));
-        Object none = pickSingleReferencedByTm.invoke(target, ac, List.of(n1));
+        LoadDataExtension.NamedDs none = target.pickSingleReferencedByTm(ac, List.of(n1));
         assertEquals(null, none);
     }
 
@@ -1185,9 +1068,7 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.db2.url", "jdbc:h2:mem:db2");
         props.setProperty("spring.datasource.db2.username", "sa2");
         TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, trc);
+        target.setTestResourceContext(trc);
 
         DataSource ds1 = mock(DataSource.class);
         DataSource ds2 = mock(DataSource.class);
@@ -1245,10 +1126,6 @@ class LoadDataExtensionTest {
         Connection loadConn1 = mock(Connection.class);
         Connection loadConn2 = mock(Connection.class);
 
-        Method loadScenarioParticipating = LoadDataExtension.class.getDeclaredMethod(
-                "loadScenarioParticipating", ExtensionContext.class, String.class, String[].class);
-        loadScenarioParticipating.setAccessible(true);
-
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
                 MockedStatic<DataSourceUtils> dsUtils = Mockito.mockStatic(DataSourceUtils.class);
                 MockedConstruction<DataLoader> loaders = Mockito.mockConstruction(DataLoader.class,
@@ -1258,7 +1135,7 @@ class LoadDataExtensionTest {
             dsUtils.when(() -> DataSourceUtils.getConnection(ds1)).thenReturn(loadConn1);
             dsUtils.when(() -> DataSourceUtils.getConnection(ds2)).thenReturn(loadConn2);
 
-            assertDoesNotThrow(() -> loadScenarioParticipating.invoke(target, context, "S_MULTI_OK",
+            assertDoesNotThrow(() -> target.loadScenarioParticipating(context, "S_MULTI_OK",
                     new String[] {"db1", "db2"}));
 
             DataLoader loader = loaders.constructed().get(0);
@@ -1272,9 +1149,7 @@ class LoadDataExtensionTest {
     @Test
     void beforeTestExecution_正常ケース_trc未初期化時にbeforeAllを実行する_trcが設定されること() throws Exception {
         // Arrange
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, null);
+        target.setTestResourceContext(null);
 
         ExtensionContext context = mockContextForClass(DummyTargetTest.class);
 
@@ -1380,9 +1255,7 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:paths");
         props.setProperty("spring.datasource.username", "sa");
         TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, trc);
+        target.setTestResourceContext(trc);
 
         ExtensionContext context = mock(ExtensionContext.class);
         Store store = mockStore(context, new HashMap<>());
@@ -1401,10 +1274,6 @@ class LoadDataExtensionTest {
         when(applicationContext.getBeansOfType(TransactionInterceptor.class))
                 .thenReturn(Collections.emptyMap());
         when(tm.getTransaction(Mockito.any())).thenReturn(status);
-
-        Method loadScenarioParticipating = LoadDataExtension.class.getDeclaredMethod(
-                "loadScenarioParticipating", ExtensionContext.class, String.class, String[].class);
-        loadScenarioParticipating.setAccessible(true);
 
         // Act / Assert
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
@@ -1425,8 +1294,8 @@ class LoadDataExtensionTest {
                     .thenReturn(applicationContext);
             dsUtils.when(() -> DataSourceUtils.getConnection(ds)).thenReturn(conn);
 
-            assertDoesNotThrow(() -> loadScenarioParticipating.invoke(target, context, "S_PATHS",
-                    new String[0]));
+            assertDoesNotThrow(
+                    () -> target.loadScenarioParticipating(context, "S_PATHS", new String[0]));
 
             DataLoader loader = loaders.constructed().get(0);
             verify(loader).executeWithConnection(Mockito.any(), Mockito.any(), Mockito.any());
@@ -1445,9 +1314,7 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:single_active");
         props.setProperty("spring.datasource.username", "sa");
         TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, trc);
+        target.setTestResourceContext(trc);
 
         ExtensionContext context = mock(ExtensionContext.class);
         mockStore(context, new HashMap<>());
@@ -1465,10 +1332,6 @@ class LoadDataExtensionTest {
         when(applicationContext.getBeansOfType(TransactionInterceptor.class))
                 .thenReturn(Collections.emptyMap());
 
-        Method loadScenarioParticipating = LoadDataExtension.class.getDeclaredMethod(
-                "loadScenarioParticipating", ExtensionContext.class, String.class, String[].class);
-        loadScenarioParticipating.setAccessible(true);
-
         // Act / Assert
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
                 MockedStatic<DataSourceUtils> dsUtils = Mockito.mockStatic(DataSourceUtils.class);
@@ -1484,8 +1347,8 @@ class LoadDataExtensionTest {
                     .thenReturn(true);
             txSync.when(() -> TransactionSynchronizationManager.hasResource(ds)).thenReturn(false);
 
-            assertDoesNotThrow(() -> loadScenarioParticipating.invoke(target, context,
-                    "S_SINGLE_ACTIVE", new String[0]));
+            assertDoesNotThrow(() -> target.loadScenarioParticipating(context, "S_SINGLE_ACTIVE",
+                    new String[0]));
 
             DataLoader loader = loaders.constructed().get(0);
             verify(loader).executeWithConnection(Mockito.any(), Mockito.any(), Mockito.any());
@@ -1501,9 +1364,7 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:missing");
         props.setProperty("spring.datasource.username", "sa");
         TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, trc);
+        target.setTestResourceContext(trc);
 
         ExtensionContext context = mock(ExtensionContext.class);
         mockStore(context, new HashMap<>());
@@ -1521,17 +1382,12 @@ class LoadDataExtensionTest {
                 .thenReturn(Collections.emptyMap());
         when(tm.getTransaction(Mockito.any())).thenReturn(status);
 
-        Method loadScenarioParticipating = LoadDataExtension.class.getDeclaredMethod(
-                "loadScenarioParticipating", ExtensionContext.class, String.class, String[].class);
-        loadScenarioParticipating.setAccessible(true);
-
         // Act / Assert
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class)) {
             spring.when(() -> SpringExtension.getApplicationContext(context))
                     .thenReturn(applicationContext);
-            Exception ex = assertThrows(Exception.class, () -> loadScenarioParticipating
-                    .invoke(target, context, "NOT_EXISTS_SINGLE", new String[0]));
-            assertTrue(ex.getCause() instanceof IllegalStateException);
+            assertThrows(IllegalStateException.class, () -> target
+                    .loadScenarioParticipating(context, "NOT_EXISTS_SINGLE", new String[0]));
         }
     }
 
@@ -1553,10 +1409,7 @@ class LoadDataExtensionTest {
         entry.setUrl("jdbc:h2:mem:db1");
         entry.setUser("sa");
         when(mockTrc.buildEntryFromProps("db1")).thenReturn(entry);
-
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, mockTrc);
+        target.setTestResourceContext(mockTrc);
 
         DataSource ds = mock(DataSource.class);
         Connection metaConn = mock(Connection.class);
@@ -1578,10 +1431,6 @@ class LoadDataExtensionTest {
         ExtensionContext context = mock(ExtensionContext.class);
         mockStore(context, new HashMap<>());
 
-        Method loadScenarioParticipating = LoadDataExtension.class.getDeclaredMethod(
-                "loadScenarioParticipating", ExtensionContext.class, String.class, String[].class);
-        loadScenarioParticipating.setAccessible(true);
-
         // Act / Assert
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
                 MockedStatic<TransactionSynchronizationManager> txSync =
@@ -1589,9 +1438,8 @@ class LoadDataExtensionTest {
             spring.when(() -> SpringExtension.getApplicationContext(context)).thenReturn(ac);
             txSync.when(TransactionSynchronizationManager::isActualTransactionActive)
                     .thenReturn(false);
-            Exception ex = assertThrows(Exception.class, () -> loadScenarioParticipating
-                    .invoke(target, context, "S_MULTI_LISTED", new String[] {"db1"}));
-            assertTrue(ex.getCause() instanceof IllegalStateException);
+            assertThrows(IllegalStateException.class, () -> target
+                    .loadScenarioParticipating(context, "S_MULTI_LISTED", new String[] {"db1"}));
         }
     }
 
@@ -1602,19 +1450,13 @@ class LoadDataExtensionTest {
         mkDirs(dummyClassResourcesDir.resolve("AUTO_B"));
         Properties props = new Properties();
         TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, trc);
+        target.setTestResourceContext(trc);
 
-        Method resolveScenarios =
-                LoadDataExtension.class.getDeclaredMethod("resolveScenarios", LoadData.class);
-        resolveScenarios.setAccessible(true);
         LoadData ann = DummyTargetTest.class.getDeclaredMethod("methodScenarioAutoDetect")
                 .getAnnotation(LoadData.class);
 
         // Act
-        @SuppressWarnings("unchecked")
-        List<String> scenarios = (List<String>) resolveScenarios.invoke(target, ann);
+        List<String> scenarios = target.resolveScenarios(ann);
 
         // Assert
         assertTrue(scenarios.contains("AUTO_A"));
@@ -1636,13 +1478,8 @@ class LoadDataExtensionTest {
                 .thenReturn(new String[] {"tm1"});
         when(ac.getBean("tm1", PlatformTransactionManager.class)).thenReturn(other);
 
-        Method set = LoadDataExtension.class.getDeclaredMethod("setTxInterceptorDefaultManager",
-                ExtensionContext.class, ApplicationContext.class, PlatformTransactionManager.class,
-                String.class);
-        set.setAccessible(true);
-
         // Act
-        set.invoke(target, context, ac, picked, "K1");
+        target.setTxInterceptorDefaultManager(context, ac, picked, "K1");
 
         // Assert
         assertEquals(null, storeMap.get("TXI_DEFAULT_SWITCH"));
@@ -1672,13 +1509,8 @@ class LoadDataExtensionTest {
         tis.put("ng", ng);
         when(ac.getBeansOfType(TransactionInterceptor.class)).thenReturn(tis);
 
-        Method set = LoadDataExtension.class.getDeclaredMethod("setTxInterceptorDefaultManager",
-                ExtensionContext.class, ApplicationContext.class, PlatformTransactionManager.class,
-                String.class);
-        set.setAccessible(true);
-
         // Act
-        set.invoke(target, context, ac, picked, "K2");
+        target.setTxInterceptorDefaultManager(context, ac, picked, "K2");
 
         // Assert
         assertNotNull(storeMap.get("TXI_DEFAULT_SWITCH"));
@@ -1691,21 +1523,15 @@ class LoadDataExtensionTest {
         Map<Object, Object> storeMap = new HashMap<>();
         mockStore(context, storeMap);
 
-        Method restore = LoadDataExtension.class
-                .getDeclaredMethod("restoreTxInterceptorDefaultManager", ExtensionContext.class);
-        restore.setAccessible(true);
-
         // rec == null 分岐
-        assertDoesNotThrow(() -> restore.invoke(target, context));
+        assertDoesNotThrow(() -> target.restoreTxInterceptorDefaultManager(context));
 
         // rec 有り、存在しない interceptor 名を含める分岐
         Class<?> recClass = Class.forName(
                 "io.github.yok.flexdblink.maven.LoadDataExtension$TxInterceptorSwitchRecord");
         Constructor<?> recCtor = recClass.getDeclaredConstructor();
-        recCtor.setAccessible(true);
         Object rec = recCtor.newInstance();
         var touchedField = recClass.getDeclaredField("touched");
-        touchedField.setAccessible(true);
         @SuppressWarnings("unchecked")
         Map<String, Boolean> touched = (Map<String, Boolean>) touchedField.get(rec);
         touched.put("missing", Boolean.TRUE);
@@ -1722,7 +1548,7 @@ class LoadDataExtensionTest {
 
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class)) {
             spring.when(() -> SpringExtension.getApplicationContext(context)).thenReturn(ac);
-            assertDoesNotThrow(() -> restore.invoke(target, context));
+            assertDoesNotThrow(() -> target.restoreTxInterceptorDefaultManager(context));
         }
     }
 
@@ -1736,14 +1562,12 @@ class LoadDataExtensionTest {
         Class<?> txRecordListClass =
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecordList");
         Constructor<?> txRecordListCtor = txRecordListClass.getDeclaredConstructor();
-        txRecordListCtor.setAccessible(true);
         Object txRecordList = txRecordListCtor.newInstance();
 
         Class<?> txRecordClass =
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$TxRecord");
         Constructor<?> txRecordCtor = txRecordClass.getDeclaredConstructor(String.class,
                 PlatformTransactionManager.class, TransactionStatus.class);
-        txRecordCtor.setAccessible(true);
 
         PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
         Mockito.doThrow(new RuntimeException("rollback error")).when(tm).rollback(Mockito.any());
@@ -1754,12 +1578,8 @@ class LoadDataExtensionTest {
         list.add(record);
         storeMap.put("TX_RECORDS", txRecordList);
 
-        Method rollback = LoadDataExtension.class.getDeclaredMethod("rollbackAllIfBegan",
-                ExtensionContext.class);
-        rollback.setAccessible(true);
-
         // Act
-        assertDoesNotThrow(() -> rollback.invoke(target, context));
+        assertDoesNotThrow(() -> target.rollbackAllIfBegan(context));
 
         // Assert
         assertEquals(null, storeMap.get("TX_RECORDS"));
@@ -1768,14 +1588,9 @@ class LoadDataExtensionTest {
     @Test
     void listDbIdsFromFolder_異常ケース_ディレクトリ判定や走査失敗時を処理する_空集合または例外が返ること() throws Exception {
         // Arrange
-        Method listDbIdsFromFolder =
-                LoadDataExtension.class.getDeclaredMethod("listDbIdsFromFolder", Path.class);
-        listDbIdsFromFolder.setAccessible(true);
-
         // 非ディレクトリ分岐
-        @SuppressWarnings("unchecked")
-        Set<String> empty = (Set<String>) listDbIdsFromFolder.invoke(target,
-                dummyClassResourcesDir.resolve("not-directory-file.txt"));
+        Set<String> empty = target
+                .listDbIdsFromFolder(dummyClassResourcesDir.resolve("not-directory-file.txt"));
         assertEquals(Collections.emptySet(), empty);
 
         // scan 失敗分岐
@@ -1785,9 +1600,7 @@ class LoadDataExtensionTest {
             files.when(() -> Files.isDirectory(fakeDir)).thenReturn(true);
             files.when(() -> Files.list(fakeDir)).thenThrow(new RuntimeException("scan failure"));
 
-            Exception ex = assertThrows(Exception.class,
-                    () -> listDbIdsFromFolder.invoke(target, fakeDir));
-            assertNotNull(ex.getCause());
+            assertThrows(Exception.class, () -> target.listDbIdsFromFolder(fakeDir));
         }
     }
 
@@ -1803,13 +1616,9 @@ class LoadDataExtensionTest {
         when(applicationContext.getBean("dataSource1", DataSource.class)).thenReturn(ds1);
         when(applicationContext.getBean("dataSource2", DataSource.class)).thenReturn(ds2);
 
-        Method findBeanNameByInstance = LoadDataExtension.class.getDeclaredMethod(
-                "findBeanNameByInstance", ApplicationContext.class, Class.class, Object.class);
-        findBeanNameByInstance.setAccessible(true);
-
         // Act
-        Object resolved = findBeanNameByInstance.invoke(target, applicationContext,
-                DataSource.class, targetDs);
+        Object resolved =
+                target.findBeanNameByInstance(applicationContext, DataSource.class, targetDs);
 
         // Assert
         assertEquals("<unknown>", resolved);
@@ -1828,21 +1637,14 @@ class LoadDataExtensionTest {
     void rollbackAllIfBegan_正常ケース_記録が空の場合は何もしない_例外とならないこと() throws Exception {
         ExtensionContext context = mock(ExtensionContext.class);
         mockStore(context, new HashMap<>());
-        Method rollback = LoadDataExtension.class.getDeclaredMethod("rollbackAllIfBegan",
-                ExtensionContext.class);
-        rollback.setAccessible(true);
-        assertDoesNotThrow(() -> rollback.invoke(target, context));
+        assertDoesNotThrow(() -> target.rollbackAllIfBegan(context));
     }
 
     @Test
     void getTxRecords_正常ケース_ストア未格納時に空リストを返す_空であること() throws Exception {
         ExtensionContext context = mock(ExtensionContext.class);
         mockStore(context, new HashMap<>());
-        Method getTxRecords =
-                LoadDataExtension.class.getDeclaredMethod("getTxRecords", ExtensionContext.class);
-        getTxRecords.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        List<Object> list = (List<Object>) getTxRecords.invoke(target, context);
+        List<Object> list = castList(target.getTxRecords(context));
         assertTrue(list.isEmpty());
     }
 
@@ -1866,13 +1668,7 @@ class LoadDataExtensionTest {
         when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"dsMatch"});
         when(ac.getBean("dsMatch", DataSource.class)).thenReturn(dsMatch);
 
-        Method findTmByMetadata = LoadDataExtension.class.getDeclaredMethod("findTmByMetadata",
-                ApplicationContext.class, String.class, String.class);
-        findTmByMetadata.setAccessible(true);
-
-        @SuppressWarnings("unchecked")
-        List<Object> list =
-                (List<Object>) findTmByMetadata.invoke(target, ac, "jdbc:h2:mem:ftm", "sa");
+        List<Object> list = castList(target.findTmByMetadata(ac, "jdbc:h2:mem:ftm", "sa"));
         assertEquals(1, list.size());
     }
 
@@ -1898,13 +1694,7 @@ class LoadDataExtensionTest {
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds1);
         when(ac.getBean("ds2", DataSource.class)).thenReturn(ds2);
 
-        Method resolveComponentsForDbId = LoadDataExtension.class.getDeclaredMethod(
-                "resolveComponentsForDbId", ApplicationContext.class, String.class);
-        resolveComponentsForDbId.setAccessible(true);
-
-        Exception ex = assertThrows(Exception.class,
-                () -> resolveComponentsForDbId.invoke(target, ac, "db1"));
-        assertTrue(ex.getCause() instanceof IllegalStateException);
+        assertThrows(IllegalStateException.class, () -> target.resolveComponentsForDbId(ac, "db1"));
     }
 
     @Test
@@ -1925,13 +1715,7 @@ class LoadDataExtensionTest {
         when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"ds1"});
         when(ac.getBean("ds1", DataSource.class)).thenReturn(dsMismatch);
 
-        Method resolveComponentsForDbId = LoadDataExtension.class.getDeclaredMethod(
-                "resolveComponentsForDbId", ApplicationContext.class, String.class);
-        resolveComponentsForDbId.setAccessible(true);
-
-        Exception ex = assertThrows(Exception.class,
-                () -> resolveComponentsForDbId.invoke(target, ac, "db1"));
-        assertTrue(ex.getCause() instanceof IllegalStateException);
+        assertThrows(IllegalStateException.class, () -> target.resolveComponentsForDbId(ac, "db1"));
     }
 
     @Test
@@ -1957,10 +1741,7 @@ class LoadDataExtensionTest {
         when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"ds1"});
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds);
 
-        Method resolveComponentsForDbId = LoadDataExtension.class.getDeclaredMethod(
-                "resolveComponentsForDbId", ApplicationContext.class, String.class);
-        resolveComponentsForDbId.setAccessible(true);
-        Object components = resolveComponentsForDbId.invoke(target, ac, "db1");
+        Object components = target.resolveComponentsForDbId(ac, "db1");
 
         Class<?> componentsClass =
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$Components");
@@ -1997,10 +1778,7 @@ class LoadDataExtensionTest {
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds1);
         when(ac.getBean("ds2", DataSource.class)).thenReturn(ds2);
 
-        Method resolveComponentsForDbId = LoadDataExtension.class.getDeclaredMethod(
-                "resolveComponentsForDbId", ApplicationContext.class, String.class);
-        resolveComponentsForDbId.setAccessible(true);
-        Object components = resolveComponentsForDbId.invoke(target, ac, "db1");
+        Object components = target.resolveComponentsForDbId(ac, "db1");
 
         Class<?> componentsClass =
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$Components");
@@ -2040,13 +1818,7 @@ class LoadDataExtensionTest {
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds1);
         when(ac.getBean("ds2", DataSource.class)).thenReturn(ds2);
 
-        Method resolveComponentsForDbId = LoadDataExtension.class.getDeclaredMethod(
-                "resolveComponentsForDbId", ApplicationContext.class, String.class);
-        resolveComponentsForDbId.setAccessible(true);
-
-        Exception ex = assertThrows(Exception.class,
-                () -> resolveComponentsForDbId.invoke(target, ac, "db1"));
-        assertTrue(ex.getCause() instanceof IllegalStateException);
+        assertThrows(IllegalStateException.class, () -> target.resolveComponentsForDbId(ac, "db1"));
     }
 
     @Test
@@ -2083,10 +1855,7 @@ class LoadDataExtensionTest {
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds1);
         when(ac.getBean("ds2", DataSource.class)).thenReturn(ds2);
 
-        Method resolveComponentsForDbId = LoadDataExtension.class.getDeclaredMethod(
-                "resolveComponentsForDbId", ApplicationContext.class, String.class);
-        resolveComponentsForDbId.setAccessible(true);
-        Object components = resolveComponentsForDbId.invoke(target, ac, "db1");
+        Object components = target.resolveComponentsForDbId(ac, "db1");
         Class<?> componentsClass =
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$Components");
         assertSame(ds1, readField(componentsClass, components, "dataSource"));
@@ -2096,12 +1865,8 @@ class LoadDataExtensionTest {
     void pickPrimary_異常ケース_primary複数と非Configurableを判定する_nullが返ること() throws Exception {
         DataSource ds1 = mock(DataSource.class);
         DataSource ds2 = mock(DataSource.class);
-        Class<?> namedDsClass =
-                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$NamedDs");
-        Constructor<?> ctor = namedDsClass.getDeclaredConstructor(String.class, DataSource.class);
-        ctor.setAccessible(true);
-        Object n1 = ctor.newInstance("ds1", ds1);
-        Object n2 = ctor.newInstance("ds2", ds2);
+        LoadDataExtension.NamedDs n1 = new LoadDataExtension.NamedDs("ds1", ds1);
+        LoadDataExtension.NamedDs n2 = new LoadDataExtension.NamedDs("ds2", ds2);
 
         ConfigurableApplicationContext ac = mock(ConfigurableApplicationContext.class);
         ConfigurableListableBeanFactory bf = mock(ConfigurableListableBeanFactory.class);
@@ -2115,24 +1880,17 @@ class LoadDataExtensionTest {
         when(bd1.isPrimary()).thenReturn(true);
         when(bd2.isPrimary()).thenReturn(true);
 
-        Method pickPrimary = LoadDataExtension.class.getDeclaredMethod("pickPrimary",
-                ApplicationContext.class, List.class);
-        pickPrimary.setAccessible(true);
-        assertEquals(null, pickPrimary.invoke(target, ac, List.of(n1, n2)));
+        assertEquals(null, target.pickPrimary(ac, List.of(n1, n2)));
 
         ApplicationContext nonConfigurable = mock(ApplicationContext.class);
-        assertEquals(null, pickPrimary.invoke(target, nonConfigurable, List.of(n1, n2)));
+        assertEquals(null, target.pickPrimary(nonConfigurable, List.of(n1, n2)));
     }
 
     @Test
     void pickSingleReferencedByTm_異常ケース_TMがDataSourceTransactionManager以外の場合_参照なしでnullが返ること()
             throws Exception {
         DataSource ds1 = mock(DataSource.class);
-        Class<?> namedDsClass =
-                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$NamedDs");
-        Constructor<?> ctor = namedDsClass.getDeclaredConstructor(String.class, DataSource.class);
-        ctor.setAccessible(true);
-        Object n1 = ctor.newInstance("ds1", ds1);
+        LoadDataExtension.NamedDs n1 = new LoadDataExtension.NamedDs("ds1", ds1);
 
         ApplicationContext ac = mock(ApplicationContext.class);
         when(ac.getBeanNamesForType(PlatformTransactionManager.class))
@@ -2140,28 +1898,18 @@ class LoadDataExtensionTest {
         when(ac.getBean("tm1", PlatformTransactionManager.class))
                 .thenReturn(mock(PlatformTransactionManager.class));
 
-        Method pickSingleReferencedByTm = LoadDataExtension.class.getDeclaredMethod(
-                "pickSingleReferencedByTm", ApplicationContext.class, List.class);
-        pickSingleReferencedByTm.setAccessible(true);
-        assertEquals(null, pickSingleReferencedByTm.invoke(target, ac, List.of(n1)));
+        assertEquals(null, target.pickSingleReferencedByTm(ac, List.of(n1)));
     }
 
     @Test
     void helperBranches_正常ケース_URL比較とnull比較の残分岐を通す_期待値が返ること() throws Exception {
-        Method urlRoughMatch = LoadDataExtension.class.getDeclaredMethod("urlRoughMatch",
-                String.class, String.class);
-        urlRoughMatch.setAccessible(true);
-        assertEquals(true,
-                urlRoughMatch.invoke(target, "jdbc:h2:mem:a", "jdbc:h2:mem:a;MODE=Oracle"));
-        assertEquals(true, urlRoughMatch.invoke(target, "jdbc:h2:mem:abcdef", "jdbc:h2:mem:abc"));
-        assertEquals(false, urlRoughMatch.invoke(target, null, "jdbc:h2:mem:a"));
-        assertEquals(false, urlRoughMatch.invoke(target, "jdbc:h2:mem:a", null));
+        assertEquals(true, target.urlRoughMatch("jdbc:h2:mem:a", "jdbc:h2:mem:a;MODE=Oracle"));
+        assertEquals(true, target.urlRoughMatch("jdbc:h2:mem:abcdef", "jdbc:h2:mem:abc"));
+        assertEquals(false, target.urlRoughMatch(null, "jdbc:h2:mem:a"));
+        assertEquals(false, target.urlRoughMatch("jdbc:h2:mem:a", null));
 
-        Method equalsIgnoreCaseSafe = LoadDataExtension.class
-                .getDeclaredMethod("equalsIgnoreCaseSafe", String.class, String.class);
-        equalsIgnoreCaseSafe.setAccessible(true);
-        assertEquals(false, equalsIgnoreCaseSafe.invoke(target, "A", null));
-        assertEquals(false, equalsIgnoreCaseSafe.invoke(target, null, "A"));
+        assertEquals(false, target.equalsIgnoreCaseSafe("A", null));
+        assertEquals(false, target.equalsIgnoreCaseSafe(null, "A"));
     }
 
     @Test
@@ -2172,10 +1920,7 @@ class LoadDataExtensionTest {
         when(ds.getConnection()).thenReturn(conn);
         when(conn.getMetaData()).thenReturn(null);
 
-        Method probeDataSourceMeta =
-                LoadDataExtension.class.getDeclaredMethod("probeDataSourceMeta", DataSource.class);
-        probeDataSourceMeta.setAccessible(true);
-        Object meta = probeDataSourceMeta.invoke(target, ds);
+        Object meta = target.probeDataSourceMeta(ds);
         Class<?> metaClass =
                 Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$ProbeMeta");
         assertEquals(null, readField(metaClass, meta, "url"));
@@ -2192,12 +1937,7 @@ class LoadDataExtensionTest {
         when(ac.getBean("ds1", DataSource.class)).thenReturn(match);
         when(ac.getBean("ds2", DataSource.class)).thenReturn(userMismatch);
 
-        Method findDataSourceByMetadata = LoadDataExtension.class.getDeclaredMethod(
-                "findDataSourceByMetadata", ApplicationContext.class, String.class, String.class);
-        findDataSourceByMetadata.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        List<Object> list =
-                (List<Object>) findDataSourceByMetadata.invoke(target, ac, "jdbc:h2:mem:fds", "sa");
+        List<Object> list = castList(target.findDataSourceByMetadata(ac, "jdbc:h2:mem:fds", "sa"));
         assertEquals(1, list.size());
     }
 
@@ -2212,12 +1952,7 @@ class LoadDataExtensionTest {
         when(ac.getBean("fail", DataSource.class)).thenReturn(fail);
         when(ac.getBean("ok", DataSource.class)).thenReturn(match);
 
-        Method findDataSourceByMetadata = LoadDataExtension.class.getDeclaredMethod(
-                "findDataSourceByMetadata", ApplicationContext.class, String.class, String.class);
-        findDataSourceByMetadata.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        List<Object> list = (List<Object>) findDataSourceByMetadata.invoke(target, ac,
-                "jdbc:h2:mem:fds2", "sa");
+        List<Object> list = castList(target.findDataSourceByMetadata(ac, "jdbc:h2:mem:fds2", "sa"));
         assertEquals(1, list.size());
     }
 
@@ -2231,14 +1966,10 @@ class LoadDataExtensionTest {
         Class<?> recClass = Class.forName(
                 "io.github.yok.flexdblink.maven.LoadDataExtension$TxInterceptorSwitchRecord");
         Constructor<?> recCtor = recClass.getDeclaredConstructor();
-        recCtor.setAccessible(true);
         Object rec = recCtor.newInstance();
         storeMap.put("TXI_DEFAULT_SWITCH", rec);
 
-        Method restore = LoadDataExtension.class
-                .getDeclaredMethod("restoreTxInterceptorDefaultManager", ExtensionContext.class);
-        restore.setAccessible(true);
-        assertDoesNotThrow(() -> restore.invoke(target, context));
+        assertDoesNotThrow(() -> target.restoreTxInterceptorDefaultManager(context));
         assertNotNull(storeMap.get("TXI_DEFAULT_SWITCH"));
     }
 
@@ -2270,10 +2001,6 @@ class LoadDataExtensionTest {
                 .thenReturn(Collections.emptyMap());
         when(tm.getTransaction(Mockito.any())).thenReturn(status);
 
-        Method loadScenarioParticipating = LoadDataExtension.class.getDeclaredMethod(
-                "loadScenarioParticipating", ExtensionContext.class, String.class, String[].class);
-        loadScenarioParticipating.setAccessible(true);
-
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
                 MockedStatic<DataSourceUtils> dsUtils = Mockito.mockStatic(DataSourceUtils.class);
                 MockedConstruction<DumpConfig> dumpConfigConstruction =
@@ -2288,8 +2015,7 @@ class LoadDataExtensionTest {
             spring.when(() -> SpringExtension.getApplicationContext(context))
                     .thenReturn(applicationContext);
             dsUtils.when(() -> DataSourceUtils.getConnection(ds)).thenReturn(conn);
-            assertDoesNotThrow(
-                    () -> loadScenarioParticipating.invoke(target, context, "S_DUMP_CFG", null));
+            assertDoesNotThrow(() -> target.loadScenarioParticipating(context, "S_DUMP_CFG", null));
             assertEquals(1, dumpConfigConstruction.constructed().size());
             assertEquals(1, loaders.constructed().size());
         }
@@ -2303,9 +2029,7 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:blank_class");
         props.setProperty("spring.datasource.username", "sa");
         TestResourceContext trc = newTrc(dummyClassClassPathDir, props);
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, trc);
+        target.setTestResourceContext(trc);
 
         ExtensionContext context = mock(ExtensionContext.class);
         doReturn(BlankScenarioClass.class).when(context).getRequiredTestClass();
@@ -2349,9 +2073,7 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:blank_method");
         props.setProperty("spring.datasource.username", "sa");
         TestResourceContext trc = newTrc(dummyClassClassPathDir, props);
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, trc);
+        target.setTestResourceContext(trc);
 
         Method method = BlankScenarioMethodClass.class.getDeclaredMethod("blankScenarioMethod");
         ExtensionContext context = mock(ExtensionContext.class);
@@ -2413,10 +2135,6 @@ class LoadDataExtensionTest {
         when(applicationContext.getBeansOfType(TransactionInterceptor.class))
                 .thenReturn(Collections.emptyMap());
 
-        Method loadScenarioParticipating = LoadDataExtension.class.getDeclaredMethod(
-                "loadScenarioParticipating", ExtensionContext.class, String.class, String[].class);
-        loadScenarioParticipating.setAccessible(true);
-
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
                 MockedStatic<DataSourceUtils> dsUtils = Mockito.mockStatic(DataSourceUtils.class);
                 MockedStatic<TransactionSynchronizationManager> txSync =
@@ -2430,8 +2148,8 @@ class LoadDataExtensionTest {
             txSync.when(TransactionSynchronizationManager::isActualTransactionActive)
                     .thenReturn(true);
             txSync.when(() -> TransactionSynchronizationManager.hasResource(ds)).thenReturn(true);
-            assertDoesNotThrow(() -> loadScenarioParticipating.invoke(target, context,
-                    "S_SINGLE_BOUND", new String[0]));
+            assertDoesNotThrow(() -> target.loadScenarioParticipating(context, "S_SINGLE_BOUND",
+                    new String[0]));
             verify(loaders.constructed().get(0)).executeWithConnection(Mockito.any(), Mockito.any(),
                     Mockito.any());
         }
@@ -2449,12 +2167,7 @@ class LoadDataExtensionTest {
         when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"ds1"});
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds);
 
-        Method findTmByMetadata = LoadDataExtension.class.getDeclaredMethod("findTmByMetadata",
-                ApplicationContext.class, String.class, String.class);
-        findTmByMetadata.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        List<Object> list =
-                (List<Object>) findTmByMetadata.invoke(target, ac, "jdbc:h2:mem:u_mismatch", "sa");
+        List<Object> list = castList(target.findTmByMetadata(ac, "jdbc:h2:mem:u_mismatch", "sa"));
         assertTrue(list.isEmpty());
     }
 
@@ -2462,12 +2175,8 @@ class LoadDataExtensionTest {
     void pickPrimary_正常ケース_BeanDefinition未登録候補をスキップする_登録済primaryが返ること() throws Exception {
         DataSource ds1 = mock(DataSource.class);
         DataSource ds2 = mock(DataSource.class);
-        Class<?> namedDsClass =
-                Class.forName("io.github.yok.flexdblink.maven.LoadDataExtension$NamedDs");
-        Constructor<?> ctor = namedDsClass.getDeclaredConstructor(String.class, DataSource.class);
-        ctor.setAccessible(true);
-        Object n1 = ctor.newInstance("ds1", ds1);
-        Object n2 = ctor.newInstance("ds2", ds2);
+        LoadDataExtension.NamedDs n1 = new LoadDataExtension.NamedDs("ds1", ds1);
+        LoadDataExtension.NamedDs n2 = new LoadDataExtension.NamedDs("ds2", ds2);
 
         ConfigurableApplicationContext ac = mock(ConfigurableApplicationContext.class);
         ConfigurableListableBeanFactory bf = mock(ConfigurableListableBeanFactory.class);
@@ -2478,11 +2187,8 @@ class LoadDataExtensionTest {
         when(bf.getBeanDefinition("ds2")).thenReturn(bd2);
         when(bd2.isPrimary()).thenReturn(true);
 
-        Method pickPrimary = LoadDataExtension.class.getDeclaredMethod("pickPrimary",
-                ApplicationContext.class, List.class);
-        pickPrimary.setAccessible(true);
-        Object picked = pickPrimary.invoke(target, ac, List.of(n1, n2));
-        assertEquals("ds2", readField(namedDsClass, picked, "name"));
+        LoadDataExtension.NamedDs picked = target.pickPrimary(ac, List.of(n1, n2));
+        assertEquals("ds2", picked.name);
     }
 
     private ExtensionContext mockContextForClass(Class<?> clazz) {
@@ -2494,9 +2200,7 @@ class LoadDataExtensionTest {
 
     private void setTrc(Properties props) throws Exception {
         TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
-        var trcField = LoadDataExtension.class.getDeclaredField("trc");
-        trcField.setAccessible(true);
-        trcField.set(target, trc);
+        target.setTestResourceContext(trc);
     }
 
     private DataSource dataSourceWithMeta(String url, String user) throws Exception {
@@ -2508,6 +2212,11 @@ class LoadDataExtensionTest {
         when(meta.getURL()).thenReturn(url);
         when(meta.getUserName()).thenReturn(user);
         return ds;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Object> castList(List<?> values) {
+        return (List<Object>) values;
     }
 
     private Store mockStore(ExtensionContext context, Map<Object, Object> storeMap) {
@@ -2533,15 +2242,20 @@ class LoadDataExtensionTest {
 
     private Object readField(Class<?> owner, Object target, String fieldName) throws Exception {
         java.lang.reflect.Field field = owner.getDeclaredField(fieldName);
-        field.setAccessible(true);
         return field.get(target);
     }
 
-    private String readTxManagerBeanName(TransactionInterceptor interceptor) throws Exception {
-        Class<?> superClass = interceptor.getClass().getSuperclass();
-        Method getter = superClass.getDeclaredMethod("getTransactionManagerBeanName");
-        getter.setAccessible(true);
-        return (String) getter.invoke(interceptor);
+    private String readTxManagerBeanName(TransactionInterceptor interceptor) {
+        return ((InspectableTransactionInterceptor) interceptor).transactionManagerBeanName();
+    }
+
+    private static final class InspectableTransactionInterceptor extends TransactionInterceptor {
+
+        private static final long serialVersionUID = 1L;
+
+        private String transactionManagerBeanName() {
+            return getTransactionManagerBeanName();
+        }
     }
 
     private void mkDirs(Path p) {
@@ -2577,15 +2291,11 @@ class LoadDataExtensionTest {
     // リフレクション用
     @SneakyThrows
     private static TestResourceContext getTrc(LoadDataExtension target) {
-        var f = LoadDataExtension.class.getDeclaredField("trc");
-        f.setAccessible(true);
-        return (TestResourceContext) f.get(target);
+        return target.getTestResourceContext();
     }
 
     @SneakyThrows
     private static TestResourceContext newTrc(Path classRoot, Properties props) {
-        var c = TestResourceContext.class.getDeclaredConstructor(Path.class, Properties.class);
-        c.setAccessible(true);
-        return c.newInstance(classRoot, props);
+        return new TestResourceContext(classRoot, props);
     }
 }

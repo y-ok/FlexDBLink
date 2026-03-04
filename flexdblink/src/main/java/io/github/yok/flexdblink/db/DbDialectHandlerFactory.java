@@ -108,6 +108,15 @@ public class DbDialectHandlerFactory {
     }
 
     /**
+     * Returns the DBUnit configuration factory used by this dialect factory.
+     *
+     * @return DBUnit configuration factory
+     */
+    public DbUnitConfigFactory getConfigFactory() {
+        return configFactory;
+    }
+
+    /**
      * Resolves the database type for a connection entry.
      *
      * <p>
@@ -231,8 +240,8 @@ public class DbDialectHandlerFactory {
      */
     private DbDialectHandler createPostgresql(ConnectionConfig.Entry entry) throws Exception {
         return initHandler(entry, "public", new CustomPostgresqlDataTypeFactory(),
-                (dbConn) -> new PostgresqlDialectHandler(dbConn,
-                dumpConfig, dbUnitConfig, configFactory, dateTimeFormatter, pathsConfig));
+                (dbConn) -> new PostgresqlDialectHandler(dbConn, dumpConfig, dbUnitConfig,
+                        configFactory, dateTimeFormatter, pathsConfig));
     }
 
     /**
@@ -244,9 +253,8 @@ public class DbDialectHandlerFactory {
      */
     private DbDialectHandler createMySql(ConnectionConfig.Entry entry) throws Exception {
         return initHandler(entry, resolveMySqlDatabase(entry.getUrl()),
-                new CustomMySqlDataTypeFactory(),
-                (dbConn) -> new MySqlDialectHandler(dbConn, dumpConfig, dbUnitConfig, configFactory,
-                        dateTimeFormatter, pathsConfig));
+                new CustomMySqlDataTypeFactory(), (dbConn) -> new MySqlDialectHandler(dbConn,
+                        dumpConfig, dbUnitConfig, configFactory, dateTimeFormatter, pathsConfig));
     }
 
     /**
@@ -280,8 +288,7 @@ public class DbDialectHandlerFactory {
      * @throws Exception if creation fails
      */
     private DbDialectHandler initHandler(ConnectionConfig.Entry entry, String schema,
-            IDataTypeFactory dataTypeFactory,
-            HandlerFactory handlerFactory) throws Exception {
+            IDataTypeFactory dataTypeFactory, HandlerFactory handlerFactory) throws Exception {
         Connection jdbc =
                 DriverManager.getConnection(entry.getUrl(), entry.getUser(), entry.getPassword());
         DatabaseConnection dbConn = null;

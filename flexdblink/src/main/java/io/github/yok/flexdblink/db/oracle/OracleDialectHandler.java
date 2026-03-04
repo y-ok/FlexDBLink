@@ -311,7 +311,7 @@ public class OracleDialectHandler implements DbDialectHandler {
                 boolean excluded = effectiveExcludeTables.stream()
                         .anyMatch(ex -> ex.equalsIgnoreCase(tableName));
                 if (excluded) {
-                    log.info("Table [{}] is in the exclude list → skip", tableName);
+                    log.debug("Table [{}] is in the exclude list → skip", tableName);
                 } else {
                     tables.add(tableName);
                 }
@@ -537,7 +537,7 @@ public class OracleDialectHandler implements DbDialectHandler {
 
         String relStr = FilenameUtils.separatorsToUnix(dataDir.relativize(full).toString());
 
-        log.info("  LOB file written: {}", relStr);
+        log.debug("  LOB file written: {}", relStr);
     }
 
     /**
@@ -962,12 +962,6 @@ public class OracleDialectHandler implements DbDialectHandler {
     @Override
     public Column[] getLobColumns(Path csvDirPath, String tableName)
             throws IOException, DataSetException {
-
-        log.info("CSVParser class={}", CSVParser.class.getName());
-        log.info("CSVParser from={}", CSVParser.class.getResource("CSVParser.class"));
-        String implVer = CSVParser.class.getPackage().getImplementationVersion();
-        log.info("CSV implVersion={}", implVer);
-
         // Full path to CSV file
         Path csv = csvDirPath.resolve(tableName + ".csv");
 
@@ -978,10 +972,10 @@ public class OracleDialectHandler implements DbDialectHandler {
         // Unify separators to UNIX style
         String relPath = FilenameUtils.separatorsToUnix(rel.toString());
 
-        log.info("  Extracting LOB columns from: {}", relPath);
+        log.debug("  Extracting LOB columns from: {}", relPath);
 
         if (!Files.exists(csv, LinkOption.NOFOLLOW_LINKS)) {
-            log.info("CSV file does not exist: {}", csv);
+            log.debug("CSV file does not exist: {}", csv);
             return new Column[0];
         }
         CSVFormat fmt = CSVFormat.DEFAULT.builder().setHeader(new String[0])

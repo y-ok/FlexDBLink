@@ -28,9 +28,6 @@ import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.TableDependencyResolver;
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -144,6 +141,15 @@ class DataLoaderTest {
     }
 
     @Test
+    void getInsertSummary_正常ケース_初期状態で取得する_空マップが返ること() {
+        DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                mock(DumpConfig.class));
+
+        assertTrue(loader.getInsertSummary().isEmpty());
+    }
+
+    @Test
     void operationExecutor_正常ケース_deleteAllを実行する_デフォルト実装行が通過すること() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
@@ -176,6 +182,27 @@ class DataLoaderTest {
         return connection;
     }
 
+    private DatabaseConnection createDbUnitConn(DataLoader loader, Connection jdbc,
+            ConnectionConfig.Entry entry, DbDialectHandler dialectHandler) throws Exception {
+        return loader.createDbUnitConn(jdbc, entry, dialectHandler);
+    }
+
+    private void deploy(DataLoader loader, File dir, String dbId, boolean initial,
+            ConnectionConfig.Entry entry, DbDialectHandler dialectHandler, int tableLogWidth,
+            String errorMessage) {
+        loader.deploy(dir, dbId, initial, entry, dialectHandler, tableLogWidth, errorMessage);
+    }
+
+    private void deployWithConnection(DataLoader loader, File dir, String dbId,
+            ConnectionConfig.Entry entry, Connection jdbc, DbDialectHandler dialectHandler,
+            String errorMessage) {
+        loader.deployWithConnection(dir, dbId, entry, jdbc, dialectHandler, errorMessage);
+    }
+
+    private void logSummary(DataLoader loader) {
+        loader.logSummary();
+    }
+
     @Test
     void createDbUnitConn_正常ケース_方言ハンドラ委譲して接続を返すこと() throws Exception {
         PathsConfig pathsConfig = mock(PathsConfig.class);
@@ -193,11 +220,7 @@ class DataLoaderTest {
         DatabaseConnection expected = mock(DatabaseConnection.class);
         when(dialectHandler.createDbUnitConnection(eq(jdbc), eq("APP"))).thenReturn(expected);
 
-        Method method = DataLoader.class.getDeclaredMethod("createDbUnitConn", Connection.class,
-                ConnectionConfig.Entry.class, DbDialectHandler.class);
-        method.setAccessible(true);
-        DatabaseConnection actual =
-                (DatabaseConnection) method.invoke(loader, jdbc, entry, dialectHandler);
+        DatabaseConnection actual = createDbUnitConn(loader, jdbc, entry, dialectHandler);
 
         verify(dialectHandler).prepareConnection(jdbc);
         verify(dialectHandler).createDbUnitConnection(jdbc, "APP");
@@ -393,16 +416,11 @@ class DataLoaderTest {
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
 
-        Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
-                String.class, ConnectionConfig.Entry.class, Connection.class,
-                DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
             factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                     .thenThrow(new RuntimeException("skip"));
 
-            method.invoke(loader, dir.toFile(), "db1", entry, jdbc, dialectHandler, "err");
+            deployWithConnection(loader, dir.toFile(), "db1", entry, jdbc, dialectHandler, "err");
         }
 
         verify(dialectHandler).createDbUnitConnection(jdbc, "APP");
@@ -432,13 +450,8 @@ class DataLoaderTest {
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
 
-        Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
-                String.class, ConnectionConfig.Entry.class, Connection.class,
-                DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
-            method.invoke(loader, dir.toFile(), "db1", entry, jdbc, dialectHandler, "err");
+            deployWithConnection(loader, dir.toFile(), "db1", entry, jdbc, dialectHandler, "err");
             factory.verifyNoInteractions();
         }
 
@@ -469,12 +482,8 @@ class DataLoaderTest {
 
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
         when(dialectHandler.resolveSchema(any())).thenReturn("APP");
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class)) {
-            method.invoke(loader, dir.toFile(), "db1", true, entry, dialectHandler, "err");
+            deploy(loader, dir.toFile(), "db1", true, entry, dialectHandler, 0, "err");
             driverManager.verifyNoInteractions();
         }
 
@@ -501,12 +510,8 @@ class DataLoaderTest {
 
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
         when(dialectHandler.resolveSchema(any())).thenReturn("APP");
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class)) {
-            method.invoke(loader, dir.toFile(), "db1", true, entry, dialectHandler, "err");
+            deploy(loader, dir.toFile(), "db1", true, entry, dialectHandler, 0, "err");
             driverManager.verifyNoInteractions();
         }
 
@@ -550,10 +555,6 @@ class DataLoaderTest {
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("table-ordering.txt"), "\n  \n", StandardCharsets.UTF_8);
 
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setDriverClass("java.lang.String");
         entry.setUrl("jdbc:dummy");
@@ -563,7 +564,7 @@ class DataLoaderTest {
         when(dialectHandler.resolveSchema(any())).thenReturn("APP");
 
         try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class)) {
-            method.invoke(loader, dir.toFile(), "db1", true, entry, dialectHandler, "err");
+            deploy(loader, dir.toFile(), "db1", true, entry, dialectHandler, 0, "err");
             driverManager.verifyNoInteractions();
         }
     }
@@ -590,16 +591,10 @@ class DataLoaderTest {
         entry.setUser("u");
         entry.setPassword("p");
 
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         ErrorHandler.disableExitForCurrentThread();
         try {
-            InvocationTargetException ex = assertThrows(InvocationTargetException.class,
-                    () -> method.invoke(loader, dir.toFile(), "db1", true, entry,
-                            mock(DbDialectHandler.class), "fatal"));
-            assertTrue(ex.getCause() instanceof IllegalStateException);
+            assertThrows(IllegalStateException.class, () -> deploy(loader, dir.toFile(), "db1",
+                    true, entry, mock(DbDialectHandler.class), 0, "fatal"));
         } finally {
             ErrorHandler.restoreExitForCurrentThread();
         }
@@ -611,19 +606,13 @@ class DataLoaderTest {
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
 
-        Field field = DataLoader.class.getDeclaredField("insertSummary");
-        field.setAccessible(true);
-        @SuppressWarnings("unchecked")
-        Map<String, Map<String, Integer>> summary =
-                (Map<String, Map<String, Integer>>) field.get(loader);
+        Map<String, Map<String, Integer>> summary = loader.getInsertSummary();
         Map<String, Integer> tableMap = new LinkedHashMap<>();
         tableMap.put("T1", 10);
         tableMap.put("LONG_TABLE", 200);
         summary.put("DB1", tableMap);
 
-        Method method = DataLoader.class.getDeclaredMethod("logSummary");
-        method.setAccessible(true);
-        method.invoke(loader);
+        logSummary(loader);
 
         assertEquals(1, summary.size());
     }
@@ -658,10 +647,6 @@ class DataLoaderTest {
 
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
 
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -674,7 +659,7 @@ class DataLoaderTest {
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
 
-                method.invoke(loader, dir.toFile(), "db1", true, entry, dialectHandler, "fatal");
+                deploy(loader, dir.toFile(), "db1", true, entry, dialectHandler, 0, "fatal");
             }
         });
 
@@ -716,10 +701,6 @@ class DataLoaderTest {
 
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
 
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         DatabaseOperation clean = mock(DatabaseOperation.class);
         doThrow(new RuntimeException("boom")).when(clean).execute(any(), any());
         DatabaseOperation update = mock(DatabaseOperation.class);
@@ -737,10 +718,8 @@ class DataLoaderTest {
                     factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                             .thenReturn(dataSetWrapper.dataSet);
 
-                    InvocationTargetException ex = assertThrows(InvocationTargetException.class,
-                            () -> method.invoke(loader, dir.toFile(), "db1", true, entry,
-                                    dialectHandler, "fatal"));
-                    assertTrue(ex.getCause() instanceof IllegalStateException);
+                    assertThrows(IllegalStateException.class, () -> deploy(loader, dir.toFile(),
+                            "db1", true, entry, dialectHandler, 0, "fatal"));
                 }
             });
         } finally {
@@ -778,11 +757,6 @@ class DataLoaderTest {
 
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
 
-        Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
-                String.class, ConnectionConfig.Entry.class, Connection.class,
-                DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -791,7 +765,8 @@ class DataLoaderTest {
             try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
-                method.invoke(loader, dir.toFile(), "db1", entry, jdbc, dialectHandler, "err");
+                deployWithConnection(loader, dir.toFile(), "db1", entry, jdbc, dialectHandler,
+                        "err");
             }
         });
 
@@ -818,12 +793,8 @@ class DataLoaderTest {
         entry.setUser("u");
         entry.setPassword("p");
 
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class)) {
-            method.invoke(loader, dir.toFile(), "db1", true, entry, mock(DbDialectHandler.class),
+            deploy(loader, dir.toFile(), "db1", true, entry, mock(DbDialectHandler.class), 0,
                     "fatal");
             driverManager.verifyNoInteractions();
         }
@@ -874,10 +845,6 @@ class DataLoaderTest {
 
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "C1", "A");
 
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -889,7 +856,7 @@ class DataLoaderTest {
                         .thenReturn(jdbc);
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
-                method.invoke(loader, dir.toFile(), "db1", false, entry, dialect, "fatal");
+                deploy(loader, dir.toFile(), "db1", false, entry, dialect, 0, "fatal");
             }
         });
         verify(insert, times(1)).execute(eq(dbConn), any());
@@ -938,17 +905,10 @@ class DataLoaderTest {
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
 
-        Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
-                String.class, ConnectionConfig.Entry.class, Connection.class,
-                DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         ErrorHandler.disableExitForCurrentThread();
         try {
-            InvocationTargetException ex =
-                    assertThrows(InvocationTargetException.class, () -> method.invoke(loader,
-                            dir.toFile(), "db1", entry, mock(Connection.class), dialect, "fatal"));
-            assertTrue(ex.getCause() instanceof IllegalStateException);
+            assertThrows(IllegalStateException.class, () -> deployWithConnection(loader,
+                    dir.toFile(), "db1", entry, mock(Connection.class), dialect, "fatal"));
         } finally {
             ErrorHandler.restoreExitForCurrentThread();
         }
@@ -983,10 +943,6 @@ class DataLoaderTest {
         when(dialect.countRows(jdbc, "T1")).thenReturn(1);
 
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -998,7 +954,7 @@ class DataLoaderTest {
                         .thenReturn(jdbc);
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
-                method.invoke(loader, dir.toFile(), "db1", true, entry, dialect, "fatal");
+                deploy(loader, dir.toFile(), "db1", true, entry, dialect, 0, "fatal");
             }
         });
         verify(clean, times(1)).execute(eq(dbConn), any());
@@ -1047,10 +1003,6 @@ class DataLoaderTest {
         when(dialect.quoteIdentifier("ID")).thenReturn("\"ID\"");
 
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -1062,7 +1014,7 @@ class DataLoaderTest {
                         .thenReturn(jdbc);
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
-                method.invoke(loader, dir.toFile(), "db1", false, entry, dialect, "fatal");
+                deploy(loader, dir.toFile(), "db1", false, entry, dialect, 0, "fatal");
             }
         });
         verify(insert, times(1)).execute(eq(dbConn), any());
@@ -1090,10 +1042,6 @@ class DataLoaderTest {
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
-        Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
-                String.class, ConnectionConfig.Entry.class, Connection.class,
-                DbDialectHandler.class, String.class);
-        method.setAccessible(true);
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -1102,7 +1050,7 @@ class DataLoaderTest {
             try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
-                method.invoke(loader, dir.toFile(), "db1", entry, mock(Connection.class),
+                deployWithConnection(loader, dir.toFile(), "db1", entry, mock(Connection.class),
                         dialectHandler, "err");
             }
         });
@@ -1135,9 +1083,6 @@ class DataLoaderTest {
         when(dialect.hasNotNullLobColumn(any(), eq("APP"), eq("T1"), any())).thenReturn(true);
         when(dialect.countRows(jdbc, "T1")).thenReturn(1);
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -1149,7 +1094,7 @@ class DataLoaderTest {
                         .thenReturn(jdbc);
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
-                method.invoke(loader, dir.toFile(), "db1", true, entry, dialect, "fatal");
+                deploy(loader, dir.toFile(), "db1", true, entry, dialect, 0, "fatal");
             }
         });
         verify(clean, times(1)).execute(eq(dbConn), any());
@@ -1171,19 +1116,14 @@ class DataLoaderTest {
         entry.setUrl("jdbc:fail");
         entry.setUser("u");
         entry.setPassword("p");
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
         DbDialectHandler dialect = mock(DbDialectHandler.class);
         when(dialect.resolveSchema(any())).thenReturn("APP");
         ErrorHandler.disableExitForCurrentThread();
         try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:fail", "u", "p"))
                     .thenThrow(new RuntimeException("conn fail"));
-            InvocationTargetException ex =
-                    assertThrows(InvocationTargetException.class, () -> method.invoke(loader,
-                            dir.toFile(), "db1", true, entry, dialect, "fatal"));
-            assertTrue(ex.getCause() instanceof IllegalStateException);
+            assertThrows(IllegalStateException.class,
+                    () -> deploy(loader, dir.toFile(), "db1", true, entry, dialect, 0, "fatal"));
         } finally {
             ErrorHandler.restoreExitForCurrentThread();
         }
@@ -1230,9 +1170,6 @@ class DataLoaderTest {
         PreparedStatement ps = mock(PreparedStatement.class);
         when(jdbc.prepareStatement("DELETE FROM \"APP\".\"T1\" WHERE \"ID\" = ?")).thenReturn(ps);
         when(ps.executeBatch()).thenReturn(new int[] {1});
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -1244,7 +1181,7 @@ class DataLoaderTest {
                         .thenReturn(jdbc);
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSet);
-                method.invoke(loader, dir.toFile(), "db1", false, entry, dialect, "fatal");
+                deploy(loader, dir.toFile(), "db1", false, entry, dialect, 0, "fatal");
             }
         });
         verify(insert, times(1)).execute(eq(dbConn), any());
@@ -1270,18 +1207,13 @@ class DataLoaderTest {
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
-        Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
-                String.class, ConnectionConfig.Entry.class, Connection.class,
-                DbDialectHandler.class, String.class);
-        method.setAccessible(true);
         ErrorHandler.disableExitForCurrentThread();
         try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
             factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                     .thenReturn(dataSetWrapper.dataSet);
-            InvocationTargetException ex =
-                    assertThrows(InvocationTargetException.class, () -> method.invoke(loader,
-                            dir.toFile(), "db1", entry, mock(Connection.class), dialect, "fatal"));
-            assertTrue(ex.getCause() instanceof IllegalStateException);
+            assertThrows(IllegalStateException.class,
+                    () -> deployWithConnection(loader, dir.toFile(), "db1", entry,
+                            mock(Connection.class), dialect, "fatal"));
         } finally {
             ErrorHandler.restoreExitForCurrentThread();
         }
@@ -1307,10 +1239,6 @@ class DataLoaderTest {
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
-        Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
-                String.class, ConnectionConfig.Entry.class, Connection.class,
-                DbDialectHandler.class, String.class);
-        method.setAccessible(true);
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -1319,8 +1247,8 @@ class DataLoaderTest {
             try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
-                method.invoke(loader, dir.toFile(), "db1", entry, mock(Connection.class), dialect,
-                        "fatal");
+                deployWithConnection(loader, dir.toFile(), "db1", entry, mock(Connection.class),
+                        dialect, "fatal");
             }
         });
         verify(clean, times(1)).execute(eq(dbConn), any());
@@ -1342,16 +1270,13 @@ class DataLoaderTest {
         entry.setUrl("jdbc:errorhandler");
         entry.setUser("u");
         entry.setPassword("p");
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
         try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
                 MockedStatic<ErrorHandler> errorHandler = mockStatic(ErrorHandler.class)) {
             driverManager.when(() -> DriverManager.getConnection("jdbc:errorhandler", "u", "p"))
                     .thenThrow(new RuntimeException("x"));
             errorHandler.when(() -> ErrorHandler.errorAndExit(anyString(), any(Throwable.class)))
                     .thenAnswer(inv -> null);
-            method.invoke(loader, dir.toFile(), "db1", true, entry, mock(DbDialectHandler.class),
+            deploy(loader, dir.toFile(), "db1", true, entry, mock(DbDialectHandler.class), 0,
                     "fatal");
             errorHandler.verify(() -> ErrorHandler.errorAndExit(eq("fatal"), any(Throwable.class)),
                     times(1));
@@ -1376,18 +1301,14 @@ class DataLoaderTest {
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
-        Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
-                String.class, ConnectionConfig.Entry.class, Connection.class,
-                DbDialectHandler.class, String.class);
-        method.setAccessible(true);
         try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class);
                 MockedStatic<ErrorHandler> errorHandler = mockStatic(ErrorHandler.class)) {
             factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                     .thenReturn(dataSetWrapper.dataSet);
             errorHandler.when(() -> ErrorHandler.errorAndExit(anyString(), any(Throwable.class)))
                     .thenAnswer(inv -> null);
-            method.invoke(loader, dir.toFile(), "db1", entry, mock(Connection.class), dialect,
-                    "fatal");
+            deployWithConnection(loader, dir.toFile(), "db1", entry, mock(Connection.class),
+                    dialect, "fatal");
             errorHandler.verify(() -> ErrorHandler.errorAndExit(eq("fatal"), any(Throwable.class)),
                     times(1));
         }
@@ -1411,6 +1332,101 @@ class DataLoaderTest {
     }
 
     @Test
+    void execute_正常ケース_dumpConfigがnullかつ接続設定が空である_例外なく完了すること() {
+        PathsConfig pathsConfig = new PathsConfig();
+        pathsConfig.setDataPath(tempDir.toString());
+        DbUnitConfig dbUnitConfig = new DbUnitConfig();
+        dbUnitConfig.setPreDirName("pre");
+        ConnectionConfig connectionConfig = new ConnectionConfig();
+        connectionConfig.setConnections(List.of());
+
+        DataLoader loader = new DataLoader(pathsConfig, connectionConfig,
+                e -> mock(DbDialectHandler.class), dbUnitConfig, null);
+
+        assertDoesNotThrow(() -> loader.execute(null, null));
+    }
+
+    @Test
+    void execute_正常ケース_dumpConfigのexcludeTablesがnullかつ接続設定が空である_例外なく完了すること() {
+        PathsConfig pathsConfig = new PathsConfig();
+        pathsConfig.setDataPath(tempDir.toString());
+        DbUnitConfig dbUnitConfig = new DbUnitConfig();
+        dbUnitConfig.setPreDirName("pre");
+        ConnectionConfig connectionConfig = new ConnectionConfig();
+        connectionConfig.setConnections(List.of());
+
+        DumpConfig dumpConfig = new DumpConfig();
+        dumpConfig.setExcludeTables(null);
+
+        DataLoader loader = new DataLoader(pathsConfig, connectionConfig,
+                e -> mock(DbDialectHandler.class), dbUnitConfig, dumpConfig);
+
+        assertDoesNotThrow(() -> loader.execute(null, null));
+    }
+
+    @Test
+    void execute_正常ケース_除外対象のデータセットファイルを含む_除外テーブルを除いてロードされること()
+            throws Exception {
+        PathsConfig pathsConfig = new PathsConfig();
+        pathsConfig.setDataPath(tempDir.toString());
+
+        DbUnitConfig dbUnitConfig = new DbUnitConfig();
+        dbUnitConfig.setPreDirName("pre");
+
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setId("db1");
+        entry.setDriverClass("java.lang.String");
+        entry.setUrl("jdbc:width");
+        entry.setUser("u");
+        entry.setPassword("p");
+
+        ConnectionConfig connectionConfig = new ConnectionConfig();
+        connectionConfig.setConnections(List.of(entry));
+
+        DumpConfig dumpConfig = new DumpConfig();
+        Path dir = tempDir.resolve("load").resolve("pre").resolve("db1");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
+        Files.writeString(dir.resolve("flyway_schema_history.csv"), "ID\n1\n",
+                StandardCharsets.UTF_8);
+
+        Connection jdbc = mock(Connection.class);
+        DatabaseConnection dbConn = mock(DatabaseConnection.class);
+        DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
+        when(dialect.createDbUnitConnection(jdbc, "APP")).thenReturn(dbConn);
+        when(dialect.getLobColumns(any(), eq("T1"))).thenReturn(new Column[0]);
+        when(dialect.countRows(jdbc, "T1")).thenReturn(1);
+
+        DataLoader loader = new DataLoader(pathsConfig, connectionConfig, e -> dialect, dbUnitConfig,
+                dumpConfig);
+
+        SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
+        DatabaseOperation clean = mock(DatabaseOperation.class);
+        DatabaseOperation update = mock(DatabaseOperation.class);
+        DatabaseOperation insert = mock(DatabaseOperation.class);
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
+            try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
+                    MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class);
+                    MockedStatic<TableDependencyResolver> resolver =
+                            mockStatic(TableDependencyResolver.class)) {
+                driverManager.when(() -> DriverManager.getConnection("jdbc:width", "u", "p"))
+                        .thenReturn(jdbc);
+                factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
+                        .thenReturn(dataSetWrapper.dataSet);
+                resolver.when(() -> TableDependencyResolver.resolveLoadOrder(jdbc, null, "APP",
+                        List.of("T1"))).thenReturn(List.of("T1"));
+
+                loader.execute(null, List.of("db1"));
+            }
+        });
+
+        verify(jdbc).commit();
+    }
+
+    @Test
     void deployWithConnection_正常ケース_dumpConfigがnullである_例外なく完了すること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
@@ -1428,12 +1444,8 @@ class DataLoaderTest {
         try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
             factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                     .thenThrow(new RuntimeException("skip"));
-            Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
-                    String.class, ConnectionConfig.Entry.class, Connection.class,
-                    DbDialectHandler.class, String.class);
-            method.setAccessible(true);
-            method.invoke(loader, dir.toFile(), "db1", entry, mock(Connection.class), dialect,
-                    "fatal");
+            deployWithConnection(loader, dir.toFile(), "db1", entry, mock(Connection.class),
+                    dialect, "fatal");
         }
         verify(dbConn).close();
     }
@@ -1463,9 +1475,6 @@ class DataLoaderTest {
         when(dialect.getLobColumns(any(), eq("T1"))).thenReturn(new Column[0]);
         when(dialect.countRows(jdbc, "T1")).thenReturn(1);
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -1477,7 +1486,7 @@ class DataLoaderTest {
                         .thenReturn(jdbc);
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
-                method.invoke(loader, dir.toFile(), "db1", true, entry, dialect, "fatal");
+                deploy(loader, dir.toFile(), "db1", true, entry, dialect, 0, "fatal");
             }
         });
         verify(jdbc).commit();
@@ -1503,12 +1512,8 @@ class DataLoaderTest {
         try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
             factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                     .thenThrow(new RuntimeException("skip"));
-            Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
-                    String.class, ConnectionConfig.Entry.class, Connection.class,
-                    DbDialectHandler.class, String.class);
-            method.setAccessible(true);
-            method.invoke(loader, dir.toFile(), "db1", entry, mock(Connection.class), dialect,
-                    "fatal");
+            deployWithConnection(loader, dir.toFile(), "db1", entry, mock(Connection.class),
+                    dialect, "fatal");
         }
         verify(dbConn).close();
     }
@@ -1536,11 +1541,7 @@ class DataLoaderTest {
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
         File dir = new NullListFile(tempDir.toString());
-        Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
-                String.class, ConnectionConfig.Entry.class, Connection.class,
-                DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-        method.invoke(loader, dir, "db1", entry, mock(Connection.class), dialect, "fatal");
+        deployWithConnection(loader, dir, "db1", entry, mock(Connection.class), dialect, "fatal");
         verify(dialect, never()).createDbUnitConnection(any(), anyString());
     }
 
@@ -1569,9 +1570,6 @@ class DataLoaderTest {
         when(dialect.getLobColumns(any(), eq("T1"))).thenReturn(new Column[0]);
         when(dialect.countRows(jdbc, "T1")).thenReturn(1);
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -1583,7 +1581,7 @@ class DataLoaderTest {
                         .thenReturn(jdbc);
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
-                method.invoke(loader, dir.toFile(), "db1", true, entry, dialect, "fatal");
+                deploy(loader, dir.toFile(), "db1", true, entry, dialect, 0, "fatal");
             }
         });
         verify(jdbc).commit();
@@ -1612,9 +1610,6 @@ class DataLoaderTest {
         when(dialect.getLobColumns(any(), eq("T1"))).thenReturn(new Column[0]);
         when(dialect.countRows(jdbc, "T1")).thenReturn(1);
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -1626,7 +1621,7 @@ class DataLoaderTest {
                         .thenReturn(jdbc);
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(dataSetWrapper.dataSet);
-                method.invoke(loader, dir.toFile(), "db1", true, entry, dialect, "fatal");
+                deploy(loader, dir.toFile(), "db1", true, entry, dialect, 0, "fatal");
             }
         });
         verify(jdbc).commit();
@@ -1656,12 +1651,8 @@ class DataLoaderTest {
 
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
 
-        Method method = DataLoader.class.getDeclaredMethod("deploy", File.class, String.class,
-                boolean.class, ConnectionConfig.Entry.class, DbDialectHandler.class, String.class);
-        method.setAccessible(true);
-
         try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class)) {
-            method.invoke(loader, dir.toFile(), "db1", true, entry, dialectHandler, "fatal");
+            deploy(loader, dir.toFile(), "db1", true, entry, dialectHandler, 0, "fatal");
             driverManager.verifyNoInteractions();
         }
         verifyNoInteractions(dialectHandler);
@@ -1803,10 +1794,6 @@ class DataLoaderTest {
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
         Files.writeString(dir.resolve("T2.csv"), "ID\n1\n", StandardCharsets.UTF_8);
         SimpleDataSetWrapper ds1 = buildSimpleDataSet("T1", 1, "ID", "1");
-        Method method = DataLoader.class.getDeclaredMethod("deployWithConnection", File.class,
-                String.class, ConnectionConfig.Entry.class, Connection.class,
-                DbDialectHandler.class, String.class);
-        method.setAccessible(true);
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -1822,24 +1809,35 @@ class DataLoaderTest {
                 resolver.when(
                         () -> TableDependencyResolver.resolveLoadOrder(any(), any(), any(), any()))
                         .thenThrow(new SQLException("FK resolution failed"));
-                method.invoke(loader, dir.toFile(), "db1", entry, mock(Connection.class), dialect,
-                        "fatal");
+                deployWithConnection(loader, dir.toFile(), "db1", entry, mock(Connection.class),
+                        dialect, "fatal");
             }
         });
         verify(clean).execute(eq(dbConn), any());
     }
 
     @Test
-    void deleteAllInReverseOrder_正常ケース_tablesがnullである_早期リターンしてdbConnを呼ばないこと() throws Exception {
+    void deleteAllInReverseOrder_正常ケース_tablesがnullである_早期リターンしてdbConnを呼ばないこと()
+            throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
-        Method method = DataLoader.class.getDeclaredMethod("deleteAllInReverseOrder",
-                IDatabaseConnection.class, List.class, String.class);
-        method.setAccessible(true);
 
         IDatabaseConnection dbConn = mock(IDatabaseConnection.class);
-        method.invoke(loader, dbConn, null, "db1");
+        loader.deleteAllInReverseOrder(dbConn, null, "db1");
+
+        verify(dbConn, never()).createDataSet(any(String[].class));
+    }
+
+    @Test
+    void deleteAllInReverseOrder_正常ケース_tablesが空である_早期リターンしてdbConnを呼ばないこと()
+            throws Exception {
+        DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
+                e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
+                mock(DumpConfig.class));
+
+        IDatabaseConnection dbConn = mock(IDatabaseConnection.class);
+        loader.deleteAllInReverseOrder(dbConn, List.of(), "db1");
 
         verify(dbConn, never()).createDataSet(any(String[].class));
     }
@@ -1849,14 +1847,10 @@ class DataLoaderTest {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
-        Method method = DataLoader.class.getDeclaredMethod("deleteAllInReverseOrder",
-                IDatabaseConnection.class, List.class, String.class);
-        method.setAccessible(true);
 
         IDatabaseConnection dbConn = mock(IDatabaseConnection.class);
-        method.invoke(loader, dbConn, List.of("T1"), "db1");
+        loader.deleteAllInReverseOrder(dbConn, List.of("T1"), "db1");
 
         verify(dbConn, never()).createDataSet(any(String[].class));
     }
-
 }

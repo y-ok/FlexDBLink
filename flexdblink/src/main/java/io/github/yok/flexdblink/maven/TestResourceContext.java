@@ -88,7 +88,7 @@ class TestResourceContext {
      * @param classRoot test resource root for the target class
      * @param appProps merged application properties visible to the test
      */
-    private TestResourceContext(Path classRoot, Properties appProps) {
+    TestResourceContext(Path classRoot, Properties appProps) {
         this.classRoot = classRoot;
         this.appProps = appProps;
     }
@@ -271,7 +271,7 @@ class TestResourceContext {
      * @param suffix property suffix (e.g., {@code url}, {@code username})
      * @return resolved value or {@code null} if none found
      */
-    private String resolvePropertyForDb(Properties props, String dbNameLower, String suffix) {
+    String resolvePropertyForDb(Properties props, String dbNameLower, String suffix) {
         final String targetSuffix = "." + suffix;
         String bestKey = null;
         int bestScore = Integer.MIN_VALUE;
@@ -307,7 +307,7 @@ class TestResourceContext {
      * @param suffix property suffix (e.g., {@code url}, {@code username})
      * @return score (higher = better match)
      */
-    private int scoreKeyWithSegments(String keyLower, String[] dbSegs, String suffix) {
+    int scoreKeyWithSegments(String keyLower, String[] dbSegs, String suffix) {
         int score = 0;
 
         final String trimmed = keyLower.substring(0, keyLower.length() - (suffix.length() + 1));
@@ -380,7 +380,7 @@ class TestResourceContext {
      * @return merged {@link Properties}
      * @throws Exception if resource discovery or reading fails
      */
-    private static Properties loadAllApplicationProperties(ClassLoader cl) throws Exception {
+    static Properties loadAllApplicationProperties(ClassLoader cl) throws Exception {
         // Load all application.properties / application.yml / application.yaml (sorted
         // by URL)
         List<URL> baseUrls = new ArrayList<>();
@@ -460,7 +460,7 @@ class TestResourceContext {
      * @param simpleName simple resource name (no path)
      * @return extracted profile or empty string when not applicable
      */
-    private static String extractProfile(String simpleName) {
+    static String extractProfile(String simpleName) {
         String lower = simpleName.toLowerCase(Locale.ROOT);
         if (!lower.startsWith("application-")) {
             return "";
@@ -483,7 +483,7 @@ class TestResourceContext {
      * @param merged merged properties
      * @return immutable list of active profile names (possibly empty)
      */
-    private static List<String> resolveActiveProfiles(Properties merged) {
+    static List<String> resolveActiveProfiles(Properties merged) {
         String sys = System.getProperty("spring.profiles.active");
         String val = StringUtils.isNotBlank(sys) ? sys
                 : merged.getProperty("spring.profiles.active", "");
@@ -527,7 +527,7 @@ class TestResourceContext {
      * @param url resource URL
      * @throws Exception if reading fails
      */
-    private static void loadResourceToProps(Properties target, URL url) throws Exception {
+    static void loadResourceToProps(Properties target, URL url) throws Exception {
         String path = url.getPath().toLowerCase(Locale.ROOT);
         if (path.endsWith(".properties")) {
             loadPropsUtf8(target, url);
@@ -544,7 +544,7 @@ class TestResourceContext {
      * @param target target properties to mutate
      * @param url resource URL
      */
-    private static void loadYamlToProps(Properties target, URL url) {
+    static void loadYamlToProps(Properties target, URL url) {
         YamlPropertiesFactoryBean factory = new YamlPropertiesFactoryBean();
         factory.setResources(new UrlResource(url));
         Properties p = factory.getObject();
@@ -562,7 +562,7 @@ class TestResourceContext {
      * @param e enumeration
      * @return list containing all elements in order
      */
-    private static List<URL> enumToList(Enumeration<URL> e) {
+    static List<URL> enumToList(Enumeration<URL> e) {
         List<URL> out = new ArrayList<>();
         while (e.hasMoreElements()) {
             out.add(e.nextElement());
@@ -577,7 +577,7 @@ class TestResourceContext {
      * @return absolute, normalized path to the resource root
      * @throws Exception if the resource is not found
      */
-    private static Path resolveTestClassRootFromClasspath(Class<?> testClass) throws Exception {
+    static Path resolveTestClassRootFromClasspath(Class<?> testClass) throws Exception {
         String pkgPath = testClass.getPackageName().replace('.', '/');
         String resourcePath =
                 Paths.get(pkgPath, testClass.getSimpleName()).toString().replace('\\', '/');
