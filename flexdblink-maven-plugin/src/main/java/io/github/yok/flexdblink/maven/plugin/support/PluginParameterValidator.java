@@ -33,6 +33,7 @@ public class PluginParameterValidator {
     public void validateAndNormalize(PluginConfig config, GoalType goalType) {
         validateRequiredTopLevel(config);
         normalizeTargetDbIds(config);
+        normalizeExcludeTables(config);
         normalizeDbUnit(config);
         validateFilePatterns(config);
         validateGoalType(config, goalType);
@@ -81,6 +82,29 @@ public class PluginParameterValidator {
             normalized.add(trimmed);
         }
         config.setTargetDbIds(normalized);
+    }
+
+    /**
+     * Normalizes additional exclude table names.
+     *
+     * @param config plugin configuration
+     */
+    private void normalizeExcludeTables(PluginConfig config) {
+        if (config.getExcludeTables() == null) {
+            return;
+        }
+        List<String> normalized = new ArrayList<>();
+        for (String raw : config.getExcludeTables()) {
+            if (raw == null) {
+                continue;
+            }
+            String trimmed = raw.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            normalized.add(trimmed);
+        }
+        config.setExcludeTables(normalized);
     }
 
     /**

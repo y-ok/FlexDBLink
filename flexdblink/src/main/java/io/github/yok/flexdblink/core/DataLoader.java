@@ -34,6 +34,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.io.FilenameUtils;
+import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.dbunit.database.DatabaseConnection;
 import org.dbunit.database.IDatabaseConnection;
@@ -248,7 +249,9 @@ public class DataLoader {
         } else {
             mode = scenario;
         }
-        log.info("=== DataLoader started (mode={}, target DBs={}) ===", mode, targetDbIds);
+        log.info("=== DB load started (mode={}, target DBs={}) ===", mode,
+                formatTargetDbScope(targetDbIds));
+        int globalTableLogWidth = resolveGlobalTableLogWidth(preMode, mode, targetDbIds);
 
         for (ConnectionConfig.Entry entry : connectionConfig.getConnections()) {
             String dbId = entry.getId();
@@ -261,19 +264,19 @@ public class DataLoader {
 
             // initial mode load
             File initialDir = new File(pathsConfig.getLoad(), preMode + File.separator + dbId);
-            deploy(initialDir, dbId, true, entry, dialectHandler,
+            deploy(initialDir, dbId, true, entry, dialectHandler, globalTableLogWidth,
                     "Initial data load failed (DB=" + dbId + ")");
 
             // scenario mode load
             if (!preMode.equals(mode)) {
                 File scenarioDir = new File(pathsConfig.getLoad(), mode + File.separator + dbId);
-                deploy(scenarioDir, dbId, false, entry, dialectHandler,
+                deploy(scenarioDir, dbId, false, entry, dialectHandler, globalTableLogWidth,
                         "Scenario data load failed (DB=" + dbId + ")");
             }
         }
 
-        log.info("=== DataLoader finished ===");
         logSummary();
+        log.info("=== DB load completed ===");
     }
 
     /**
@@ -289,21 +292,188 @@ public class DataLoader {
      * @param dbId DB identifier for logging
      * @throws Exception if DBUnit operation fails
      */
-    private void deleteAllInReverseOrder(IDatabaseConnection dbConn, List<String> tables,
-            String dbId) throws Exception {
+    void deleteAllInReverseOrder(IDatabaseConnection dbConn, List<String> tables, String dbId)
+            throws Exception {
 
-        if (tables == null || tables.size() <= 1) {
+        if (tables == null || tables.isEmpty()) {
+            return;
+        }
+
+        if (tables.size() == 1) {
+            log.info("[{}] Existing rows will be replaced during initial load ({})", dbId,
+                    formatTableCount(tables.size()));
+            log.debug("{}", formatTableSequenceLog(dbId, "Load target", tables));
             return;
         }
 
         List<String> deleteOrder = new ArrayList<>(tables);
         Collections.reverse(deleteOrder);
 
+        log.info("[{}] Clearing existing rows before initial load (child-first, {})", dbId,
+                formatTableCount(deleteOrder.size()));
+        log.debug("{}", formatTableSequenceLog(dbId, "Delete order", deleteOrder));
+
         for (String table : deleteOrder) {
             IDataSet ds = dbConn.createDataSet(new String[] {table});
             operationExecutor.deleteAll(dbConn, ds);
-            log.info("[{}] Table[{}] Initial | deletedAll", dbId, table);
+            log.debug("[{}] Cleared existing rows: {}", dbId, table);
         }
+    }
+
+    /**
+     * Formats a numbered multi-line table sequence log for debug output.
+     *
+     * @param dbId DB identifier for logging
+     * @param label sequence label such as {@code Load order}
+     * @param tables ordered table names
+     * @return formatted multi-line log message
+     */
+    private String formatTableSequenceLog(String dbId, String label, List<String> tables) {
+        String lineSeparator = System.lineSeparator();
+        StringBuilder builder = new StringBuilder();
+        builder.append('[').append(dbId).append("] ").append(label).append(" details:");
+        for (int i = 0; i < tables.size(); i++) {
+            builder.append(lineSeparator).append('[').append(dbId).append("]   ").append(i + 1)
+                    .append(". ").append(tables.get(i));
+        }
+        return builder.toString();
+    }
+
+    /**
+     * Formats the target DB scope for human-readable logs.
+     *
+     * @param targetDbIds explicitly requested DB IDs
+     * @return readable scope label
+     */
+    private String formatTargetDbScope(List<String> targetDbIds) {
+        if (targetDbIds == null || targetDbIds.isEmpty()) {
+            return "all configured databases";
+        }
+        return String.join(", ", targetDbIds);
+    }
+
+    /**
+     * Formats the number of tables with a singular/plural label.
+     *
+     * @param tableCount number of tables
+     * @return formatted count string such as {@code 1 table}
+     */
+    private String formatTableCount(int tableCount) {
+        if (tableCount == 1) {
+            return "1 table";
+        }
+        return tableCount + " tables";
+    }
+
+    /**
+     * Resolves the maximum table name length from the given list.
+     *
+     * @param tables table names to inspect
+     * @return maximum length, or {@code 0} when no table exists
+     */
+    private int resolveMaxTableNameLength(List<String> tables) {
+        int maxLength = 0;
+        for (String table : tables) {
+            int currentLength = table.length();
+            if (currentLength > maxLength) {
+                maxLength = currentLength;
+            }
+        }
+        return maxLength;
+    }
+
+    /**
+     * Resolves a common table label width for one execute run so logs stay aligned across DBs.
+     *
+     * @param preMode configured pre-load directory name
+     * @param mode effective execution mode
+     * @param targetDbIds explicitly requested DB IDs
+     * @return maximum table name length across all targeted load directories
+     */
+    private int resolveGlobalTableLogWidth(String preMode, String mode, List<String> targetDbIds) {
+        int maxWidth = 0;
+        Set<String> excludedTables = resolveExcludedTableNames();
+
+        for (ConnectionConfig.Entry entry : connectionConfig.getConnections()) {
+            String dbId = entry.getId();
+            if (targetDbIds != null && !targetDbIds.isEmpty() && !targetDbIds.contains(dbId)) {
+                continue;
+            }
+
+            File initialDir = new File(pathsConfig.getLoad(), preMode + File.separator + dbId);
+            int initialWidth = resolveTableLogWidthFromDirectory(initialDir, excludedTables);
+            if (initialWidth > maxWidth) {
+                maxWidth = initialWidth;
+            }
+
+            if (!preMode.equals(mode)) {
+                File scenarioDir = new File(pathsConfig.getLoad(), mode + File.separator + dbId);
+                int scenarioWidth = resolveTableLogWidthFromDirectory(scenarioDir, excludedTables);
+                if (scenarioWidth > maxWidth) {
+                    maxWidth = scenarioWidth;
+                }
+            }
+        }
+        return maxWidth;
+    }
+
+    /**
+     * Resolves excluded table names in lower-case form for filtering.
+     *
+     * @return lower-case excluded table names
+     */
+    private Set<String> resolveExcludedTableNames() {
+        if (dumpConfig == null) {
+            return Collections.emptySet();
+        }
+        List<String> excludeTables = dumpConfig.getExcludeTables();
+        if (excludeTables == null) {
+            return Collections.emptySet();
+        }
+        return excludeTables.stream().filter(Objects::nonNull).map(s -> s.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * Resolves the maximum table name length from dataset files in the given directory.
+     *
+     * @param dir directory to inspect
+     * @param excludedTables lower-case excluded table names
+     * @return maximum non-excluded table name length in the directory
+     */
+    private int resolveTableLogWidthFromDirectory(File dir, Set<String> excludedTables) {
+        if (!dir.isDirectory()) {
+            return 0;
+        }
+
+        int maxWidth = 0;
+        File[] files = ArrayUtils.nullToEmpty(dir.listFiles((d, name) -> {
+            String ext = FilenameUtils.getExtension(name).toLowerCase(Locale.ROOT);
+            return Arrays.stream(DataFormat.values()).anyMatch(fmt -> fmt.matches(ext));
+        }), File[].class);
+
+        for (File file : files) {
+            String tableName = FilenameUtils.getBaseName(file.getName());
+            if (excludedTables.contains(tableName.toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+            int currentWidth = tableName.length();
+            if (currentWidth > maxWidth) {
+                maxWidth = currentWidth;
+            }
+        }
+        return maxWidth;
+    }
+
+    /**
+     * Formats a table label padded to the specified width and wrapped in square brackets.
+     *
+     * @param tableName table name to format
+     * @param maxTableNameLength maximum width used for right padding
+     * @return padded table label such as {@code [EMPLOYEE   ]}
+     */
+    private String formatTableLabel(String tableName, int maxTableNameLength) {
+        return "[" + StringUtils.rightPad(tableName, maxTableNameLength) + "]";
     }
 
     /**
@@ -320,10 +490,11 @@ public class DataLoader {
      * @param initial {@code true}=initial mode, {@code false}=scenario mode
      * @param entry JDBC connection info
      * @param dialectHandler DB dialect handler providing vendor-specific behavior
+     * @param tableLogWidth common table label width used for aligned logs
      * @param errorMessage log message to output on fatal error
      */
-    private void deploy(File dir, String dbId, boolean initial, ConnectionConfig.Entry entry,
-            DbDialectHandler dialectHandler, String errorMessage) {
+    void deploy(File dir, String dbId, boolean initial, ConnectionConfig.Entry entry,
+            DbDialectHandler dialectHandler, int tableLogWidth, String errorMessage) {
         if (!dir.exists()) {
             log.warn("[{}] Directory does not exist → skipping", dbId);
             return;
@@ -354,7 +525,8 @@ public class DataLoader {
                         dumpConfig.getExcludeTables().stream().filter(Objects::nonNull)
                                 .map(s -> s.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
 
-                log.info("[{}] Excluded tables: {}", dbId, excludeLower);
+                log.info("[{}] Excluded tables ({}): {}", dbId,
+                        formatTableCount(excludeLower.size()), excludeLower);
 
                 tables = tables.stream()
                         .filter(t -> !excludeLower.contains(t.toLowerCase(Locale.ROOT)))
@@ -379,7 +551,9 @@ public class DataLoader {
                     // Topological sort by FK dependencies (parent tables first)
                     tables = TableDependencyResolver.resolveLoadOrder(jdbc, jdbc.getCatalog(),
                             schema, tables);
-                    log.info("[{}] Table load order resolved by FK dependencies: {}", dbId, tables);
+                    log.info("[{}] Table load order resolved by FK dependencies ({})", dbId,
+                            formatTableCount(tables.size()));
+                    log.debug("{}", formatTableSequenceLog(dbId, "Load order", tables));
 
                     if (initial) {
                         deleteAllInReverseOrder(dbConn, tables, dbId);
@@ -391,10 +565,18 @@ public class DataLoader {
 
                         ITable base = dataSet.getTable(table);
                         int rowCount = base.getRowCount();
-                        log.info("[{}] Table[{}] rows={}", dbId, table, rowCount);
+                        if (initial) {
+                            log.debug("[{}] Starting initial load for table [{}] (dataset rows={})",
+                                    dbId, table, rowCount);
+                        } else {
+                            log.debug(
+                                    "[{}] Starting scenario load for table [{}] (dataset rows={})",
+                                    dbId, table, rowCount);
+                        }
 
                         ITable wrapped = new LobResolvingTableWrapper(base, dir, dialectHandler);
                         DefaultDataSet ds = new DefaultDataSet(wrapped);
+                        int scenarioInsertedRows = 0;
 
                         if (initial) {
                             // --- Initial mode (CLEAN_INSERT + UPDATE) ---
@@ -403,8 +585,9 @@ public class DataLoader {
                                 boolean anyNotNullLob = dialectHandler.hasNotNullLobColumn(jdbc,
                                         schema, table, lobCols);
                                 if (anyNotNullLob) {
-                                    log.info(
-                                            "[{}] {}: NOT NULL LOB detected; CLEAN_INSERT all cols",
+                                    log.debug(
+                                            "[{}] Table [{}] has NOT NULL LOB columns; "
+                                                    + "loading all columns in one step",
                                             dbId, table);
                                     operationExecutor.cleanInsert(dbConn, ds);
                                 } else {
@@ -416,7 +599,6 @@ public class DataLoader {
                             } else {
                                 operationExecutor.cleanInsert(dbConn, ds);
                             }
-                            log.info("[{}] Table[{}] Initial | inserted={}", dbId, table, rowCount);
 
                         } else {
                             // --- Scenario mode (delete duplicates + INSERT new) ---
@@ -438,14 +620,29 @@ public class DataLoader {
                                     new ScenarioDuplicateHandler.FilteredTable(wrapped,
                                             identicalMap.keySet());
                             operationExecutor.insert(dbConn, new DefaultDataSet(filtered));
-                            log.info("[{}] Table[{}] Scenario (INSERT only) | inserted={}", dbId,
-                                    table, filtered.getRowCount());
+                            scenarioInsertedRows = filtered.getRowCount();
                         }
 
                         // Summary
                         int currentCount = dialectHandler.countRows(jdbc, table);
+                        String formattedTableLabel = formatTableLabel(table, tableLogWidth);
                         insertSummary.computeIfAbsent(dbId, k -> new LinkedHashMap<>()).put(table,
                                 currentCount);
+                        if (initial) {
+                            log.info("[{}] Table{} loaded (target rows={}, loaded rows={})", dbId,
+                                    formattedTableLabel, rowCount, rowCount);
+                            log.debug("[{}] Table{} rows in DB after initial load={}", dbId,
+                                    formattedTableLabel, currentCount);
+                        } else {
+                            int skippedRows = rowCount - scenarioInsertedRows;
+                            log.info(
+                                    "[{}] Table{} scenario applied "
+                                            + "(target rows={}, inserted rows={}, skipped rows={})",
+                                    dbId, formattedTableLabel, rowCount, scenarioInsertedRows,
+                                    skippedRows);
+                            log.debug("[{}] Table{} rows in DB after scenario load={}", dbId,
+                                    formattedTableLabel, currentCount);
+                        }
                     }
 
                     jdbc.commit();
@@ -484,7 +681,7 @@ public class DataLoader {
      * @return configured {@link DatabaseConnection}
      * @throws Exception on errors during session initialization or configuration
      */
-    private DatabaseConnection createDbUnitConn(Connection jdbc, ConnectionConfig.Entry entry,
+    DatabaseConnection createDbUnitConn(Connection jdbc, ConnectionConfig.Entry entry,
             DbDialectHandler dialectHandler) throws Exception {
 
         dialectHandler.prepareConnection(jdbc);
@@ -506,17 +703,27 @@ public class DataLoader {
     /**
      * Outputs a consolidated log of data load results for all DBs.
      */
-    private void logSummary() {
+    void logSummary() {
         log.info("===== Summary =====");
+        int globalMaxNameLen =
+                insertSummary.values().stream().flatMap(tableMap -> tableMap.keySet().stream())
+                        .mapToInt(String::length).max().orElse(0);
         insertSummary.forEach((dbId, tableMap) -> {
             log.info("DB[{}]:", dbId);
-            int maxNameLen = tableMap.keySet().stream().mapToInt(String::length).max().orElse(0);
             int maxCountDigits = tableMap.values().stream().map(cnt -> String.valueOf(cnt).length())
                     .mapToInt(Integer::intValue).max().orElse(0);
-            String fmt = "  Table[%-" + maxNameLen + "s] Total=%" + maxCountDigits + "d";
+            String fmt = "  Table[%-" + globalMaxNameLen + "s] Total=%" + maxCountDigits + "d";
             tableMap.forEach((table, cnt) -> log.info(String.format(fmt, table, cnt)));
         });
-        log.info("== Data loading to all DBs has completed ==");
+    }
+
+    /**
+     * Returns the current insert summary map.
+     *
+     * @return insert summary keyed by DB ID and table name
+     */
+    Map<String, Map<String, Integer>> getInsertSummary() {
+        return insertSummary;
     }
 
     /**
@@ -597,8 +804,8 @@ public class DataLoader {
      * @param errorMessage message passed to {@link ErrorHandler} on fatal errors
      * @throws IllegalStateException if {@code dir} does not exist or is not a directory
      */
-    private void deployWithConnection(File dir, String dbId, ConnectionConfig.Entry entry,
-            Connection jdbc, DbDialectHandler dialectHandler, String errorMessage) {
+    void deployWithConnection(File dir, String dbId, ConnectionConfig.Entry entry, Connection jdbc,
+            DbDialectHandler dialectHandler, String errorMessage) {
 
         IDatabaseConnection dbConn = null;
         try {
@@ -634,7 +841,8 @@ public class DataLoader {
                         dumpConfig.getExcludeTables().stream().filter(Objects::nonNull)
                                 .map(s -> s.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
 
-                log.info("[{}] Excluded tables: {}", dbId, excludeLower);
+                log.info("[{}] Excluded tables ({}): {}", dbId,
+                        formatTableCount(excludeLower.size()), excludeLower);
 
                 tables = tables.stream()
                         .filter(t -> !excludeLower.contains(t.toLowerCase(Locale.ROOT)))
@@ -651,7 +859,9 @@ public class DataLoader {
             try {
                 tables = TableDependencyResolver.resolveLoadOrder(jdbc, jdbc.getCatalog(), schema,
                         tables);
-                log.info("[{}] Table load order resolved by FK dependencies: {}", dbId, tables);
+                log.info("[{}] Table load order resolved by FK dependencies ({})", dbId,
+                        formatTableCount(tables.size()));
+                log.debug("{}", formatTableSequenceLog(dbId, "Load order", tables));
             } catch (SQLException e) {
                 log.warn(
                         "[{}] FK dependency resolution failed; using alphabetical order. reason={}",
@@ -662,6 +872,7 @@ public class DataLoader {
             dbConn = createDbUnitConn(jdbc, entry, dialectHandler);
 
             deleteAllInReverseOrder(dbConn, tables, dbId);
+            int maxTableNameLength = resolveMaxTableNameLength(tables);
 
             // Load each table (always "initial load" strategy)
             for (String table : tables) {
@@ -681,6 +892,9 @@ public class DataLoader {
 
                 // Wrap with LOB resolver (expands file:... references)
                 ITable base = dataSet.getTable(table);
+                int rowCount = base.getRowCount();
+                log.debug("[{}] Starting initial load for table [{}] (dataset rows={})", dbId,
+                        table, rowCount);
                 ITable wrapped = new LobResolvingTableWrapper(base, dir, dialectHandler);
                 DefaultDataSet ds = new DefaultDataSet(wrapped);
 
@@ -707,11 +921,14 @@ public class DataLoader {
 
                 // Update summary
                 int currentCount = dialectHandler.countRows(jdbc, table);
+                String formattedTableLabel = formatTableLabel(table, maxTableNameLength);
                 insertSummary.computeIfAbsent(dbId, k -> new LinkedHashMap<>()).put(table,
                         currentCount);
 
-                log.info("[{}] Loaded table successfully: {} (current rows={})", dbId, table,
-                        currentCount);
+                log.info("[{}] Table{} loaded (target rows={}, loaded rows={})", dbId,
+                        formattedTableLabel, rowCount, rowCount);
+                log.debug("[{}] Table{} rows in DB after initial load={}", dbId,
+                        formattedTableLabel, currentCount);
             }
 
         } catch (Exception e) {

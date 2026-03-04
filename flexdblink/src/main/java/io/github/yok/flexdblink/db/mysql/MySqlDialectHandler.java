@@ -922,7 +922,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
                 boolean excluded = effectiveExcludeTables.stream()
                         .anyMatch(ex -> ex.equalsIgnoreCase(tableName));
                 if (excluded) {
-                    log.info("Table [{}] is in the exclude list → skip", tableName);
+                    log.debug("Table [{}] is in the exclude list → skip", tableName);
                 } else {
                     tables.add(tableName);
                 }
@@ -1047,7 +1047,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
         Path dataDir = Paths.get(pathsConfig.getDataPath()).toAbsolutePath().normalize();
         Path full = outputPath.toAbsolutePath().normalize();
         String relStr = FilenameUtils.separatorsToUnix(dataDir.relativize(full).toString());
-        log.info("  LOB file written: table={} path={}", table, relStr);
+        log.debug("  LOB file written: table={} path={}", table, relStr);
     }
 
     /**

@@ -161,6 +161,19 @@ class AbstractFlexDbLinkMojoTest {
     }
 
     @Test
+    void buildPluginConfigFromParameters_正常ケース_excludeTablesをそのまま設定する_未正規化のリストが返ること(
+            @TempDir Path tempDir) {
+        TestMojo target = new TestMojo(GoalType.DUMP);
+        configureValid(target, tempDir);
+        target.excludeTables = Arrays.asList(" audit_log ", "", "   ", null, "scheduler_lock");
+
+        PluginConfig actual = target.buildPluginConfigFromParameters();
+
+        assertEquals(Arrays.asList(" audit_log ", "", "   ", null, "scheduler_lock"),
+                actual.getExcludeTables());
+    }
+
+    @Test
     void buildPluginConfigFromParameters_正常ケース_serverIdsがnullを実行する_nullが返ること(
             @TempDir Path tempDir) {
         TestMojo target = new TestMojo(GoalType.DUMP);

@@ -1,6 +1,5 @@
 package io.github.yok.flexdblink.maven;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.config.CsvDateTimeFormatProperties;
@@ -26,7 +25,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import javax.sql.DataSource;
 import lombok.extern.slf4j.Slf4j;
@@ -82,18 +80,34 @@ public class LoadDataExtension
     // Shared context (classRoot / application*.properties, etc.)
     private TestResourceContext trc;
 
-    private static final String EXCLUDE_FLYWAY_SCHEMA_HISTORY = "flyway_schema_history";
-
     // Store namespace and keys
     private static final Namespace NS = Namespace.create(LoadDataExtension.class.getName(), "TX");
     private static final String STORE_KEY_TX = "TX_RECORDS";
     private static final String STORE_KEY_TXI_DEFAULT = "TXI_DEFAULT_SWITCH";
 
     /**
+     * Replaces the test resource context used by this extension.
+     *
+     * @param trc replacement test resource context
+     */
+    void setTestResourceContext(TestResourceContext trc) {
+        this.trc = trc;
+    }
+
+    /**
+     * Returns the current test resource context.
+     *
+     * @return current test resource context
+     */
+    TestResourceContext getTestResourceContext() {
+        return trc;
+    }
+
+    /**
      * Records, per data source key, whether this extension switched the
      * {@code TransactionInterceptor}'s default {@code TransactionManager} and needs to restore it.
      */
-    private static final class TxInterceptorSwitchRecord {
+    static final class TxInterceptorSwitchRecord {
         final Map<String, Boolean> touched = new LinkedHashMap<>();
     }
 
@@ -197,7 +211,7 @@ public class LoadDataExtension
      * @param dbNamesAttr dbIds specified by annotation (nullable/empty for single-DB mode).
      * @throws Exception on failure.
      */
-    private void loadScenarioParticipating(ExtensionContext context, String scenarioName,
+    void loadScenarioParticipating(ExtensionContext context, String scenarioName,
             String[] dbNamesAttr) throws Exception {
 
         // Prepare dump output directory
@@ -214,13 +228,6 @@ public class LoadDataExtension
         dtProps.setDateTime("yyyy-MM-dd HH:mm:ss");
 
         DumpConfig dumpConfig = new DumpConfig();
-        // Exclude Flyway history table
-        List<String> merged = new ArrayList<>(
-                Optional.ofNullable(dumpConfig.getExcludeTables()).orElse(List.of()));
-        if (merged.stream().noneMatch(s -> EXCLUDE_FLYWAY_SCHEMA_HISTORY.equalsIgnoreCase(s))) {
-            merged.add(EXCLUDE_FLYWAY_SCHEMA_HISTORY);
-        }
-        dumpConfig.setExcludeTables(ImmutableList.copyOf(merged));
         log.info("Excluded tables: {}", dumpConfig.getExcludeTables());
 
         DbUnitConfigFactory configFactory = new DbUnitConfigFactory();
@@ -398,7 +405,7 @@ public class LoadDataExtension
      * @param picked selected transaction manager
      * @param key logical key used for logging and store association
      */
-    private void setTxInterceptorDefaultManager(ExtensionContext context, ApplicationContext ac,
+    void setTxInterceptorDefaultManager(ExtensionContext context, ApplicationContext ac,
             PlatformTransactionManager picked, String key) {
 
         String pickedName = findBeanNameByInstance(ac, PlatformTransactionManager.class, picked);
@@ -442,7 +449,7 @@ public class LoadDataExtension
      *
      * @param context JUnit extension context
      */
-    private void restoreTxInterceptorDefaultManager(ExtensionContext context) {
+    void restoreTxInterceptorDefaultManager(ExtensionContext context) {
         Store store = context.getStore(NS);
         TxInterceptorSwitchRecord rec =
                 store.get(STORE_KEY_TXI_DEFAULT, TxInterceptorSwitchRecord.class);
@@ -478,7 +485,7 @@ public class LoadDataExtension
      * @return scenario names.
      * @throws Exception on failure.
      */
-    private List<String> resolveScenarios(LoadData ann) throws Exception {
+    List<String> resolveScenarios(LoadData ann) throws Exception {
         if (ann.scenario().length > 0) {
             return Arrays.asList(ann.scenario());
         }
@@ -491,7 +498,7 @@ public class LoadDataExtension
      * @param original original connection.
      * @return proxy connection that ignores {@code close()}.
      */
-    private Connection wrapConnectionNoClose(Connection original) {
+    Connection wrapConnectionNoClose(Connection original) {
         return (Connection) Proxy.newProxyInstance(original.getClass().getClassLoader(),
                 new Class<?>[] {Connection.class}, (proxy, method, args) -> {
                     if ("close".equals(method.getName())) {
@@ -540,7 +547,7 @@ public class LoadDataExtension
      *
      * @param context execution context.
      */
-    private void rollbackAllIfBegan(ExtensionContext context) {
+    void rollbackAllIfBegan(ExtensionContext context) {
         List<TxRecord> records = getTxRecords(context);
         if (records.isEmpty()) {
             return;
@@ -563,7 +570,7 @@ public class LoadDataExtension
      * @param ac application context.
      * @return PlatformTransactionManager.
      */
-    private PlatformTransactionManager resolveTxManagerSingle(ApplicationContext ac) {
+    PlatformTransactionManager resolveTxManagerSingle(ApplicationContext ac) {
         try {
             return ac.getBean("transactionManager", PlatformTransactionManager.class);
         } catch (Exception e) {
@@ -578,7 +585,7 @@ public class LoadDataExtension
      * @param ac application context.
      * @return DataSource.
      */
-    private DataSource resolveDataSourceSingle(ApplicationContext ac) {
+    DataSource resolveDataSourceSingle(ApplicationContext ac) {
         try {
             return ac.getBean("dataSource", DataSource.class);
         } catch (Exception e) {
@@ -594,7 +601,7 @@ public class LoadDataExtension
      * @param dbId DB identifier.
      * @return resolved components.
      */
-    private Components resolveComponentsForDbId(ApplicationContext ac, String dbId) {
+    Components resolveComponentsForDbId(ApplicationContext ac, String dbId) {
         ConnectionConfig.Entry entry = trc.buildEntryFromProps(dbId);
         String expectedUrl = entry.getUrl();
         String expectedUser = entry.getUser();
@@ -665,7 +672,7 @@ public class LoadDataExtension
      * @param expectedUser expected USER.
      * @return matching TMs.
      */
-    private List<TmWithDs> findTmByMetadata(ApplicationContext ac, String expectedUrl,
+    List<TmWithDs> findTmByMetadata(ApplicationContext ac, String expectedUrl,
             String expectedUser) {
         List<TmWithDs> result = new ArrayList<>();
         String[] tmNames = ac.getBeanNamesForType(PlatformTransactionManager.class);
@@ -698,7 +705,7 @@ public class LoadDataExtension
      * @param expectedUser expected USER.
      * @return matching DS list.
      */
-    private List<NamedDs> findDataSourceByMetadata(ApplicationContext ac, String expectedUrl,
+    List<NamedDs> findDataSourceByMetadata(ApplicationContext ac, String expectedUrl,
             String expectedUser) {
         List<NamedDs> result = new ArrayList<>();
         String[] dsNames = ac.getBeanNamesForType(DataSource.class);
@@ -723,7 +730,7 @@ public class LoadDataExtension
      * @param candidates DS candidates.
      * @return single primary DS or {@code null}.
      */
-    private NamedDs pickPrimary(ApplicationContext ac, List<NamedDs> candidates) {
+    NamedDs pickPrimary(ApplicationContext ac, List<NamedDs> candidates) {
         if (ac instanceof ConfigurableApplicationContext) {
             ConfigurableListableBeanFactory bf =
                     ((ConfigurableApplicationContext) ac).getBeanFactory();
@@ -752,7 +759,7 @@ public class LoadDataExtension
      * @param candidates DS candidates.
      * @return single referenced DS or {@code null}.
      */
-    private NamedDs pickSingleReferencedByTm(ApplicationContext ac, List<NamedDs> candidates) {
+    NamedDs pickSingleReferencedByTm(ApplicationContext ac, List<NamedDs> candidates) {
         String[] tmNames = ac.getBeanNamesForType(PlatformTransactionManager.class);
         NamedDs only = null;
         for (NamedDs n : candidates) {
@@ -788,7 +795,7 @@ public class LoadDataExtension
      * @param ds target DS.
      * @return PlatformTransactionManager.
      */
-    private PlatformTransactionManager resolveTxManagerByDataSource(ApplicationContext ac,
+    PlatformTransactionManager resolveTxManagerByDataSource(ApplicationContext ac,
             String dbId, DataSource ds) {
         String[] tmNames = ac.getBeanNamesForType(PlatformTransactionManager.class);
         List<String> hits = new ArrayList<>();
@@ -823,7 +830,7 @@ public class LoadDataExtension
      * @return set of subdirectory names.
      * @throws Exception on failure.
      */
-    private Set<String> listDbIdsFromFolder(Path baseInputDir) throws Exception {
+    Set<String> listDbIdsFromFolder(Path baseInputDir) throws Exception {
         if (!Files.isDirectory(baseInputDir)) {
             return Collections.emptySet();
         }
@@ -846,7 +853,7 @@ public class LoadDataExtension
      * @param ds DataSource.
      * @return metadata or {@code null}.
      */
-    private ProbeMeta probeDataSourceMeta(DataSource ds) {
+    ProbeMeta probeDataSourceMeta(DataSource ds) {
         try (Connection c = ds.getConnection()) {
             String url = (c.getMetaData() != null) ? c.getMetaData().getURL() : null;
             String user = (c.getMetaData() != null) ? c.getMetaData().getUserName() : null;
@@ -864,7 +871,7 @@ public class LoadDataExtension
      * @param actual actual URL.
      * @return whether they roughly match.
      */
-    private boolean urlRoughMatch(String expected, String actual) {
+    boolean urlRoughMatch(String expected, String actual) {
         String e = simplifyUrl(expected);
         String a = simplifyUrl(actual);
         if (e.isEmpty() || a.isEmpty()) {
@@ -879,7 +886,7 @@ public class LoadDataExtension
      * @param url URL.
      * @return normalized URL.
      */
-    private String simplifyUrl(String url) {
+    String simplifyUrl(String url) {
         if (url == null) {
             return "";
         }
@@ -902,7 +909,7 @@ public class LoadDataExtension
      * @param b string B.
      * @return equality result.
      */
-    private boolean equalsIgnoreCaseSafe(String a, String b) {
+    boolean equalsIgnoreCaseSafe(String a, String b) {
         if (a == null || b == null) {
             return false;
         }
@@ -918,7 +925,7 @@ public class LoadDataExtension
      * @param <T> type parameter.
      * @return bean name or {@code "<unknown>"}.
      */
-    private <T> String findBeanNameByInstance(ApplicationContext ac, Class<T> type, T instance) {
+    <T> String findBeanNameByInstance(ApplicationContext ac, Class<T> type, T instance) {
         String[] names = ac.getBeanNamesForType(type);
         for (String name : names) {
             T bean = ac.getBean(name, type);
@@ -932,7 +939,7 @@ public class LoadDataExtension
     /**
      * Record for a test transaction started by this extension.
      */
-    private static final class TxRecord {
+    static final class TxRecord {
         final String key;
         final PlatformTransactionManager tm;
         final TransactionStatus status;
@@ -947,7 +954,7 @@ public class LoadDataExtension
     /**
      * Pair of DS/TM.
      */
-    private static final class Components {
+    static final class Components {
         final DataSource dataSource;
         final PlatformTransactionManager txManager;
 
@@ -960,7 +967,7 @@ public class LoadDataExtension
     /**
      * Pair of TM and DS names/instances.
      */
-    private static final class TmWithDs {
+    static final class TmWithDs {
         final String tmName;
         final String dsName;
         final PlatformTransactionManager tm;
@@ -977,7 +984,7 @@ public class LoadDataExtension
     /**
      * Named DataSource wrapper.
      */
-    private static final class NamedDs {
+    static final class NamedDs {
         final String name;
         final DataSource ds;
 
@@ -1006,7 +1013,7 @@ public class LoadDataExtension
      * @param context execution context.
      * @return records list.
      */
-    private List<TxRecord> getTxRecords(ExtensionContext context) {
+    List<TxRecord> getTxRecords(ExtensionContext context) {
         Store store = context.getStore(NS);
         TxRecordList list = store.get(STORE_KEY_TX, TxRecordList.class);
         return (list != null) ? list : new TxRecordList();
@@ -1015,14 +1022,14 @@ public class LoadDataExtension
     /**
      * Type-safe list container for TxRecord.
      */
-    private static final class TxRecordList extends ArrayList<TxRecord> {
+    static final class TxRecordList extends ArrayList<TxRecord> {
         private static final long serialVersionUID = 1L;
     }
 
     /**
      * Internal container for DS connection metadata (URL and USER).
      */
-    private static final class ProbeMeta {
+    static final class ProbeMeta {
         final String url;
         final String user;
 

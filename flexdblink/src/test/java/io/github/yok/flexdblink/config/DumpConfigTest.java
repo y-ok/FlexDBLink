@@ -2,17 +2,16 @@ package io.github.yok.flexdblink.config;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 class DumpConfigTest {
 
     @Test
-    void getExcludeTables_正常ケース_デフォルト値を取得する_空リストが返ること() {
+    void getExcludeTables_正常ケース_デフォルト値を取得する_Flyway履歴テーブルが返ること() {
         DumpConfig config = new DumpConfig();
         assertNotNull(config.getExcludeTables());
-        assertTrue(config.getExcludeTables().isEmpty());
+        assertEquals(FlexDbLinkDefaults.DEFAULT_EXCLUDE_TABLES, config.getExcludeTables());
     }
 
     @Test

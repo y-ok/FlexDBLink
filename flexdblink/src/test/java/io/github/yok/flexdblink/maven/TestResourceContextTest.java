@@ -10,9 +10,6 @@ import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
 import com.google.common.base.Splitter;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
@@ -105,36 +102,30 @@ class TestResourceContextTest {
         props.put(100, "invalid");
         props.put("spring.datasource.aaa.username", 200);
 
-        String out = (String) invokePrivateInstance(trc, "resolvePropertyForDb",
-                new Class[] {Properties.class, String.class, String.class},
-                new Object[] {props, "aaa", "url"});
+        String out = trc.resolvePropertyForDb(props, "aaa", "url");
         assertEquals("jdbc:a", out);
     }
 
     @Test
     void scoreKeyWithSegments_正常ケース_デフォルトDBでspringDatasource形式を指定する_加点されること() throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"spring.datasource.url", new String[0], "url"});
+        int score = trc.scoreKeyWithSegments("spring.datasource.url", new String[0], "url");
         assertTrue(score > 50);
     }
 
     @Test
     void scoreKeyWithSegments_正常ケース_DB一致かつfirstIdx1を指定する_一致優先スコアとなること() throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"spring.foo.datasource.url", new String[] {"foo"}, "url"});
+        int score =
+                trc.scoreKeyWithSegments("spring.foo.datasource.url", new String[] {"foo"}, "url");
         assertTrue(score >= 100);
     }
 
     @Test
     void scoreKeyWithSegments_正常ケース_DB一致かつfirstIdx2を指定する_一致優先スコアとなること() throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"spring.datasource.foo.url", new String[] {"foo"}, "url"});
+        int score =
+                trc.scoreKeyWithSegments("spring.datasource.foo.url", new String[] {"foo"}, "url");
         assertTrue(score >= 100);
     }
 
@@ -142,9 +133,8 @@ class TestResourceContextTest {
     void scoreKeyWithSegments_正常ケース_DB不一致かつspringDatasource形式を指定する_非一致分岐が実行されること()
             throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"spring.datasource.other.url", new String[] {"foo"}, "url"});
+        int score = trc.scoreKeyWithSegments("spring.datasource.other.url", new String[] {"foo"},
+                "url");
         assertTrue(score >= 0);
     }
 
@@ -152,9 +142,7 @@ class TestResourceContextTest {
     void scoreKeyWithSegments_正常ケース_DB未指定かつspringDatasource以外を指定する_デフォルト加点のみとなること()
             throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"x.url", new String[0], "url"});
+        int score = trc.scoreKeyWithSegments("x.url", new String[0], "url");
         assertTrue(score >= 50);
     }
 
@@ -162,18 +150,15 @@ class TestResourceContextTest {
     void scoreKeyWithSegments_正常ケース_DB一致かつfirstIdx1でdatasource不一致を指定する_条件分岐が実行されること()
             throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"spring.foo.bar.url", new String[] {"foo"}, "url"});
+        int score = trc.scoreKeyWithSegments("spring.foo.bar.url", new String[] {"foo"}, "url");
         assertTrue(score >= 100);
     }
 
     @Test
     void scoreKeyWithSegments_正常ケース_DB一致かつfirstIdx2で不一致を指定する_条件分岐が実行されること() throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"spring.datasource.x.foo.url", new String[] {"foo"}, "url"});
+        int score = trc.scoreKeyWithSegments("spring.datasource.x.foo.url", new String[] {"foo"},
+                "url");
         assertTrue(score >= 100);
     }
 
@@ -181,18 +166,14 @@ class TestResourceContextTest {
     void scoreKeyWithSegments_正常ケース_DB不一致かつspringDatasource以外を指定する_非一致分岐が実行されること()
             throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"abc.def.url", new String[] {"foo"}, "url"});
+        int score = trc.scoreKeyWithSegments("abc.def.url", new String[] {"foo"}, "url");
         assertTrue(score >= 0);
     }
 
     @Test
     void scoreKeyWithSegments_正常ケース_DB未指定でspring以外を指定する_条件分岐の逆側が実行されること() throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"x.datasource.url", new String[0], "url"});
+        int score = trc.scoreKeyWithSegments("x.datasource.url", new String[0], "url");
         assertTrue(score >= 50);
     }
 
@@ -200,18 +181,14 @@ class TestResourceContextTest {
     void scoreKeyWithSegments_正常ケース_DB未指定でspring配下かつdatasource不一致を指定する_分岐の逆側が実行されること()
             throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"spring.foo.url", new String[0], "url"});
+        int score = trc.scoreKeyWithSegments("spring.foo.url", new String[0], "url");
         assertTrue(score >= 50);
     }
 
     @Test
     void scoreKeyWithSegments_正常ケース_DB一致でトークン数不足を指定する_条件分岐の逆側が実行されること() throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"foo.url", new String[] {"foo"}, "url"});
+        int score = trc.scoreKeyWithSegments("foo.url", new String[] {"foo"}, "url");
         assertTrue(score >= 100);
     }
 
@@ -219,9 +196,7 @@ class TestResourceContextTest {
     void scoreKeyWithSegments_正常ケース_DB一致かつspring配下だがdatasource不一致を指定する_条件分岐の逆側が実行されること()
             throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"spring.foo.bar.url", new String[] {"foo"}, "url"});
+        int score = trc.scoreKeyWithSegments("spring.foo.bar.url", new String[] {"foo"}, "url");
         assertTrue(score >= 100);
     }
 
@@ -229,18 +204,14 @@ class TestResourceContextTest {
     void scoreKeyWithSegments_正常ケース_DB不一致かつspring配下でdatasource不一致を指定する_条件分岐の逆側が実行されること()
             throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"spring.x.y.url", new String[] {"foo"}, "url"});
+        int score = trc.scoreKeyWithSegments("spring.x.y.url", new String[] {"foo"}, "url");
         assertTrue(score >= 0);
     }
 
     @Test
     void scoreKeyWithSegments_正常ケース_DB一致かつspring以外を指定する_if条件の逆側が実行されること() throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"x.foo.datasource.url", new String[] {"foo"}, "url"});
+        int score = trc.scoreKeyWithSegments("x.foo.datasource.url", new String[] {"foo"}, "url");
         assertTrue(score >= 100);
     }
 
@@ -248,9 +219,7 @@ class TestResourceContextTest {
     void scoreKeyWithSegments_正常ケース_DB不一致かつspring配下でdatasource不一致を指定する_else条件の逆側が実行されること()
             throws Exception {
         TestResourceContext trc = newTrc(tempDir, new Properties());
-        int score = (int) invokePrivateInstance(trc, "scoreKeyWithSegments",
-                new Class[] {String.class, String[].class, String.class},
-                new Object[] {"spring.x.url", new String[] {"foo"}, "url"});
+        int score = trc.scoreKeyWithSegments("spring.x.url", new String[] {"foo"}, "url");
         assertTrue(score >= 0);
     }
 
@@ -273,31 +242,26 @@ class TestResourceContextTest {
                 StandardCharsets.UTF_8);
 
         try (URLClassLoader cl = new URLClassLoader(new URL[] {cp.toUri().toURL()}, null)) {
-            Properties merged = (Properties) invokePrivateStatic(TestResourceContext.class,
-                    "loadAllApplicationProperties", new Class[] {ClassLoader.class},
-                    new Object[] {cl});
+            Properties merged = TestResourceContext.loadAllApplicationProperties(cl);
             assertEquals("dev", merged.getProperty("merge.order"));
         }
     }
 
     @Test
     void extractProfile_正常ケース_yaml拡張子を指定する_プロファイル名が返ること() throws Exception {
-        String profile = (String) invokePrivateStatic(TestResourceContext.class, "extractProfile",
-                new Class[] {String.class}, new Object[] {"application-dev.yaml"});
+        String profile = TestResourceContext.extractProfile("application-dev.yaml");
         assertEquals("dev", profile);
     }
 
     @Test
     void extractProfile_正常ケース_対象外ファイル名を指定する_空文字が返ること() throws Exception {
-        String profile = (String) invokePrivateStatic(TestResourceContext.class, "extractProfile",
-                new Class[] {String.class}, new Object[] {"something.txt"});
+        String profile = TestResourceContext.extractProfile("something.txt");
         assertEquals("", profile);
     }
 
     @Test
     void extractProfile_正常ケース_application接頭辞で対象外拡張子を指定する_空文字が返ること() throws Exception {
-        String profile = (String) invokePrivateStatic(TestResourceContext.class, "extractProfile",
-                new Class[] {String.class}, new Object[] {"application-dev.txt"});
+        String profile = TestResourceContext.extractProfile("application-dev.txt");
         assertEquals("", profile);
     }
 
@@ -306,9 +270,7 @@ class TestResourceContextTest {
         Path yaml = tempDir.resolve("app.yaml");
         Files.writeString(yaml, "a.b: c\n", StandardCharsets.UTF_8);
         Properties props = new Properties();
-        invokePrivateStatic(TestResourceContext.class, "loadResourceToProps",
-                new Class[] {Properties.class, URL.class},
-                new Object[] {props, yaml.toUri().toURL()});
+        TestResourceContext.loadResourceToProps(props, yaml.toUri().toURL());
         assertEquals("c", props.getProperty("a.b"));
     }
 
@@ -317,9 +279,7 @@ class TestResourceContextTest {
         Path yml = tempDir.resolve("app.yml");
         Files.writeString(yml, "m.n: z\n", StandardCharsets.UTF_8);
         Properties props = new Properties();
-        invokePrivateStatic(TestResourceContext.class, "loadResourceToProps",
-                new Class[] {Properties.class, URL.class},
-                new Object[] {props, yml.toUri().toURL()});
+        TestResourceContext.loadResourceToProps(props, yml.toUri().toURL());
         assertEquals("z", props.getProperty("m.n"));
     }
 
@@ -328,9 +288,7 @@ class TestResourceContextTest {
         Path txt = tempDir.resolve("app.txt");
         Files.writeString(txt, "k=v\n", StandardCharsets.UTF_8);
         Properties props = new Properties();
-        invokePrivateStatic(TestResourceContext.class, "loadResourceToProps",
-                new Class[] {Properties.class, URL.class},
-                new Object[] {props, txt.toUri().toURL()});
+        TestResourceContext.loadResourceToProps(props, txt.toUri().toURL());
         assertTrue(props.isEmpty());
     }
 
@@ -339,9 +297,7 @@ class TestResourceContextTest {
         Path yaml = tempDir.resolve("empty.yml");
         Files.writeString(yaml, "", StandardCharsets.UTF_8);
         Properties props = new Properties();
-        assertDoesNotThrow(() -> invokePrivateStatic(TestResourceContext.class, "loadYamlToProps",
-                new Class[] {Properties.class, URL.class},
-                new Object[] {props, yaml.toUri().toURL()}));
+        assertDoesNotThrow(() -> TestResourceContext.loadYamlToProps(props, yaml.toUri().toURL()));
     }
 
     @Test
@@ -352,9 +308,7 @@ class TestResourceContextTest {
         try (MockedConstruction<YamlPropertiesFactoryBean> mocked =
                 mockConstruction(YamlPropertiesFactoryBean.class,
                         (factory, context) -> when(factory.getObject()).thenReturn(null))) {
-            invokePrivateStatic(TestResourceContext.class, "loadYamlToProps",
-                    new Class[] {Properties.class, URL.class},
-                    new Object[] {props, yaml.toUri().toURL()});
+            TestResourceContext.loadYamlToProps(props, yaml.toUri().toURL());
             assertTrue(props.isEmpty());
             assertEquals(1, mocked.constructed().size());
         }
@@ -368,9 +322,7 @@ class TestResourceContextTest {
         }
         Properties p = new Properties();
         p.setProperty("spring.profiles.active", candidate);
-        @SuppressWarnings("unchecked")
-        List<String> out = (List<String>) invokePrivateStatic(TestResourceContext.class,
-                "resolveActiveProfiles", new Class[] {Properties.class}, new Object[] {p});
+        List<String> out = TestResourceContext.resolveActiveProfiles(p);
         assertTrue(out.isEmpty());
     }
 
@@ -380,9 +332,7 @@ class TestResourceContextTest {
         p.setProperty("spring.profiles.active", "dev");
         try (MockedStatic<StringUtils> mocked = mockStatic(StringUtils.class, CALLS_REAL_METHODS)) {
             mocked.when(() -> StringUtils.isNotBlank("dev")).thenReturn(false);
-            @SuppressWarnings("unchecked")
-            List<String> out = (List<String>) invokePrivateStatic(TestResourceContext.class,
-                    "resolveActiveProfiles", new Class[] {Properties.class}, new Object[] {p});
+            List<String> out = TestResourceContext.resolveActiveProfiles(p);
             assertTrue(out.isEmpty());
         }
     }
@@ -393,9 +343,7 @@ class TestResourceContextTest {
         try {
             Properties p = new Properties();
             p.setProperty("spring.profiles.active", "dev");
-            @SuppressWarnings("unchecked")
-            List<String> out = (List<String>) invokePrivateStatic(TestResourceContext.class,
-                    "resolveActiveProfiles", new Class[] {Properties.class}, new Object[] {p});
+            List<String> out = TestResourceContext.resolveActiveProfiles(p);
             assertEquals(List.of("qa", "prod"), out);
         } finally {
             System.clearProperty("spring.profiles.active");
@@ -415,47 +363,8 @@ class TestResourceContextTest {
         }
     }
 
-    private static TestResourceContext newTrc(Path classRoot, Properties props) throws Exception {
-        Constructor<TestResourceContext> c =
-                TestResourceContext.class.getDeclaredConstructor(Path.class, Properties.class);
-        c.setAccessible(true);
-        return c.newInstance(classRoot, props);
-    }
-
-    private static Object invokePrivateInstance(Object target, String method, Class<?>[] types,
-            Object[] args) throws Exception {
-        Method m = target.getClass().getDeclaredMethod(method, types);
-        m.setAccessible(true);
-        try {
-            return m.invoke(target, args);
-        } catch (InvocationTargetException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof Exception) {
-                throw (Exception) cause;
-            }
-            if (cause instanceof Error) {
-                throw (Error) cause;
-            }
-            throw new IllegalStateException(cause);
-        }
-    }
-
-    private static Object invokePrivateStatic(Class<?> target, String method, Class<?>[] types,
-            Object[] args) throws Exception {
-        Method m = target.getDeclaredMethod(method, types);
-        m.setAccessible(true);
-        try {
-            return m.invoke(null, args);
-        } catch (InvocationTargetException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof Exception) {
-                throw (Exception) cause;
-            }
-            if (cause instanceof Error) {
-                throw (Error) cause;
-            }
-            throw new IllegalStateException(cause);
-        }
+    private static TestResourceContext newTrc(Path classRoot, Properties props) {
+        return new TestResourceContext(classRoot, props);
     }
 
     private static String findBlankButNotEmptyToken() {

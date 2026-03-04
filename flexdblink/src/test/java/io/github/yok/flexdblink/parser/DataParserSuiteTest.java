@@ -7,9 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mockStatic;
-import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -105,10 +102,8 @@ class DataParserSuiteTest {
     }
 
     @Test
-    void コンストラクタ_正常ケース_リフレクションで生成する_インスタンスが生成されること() throws Exception {
-        Constructor<DataLoaderFactory> ctor = DataLoaderFactory.class.getDeclaredConstructor();
-        ctor.setAccessible(true);
-        Object instance = ctor.newInstance();
+    void コンストラクタ_正常ケース_直接生成する_インスタンスが生成されること() {
+        Object instance = new DataLoaderFactory();
         assertNotNull(instance);
     }
 
@@ -181,25 +176,18 @@ class DataParserSuiteTest {
     }
 
     @Test
-    void createParser_異常ケース_nullフォーマットを指定する_IllegalArgumentExceptionが送出されること() throws Exception {
-        java.lang.reflect.Method method =
-                DataLoaderFactory.class.getDeclaredMethod("createParser", DataFormat.class);
-        method.setAccessible(true);
-        InvocationTargetException ex = assertThrows(InvocationTargetException.class,
-                () -> method.invoke(null, new Object[] {null}));
-        assertTrue(ex.getCause() instanceof IllegalArgumentException);
-        assertEquals("Unsupported format: null", ex.getCause().getMessage());
+    void createParser_異常ケース_nullフォーマットを指定する_IllegalArgumentExceptionが送出されること() {
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> DataLoaderFactory.createParser(null));
+        assertEquals("Unsupported format: null", ex.getMessage());
     }
 
     @Test
-    void createParser_正常ケース_各フォーマットを指定する_対応パーサが返ること() throws Exception {
-        Method method = DataLoaderFactory.class.getDeclaredMethod("createParser", DataFormat.class);
-        method.setAccessible(true);
-
-        Object csv = method.invoke(null, DataFormat.CSV);
-        Object json = method.invoke(null, DataFormat.JSON);
-        Object yaml = method.invoke(null, DataFormat.YAML);
-        Object xml = method.invoke(null, DataFormat.XML);
+    void createParser_正常ケース_各フォーマットを指定する_対応パーサが返ること() {
+        Object csv = DataLoaderFactory.createParser(DataFormat.CSV);
+        Object json = DataLoaderFactory.createParser(DataFormat.JSON);
+        Object yaml = DataLoaderFactory.createParser(DataFormat.YAML);
+        Object xml = DataLoaderFactory.createParser(DataFormat.XML);
 
         assertTrue(csv instanceof CsvDataParser);
         assertTrue(json instanceof JsonDataParser);

@@ -12,6 +12,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import com.google.common.collect.ImmutableList;
+import io.github.yok.flexdblink.config.ConnectionConfig;
 import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.net.URL;
@@ -55,17 +56,6 @@ class LoadCsvDataExtensionTest {
             prevTccl = null;
         }
     }
-
-    @SneakyThrows
-    @SuppressWarnings("unchecked")
-    private static <T> T invokePrivate(Object target, String methodName, Class<?>[] types,
-            Object... args) {
-        Method m = target.getClass().getDeclaredMethod(methodName, types);
-        m.setAccessible(true);
-        Object ret = m.invoke(target, args);
-        return (T) ret;
-    }
-
 
     static class DummyClass_MethodAnn_DB指定_Spring_Participate {
         @LoadData(scenario = {"scenario1"}, dbNames = {"bbb"})
@@ -131,8 +121,7 @@ class LoadCsvDataExtensionTest {
     void wrapConnectionNoClose_正常ケース_closeが無視されること() throws Exception {
         LoadDataExtension ext = new LoadDataExtension();
         Connection original = mock(Connection.class);
-        Connection wrapped = invokePrivate(ext, "wrapConnectionNoClose",
-                new Class<?>[] {Connection.class}, original);
+        Connection wrapped = ext.wrapConnectionNoClose(original);
         wrapped.close();
         verify(original, never()).close();
     }
@@ -141,8 +130,7 @@ class LoadCsvDataExtensionTest {
     void wrapConnectionNoClose_正常ケース_他メソッドは委譲されること() throws Exception {
         LoadDataExtension ext = new LoadDataExtension();
         Connection original = mock(Connection.class);
-        Connection wrapped = invokePrivate(ext, "wrapConnectionNoClose",
-                new Class<?>[] {Connection.class}, original);
+        Connection wrapped = ext.wrapConnectionNoClose(original);
         wrapped.setAutoCommit(false);
         verify(original, times(1)).setAutoCommit(false);
     }
@@ -153,8 +141,7 @@ class LoadCsvDataExtensionTest {
         p.setProperty("spring.datasource.url", "jdbc:h2:mem:test1");
         p.setProperty("x.y.z.datasource.url", "jdbc:h2:mem:other");
         TestResourceContext trc = newTrc(Paths.get("."), p);
-        String v = invokePrivate(trc, "resolvePropertyForDb",
-                new Class<?>[] {Properties.class, String.class, String.class}, p, null, "url");
+        String v = trc.resolvePropertyForDb(p, null, "url");
         assertEquals("jdbc:h2:mem:test1", v);
     }
 
@@ -165,9 +152,7 @@ class LoadCsvDataExtensionTest {
         p.setProperty("spring.datasource.operator.url", "jdbc:h2:mem:operator");
         p.setProperty("foo.bar.operator.bbb.baz.datasource.url", "jdbc:h2:mem:far");
         TestResourceContext trc = newTrc(Paths.get("."), p);
-        String v = invokePrivate(trc, "resolvePropertyForDb",
-                new Class<?>[] {Properties.class, String.class, String.class}, p, "operator.bbb",
-                "url");
+        String v = trc.resolvePropertyForDb(p, "operator.bbb", "url");
         assertEquals("jdbc:h2:mem:bbb-close", v);
     }
 
@@ -177,9 +162,7 @@ class LoadCsvDataExtensionTest {
         p.setProperty("a.b.operator.bbb.datasource.url", "jdbc:h2:mem:near");
         p.setProperty("a.operator.bbb.x.y.datasource.url", "jdbc:h2:mem:far");
         TestResourceContext trc = newTrc(Paths.get("."), p);
-        String v = invokePrivate(trc, "resolvePropertyForDb",
-                new Class<?>[] {Properties.class, String.class, String.class}, p, "operator.bbb",
-                "url");
+        String v = trc.resolvePropertyForDb(p, "operator.bbb", "url");
         assertEquals("jdbc:h2:mem:near", v);
     }
 
@@ -188,9 +171,7 @@ class LoadCsvDataExtensionTest {
         Properties p = new Properties();
         p.setProperty("spring.datasource.url", "jdbc:h2:mem:x");
         TestResourceContext trc = newTrc(Paths.get("."), p);
-        String v = invokePrivate(trc, "resolvePropertyForDb",
-                new Class<?>[] {Properties.class, String.class, String.class}, p, "no.hit",
-                "username");
+        String v = trc.resolvePropertyForDb(p, "no.hit", "username");
         assertNull(v);
     }
 
@@ -224,7 +205,7 @@ class LoadCsvDataExtensionTest {
                 return new String[0];
             }
         };
-        var list = invokePrivate(ext, "resolveScenarios", new Class<?>[] {LoadData.class}, ann);
+        var list = ext.resolveScenarios(ann);
         assertEquals(ImmutableList.of("s1", "s2"), list);
     }
 
@@ -250,10 +231,7 @@ class LoadCsvDataExtensionTest {
         URLClassLoader cl = new URLClassLoader(new URL[] {base.toUri().toURL()}, prevTccl);
         Thread.currentThread().setContextClassLoader(cl);
         tcclOverridden = true;
-        Method m = TestResourceContext.class.getDeclaredMethod("resolveTestClassRootFromClasspath",
-                Class.class);
-        m.setAccessible(true);
-        Path root = (Path) m.invoke(null, target);
+        Path root = TestResourceContext.resolveTestClassRootFromClasspath(target);
         cl.close();
         assertTrue(Files.isSameFile(dir, root));
     }
@@ -266,14 +244,10 @@ class LoadCsvDataExtensionTest {
         p.setProperty("spring.datasource.operator.bbb.password", "p");
         p.setProperty("spring.datasource.operator.bbb.driver-class-name", "org.h2.Driver");
         TestResourceContext trc = newTrc(Paths.get("."), p);
-        Object entry = trc.buildEntryFromProps("operator.bbb");
-        Class<?> entryClz = entry.getClass();
-        Method getId = entryClz.getMethod("getId");
-        Method getUrl = entryClz.getMethod("getUrl");
-        Method getUser = entryClz.getMethod("getUser");
-        assertEquals("operator.bbb", getId.invoke(entry));
-        assertEquals("jdbc:h2:mem:x", getUrl.invoke(entry));
-        assertEquals("u", getUser.invoke(entry));
+        ConnectionConfig.Entry entry = trc.buildEntryFromProps("operator.bbb");
+        assertEquals("operator.bbb", entry.getId());
+        assertEquals("jdbc:h2:mem:x", entry.getUrl());
+        assertEquals("u", entry.getUser());
     }
 
     @Test
@@ -838,15 +812,11 @@ class LoadCsvDataExtensionTest {
 
     @SneakyThrows
     private static TestResourceContext newTrc(Path classRoot, Properties props) {
-        var c = TestResourceContext.class.getDeclaredConstructor(Path.class, Properties.class);
-        c.setAccessible(true);
-        return c.newInstance(classRoot, props);
+        return new TestResourceContext(classRoot, props);
     }
 
     @SneakyThrows
     private static TestResourceContext getTrc(LoadDataExtension target) {
-        var f = LoadDataExtension.class.getDeclaredField("trc");
-        f.setAccessible(true);
-        return (TestResourceContext) f.get(target);
+        return target.getTestResourceContext();
     }
 }

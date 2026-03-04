@@ -34,6 +34,16 @@ import org.mockito.MockedStatic;
 class DbDialectHandlerFactoryTest {
 
     @Test
+    void getConfigFactory_正常ケース_コンストラクタ指定の設定ファクトリを取得する_同一インスタンスが返ること() {
+        DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
+        DbDialectHandlerFactory factory =
+                new DbDialectHandlerFactory(new DbUnitConfig(), new DumpConfig(),
+                        new PathsConfig(), mock(DateTimeFormatUtil.class), configFactory);
+
+        assertSame(configFactory, factory.getConfigFactory());
+    }
+
+    @Test
     void create_正常ケース_OracleURLを指定する_OracleDialectHandlerが返ること() throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
         DumpConfig dumpConfig = new DumpConfig();

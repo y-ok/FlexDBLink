@@ -23,7 +23,6 @@ import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.TableDependencyResolver;
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,6 +53,13 @@ class DataDumperTest {
     Path tempDir;
 
     @Test
+    void getDumpSummary_正常ケース_初期状態で取得する_空マップが返ること() {
+        DataDumper dumper = createDumper();
+
+        assertTrue(dumper.getDumpSummary().isEmpty());
+    }
+
+    @Test
     void fetchTargetTables_正常ケース_excludeTablesがnullでテーブルが複数ある_全件が返ること() throws Exception {
         DataDumper dumper = createDumper();
         Connection conn = mock(Connection.class);
@@ -65,12 +71,7 @@ class DataDumperTest {
         when(rs.next()).thenReturn(true, true, false);
         when(rs.getString("TABLE_NAME")).thenReturn("T1", "T2");
 
-        Method method = DataDumper.class.getDeclaredMethod("fetchTargetTables", Connection.class,
-                String.class, List.class);
-        method.setAccessible(true);
-
-        @SuppressWarnings("unchecked")
-        List<String> result = (List<String>) method.invoke(dumper, conn, "APP", null);
+        List<String> result = dumper.fetchTargetTables(conn, "APP", null, null);
         assertEquals(List.of("T1", "T2"), result);
     }
 
@@ -86,12 +87,24 @@ class DataDumperTest {
         when(rs.next()).thenReturn(true, true, false);
         when(rs.getString("TABLE_NAME")).thenReturn("T1", "T2");
 
-        Method method = DataDumper.class.getDeclaredMethod("fetchTargetTables", Connection.class,
-                String.class, List.class);
-        method.setAccessible(true);
+        List<String> result = dumper.fetchTargetTables(conn, "APP", List.of("t1"), "DB1");
+        assertEquals(List.of("T2"), result);
+    }
 
-        @SuppressWarnings("unchecked")
-        List<String> result = (List<String>) method.invoke(dumper, conn, "APP", List.of("t1"));
+    @Test
+    void fetchTargetTables_正常ケース_dbIdが空文字で除外対象がある_除外済みテーブル一覧ログなしで結果が返ること()
+            throws Exception {
+        DataDumper dumper = createDumper();
+        Connection conn = mock(Connection.class);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        ResultSet rs = mock(ResultSet.class);
+
+        when(conn.getMetaData()).thenReturn(meta);
+        when(meta.getTables(null, "APP", "%", new String[] {"TABLE"})).thenReturn(rs);
+        when(rs.next()).thenReturn(true, true, false);
+        when(rs.getString("TABLE_NAME")).thenReturn("T1", "T2");
+
+        List<String> result = dumper.fetchTargetTables(conn, "APP", List.of("t1"), "");
         assertEquals(List.of("T2"), result);
     }
 
@@ -115,15 +128,12 @@ class DataDumperTest {
         Files.writeString(blockingFile, "x", StandardCharsets.UTF_8);
         File target = blockingFile.resolve("child").toFile();
 
-        Method method = DataDumper.class.getDeclaredMethod("ensureDirectoryExists", File.class,
-                String.class);
-        method.setAccessible(true);
-
         try (MockedStatic<ErrorHandler> handler = Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any())).thenAnswer(inv -> {
                 throw new IllegalStateException("exit");
             });
-            assertThrows(Exception.class, () -> method.invoke(dumper, target, "msg"));
+            assertThrows(IllegalStateException.class,
+                    () -> dumper.ensureDirectoryExists(target, "msg"));
             handler.verify(() -> ErrorHandler.errorAndExit("msg: " + target.getAbsolutePath()));
         }
     }
@@ -136,10 +146,7 @@ class DataDumperTest {
         Files.createDirectories(scenario);
         Files.writeString(scenario.resolve("a.txt"), "x", StandardCharsets.UTF_8);
 
-        Method method = DataDumper.class.getDeclaredMethod("backupScenarioDirectory", Path.class,
-                File.class);
-        method.setAccessible(true);
-        method.invoke(dumper, dataPath, scenario.toFile());
+        dumper.backupScenarioDirectory(dataPath, scenario.toFile());
 
         assertTrue(Files.exists(dataPath));
         assertTrue(Files.notExists(scenario));
@@ -153,9 +160,6 @@ class DataDumperTest {
     @Test
     void backupScenarioDirectory_異常ケース_リネームが失敗する_ErrorHandlerが呼ばれること() throws Exception {
         DataDumper dumper = createDumper();
-        Method method = DataDumper.class.getDeclaredMethod("backupScenarioDirectory", Path.class,
-                File.class);
-        method.setAccessible(true);
 
         class RenameFailFile extends File {
             private static final long serialVersionUID = 1L;
@@ -173,7 +177,7 @@ class DataDumperTest {
         File scenario = new RenameFailFile(dataPath.resolve("scn").toString());
         try (MockedStatic<ErrorHandler> handler = Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any())).thenAnswer(inv -> null);
-            method.invoke(dumper, dataPath, scenario);
+            dumper.backupScenarioDirectory(dataPath, scenario);
             handler.verify(() -> ErrorHandler.errorAndExit(any()));
         }
     }
@@ -181,12 +185,9 @@ class DataDumperTest {
     @Test
     void prepareDbOutputDirs_正常ケース_ディレクトリ未作成で呼ぶ_DB用とfiles用が作成されること() throws Exception {
         DataDumper dumper = createDumper();
-        Method method =
-                DataDumper.class.getDeclaredMethod("prepareDbOutputDirs", File.class, String.class);
-        method.setAccessible(true);
 
         File scenarioDir = tempDir.resolve("scenario").toFile();
-        File[] dirs = (File[]) method.invoke(dumper, scenarioDir, "db1");
+        File[] dirs = dumper.prepareDbOutputDirs(scenarioDir, "db1");
 
         assertEquals(2, dirs.length);
         assertTrue(dirs[0].exists());
@@ -196,11 +197,8 @@ class DataDumperTest {
     @Test
     void ensureDirectoryExists_正常ケース_既存ディレクトリを指定する_例外なく完了すること() throws Exception {
         DataDumper dumper = createDumper();
-        Method method = DataDumper.class.getDeclaredMethod("ensureDirectoryExists", File.class,
-                String.class);
-        method.setAccessible(true);
         File existing = Files.createDirectories(tempDir.resolve("already_exists")).toFile();
-        method.invoke(dumper, existing, "unused");
+        dumper.ensureDirectoryExists(existing, "unused");
         assertTrue(existing.exists());
     }
 
@@ -211,12 +209,9 @@ class DataDumperTest {
         Path blockingFile = tempDir.resolve("blocking2");
         Files.writeString(blockingFile, "x", StandardCharsets.UTF_8);
         File target = blockingFile.resolve("child").toFile();
-        Method method = DataDumper.class.getDeclaredMethod("ensureDirectoryExists", File.class,
-                String.class);
-        method.setAccessible(true);
         try (MockedStatic<ErrorHandler> handler = Mockito.mockStatic(ErrorHandler.class)) {
             handler.when(() -> ErrorHandler.errorAndExit(any())).thenAnswer(inv -> null);
-            method.invoke(dumper, target, "msg");
+            dumper.ensureDirectoryExists(target, "msg");
             handler.verify(() -> ErrorHandler.errorAndExit("msg: " + target.getAbsolutePath()));
         }
     }
@@ -796,18 +791,17 @@ class DataDumperTest {
     }
 
     @Test
-    void logTableSummary_正常ケース_複数テーブル件数を指定する_例外なく完了すること() throws Exception {
+    void logSummary_正常ケース_複数テーブル件数を指定する_例外なく完了すること() throws Exception {
         DataDumper dumper = createDumper();
-        Method method =
-                DataDumper.class.getDeclaredMethod("logTableSummary", String.class, Map.class);
-        method.setAccessible(true);
+        Map<String, Map<String, Integer>> summary = dumper.getDumpSummary();
 
         Map<String, Integer> counts = new LinkedHashMap<>();
         counts.put("T1", 1);
         counts.put("LONG_TABLE", 12);
 
-        method.invoke(dumper, "DB1", counts);
-        assertEquals(2, counts.size());
+        summary.put("DB1", counts);
+        dumper.logSummary();
+        assertEquals(1, summary.size());
     }
 
     private DataDumper createDumper() {

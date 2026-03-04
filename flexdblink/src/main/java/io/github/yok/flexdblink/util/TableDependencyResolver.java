@@ -235,7 +235,7 @@ public final class TableDependencyResolver {
         List<String> result = sorted.stream().map(lower -> normalizedMap.getOrDefault(lower, lower))
                 .collect(Collectors.toList());
 
-        log.info("Resolved table order (parent-first): {}", result);
+        log.debug("Resolved table order (parent-first): {}", result);
         return result;
     }
 

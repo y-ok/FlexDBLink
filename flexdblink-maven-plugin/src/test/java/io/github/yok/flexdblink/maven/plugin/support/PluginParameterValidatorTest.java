@@ -45,6 +45,18 @@ class PluginParameterValidatorTest {
     }
 
     @Test
+    void validateAndNormalize_正常ケース_excludeTablesを正規化する_空要素が除外されること() {
+        PluginConfig config = new PluginConfig();
+        config.setServerIds(List.of("db1"));
+        config.setDataPath("/tmp/data");
+        config.setExcludeTables(Arrays.asList(" audit_log ", "", "   ", null, "scheduler_lock"));
+
+        target.validateAndNormalize(config, PluginParameterValidator.GoalType.LOAD);
+
+        assertEquals(List.of("audit_log", "scheduler_lock"), config.getExcludeTables());
+    }
+
+    @Test
     void validateAndNormalize_正常ケース_targetDbIdsがnull_nullのままであること() {
         PluginConfig config = new PluginConfig();
         config.setServerIds(List.of("db1"));
@@ -174,7 +186,7 @@ class PluginParameterValidatorTest {
         PluginConfig.FilePattern pattern = new PluginConfig.FilePattern();
         pattern.setTableName("employee");
         pattern.setColumnName("photo");
-        pattern.setFilename("employee_${ID}.bin");
+        pattern.setFilename("employee_{ID}.bin");
         config.setFilePatterns(List.of(pattern));
 
         target.validateAndNormalize(config, PluginParameterValidator.GoalType.DUMP);

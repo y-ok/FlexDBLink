@@ -85,6 +85,26 @@ class FlexDbLinkCoreInvokerSqlServerIT {
     }
 
     @Test
+    void load_正常ケース_Flyway履歴テーブルが存在する_レコードが登録されること() throws Exception {
+        try (Connection conn = connection(); Statement stmt = conn.createStatement()) {
+            stmt.execute(
+                    "IF OBJECT_ID('flyway_schema_history', 'U') IS NULL "
+                            + "CREATE TABLE flyway_schema_history (installed_rank INT PRIMARY KEY)");
+            stmt.execute("TRUNCATE TABLE flyway_schema_history");
+        }
+
+        Path preDir = tempDataPath.resolve("load").resolve("pre").resolve("DB1");
+        Files.createDirectories(preDir);
+        String csv = "ID,NAME\n1,Alice\n2,Bob\n";
+        Files.writeString(preDir.resolve("employee.csv"), csv, StandardCharsets.UTF_8);
+
+        CoreConfigBundle bundle = buildBundle(tempDataPath);
+        invoker.load(bundle, null, List.of("DB1"));
+
+        assertEquals(2, countEmployeeRows());
+    }
+
+    @Test
     void dump_正常ケース_シナリオ指定で実行する_ダンプCSVが生成されること() throws Exception {
         try (Connection conn = connection();
                 PreparedStatement ps =

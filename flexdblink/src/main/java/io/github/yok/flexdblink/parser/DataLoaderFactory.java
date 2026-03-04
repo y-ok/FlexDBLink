@@ -64,7 +64,7 @@ public class DataLoaderFactory {
 
             if (matches != null && matches.length > 0) {
                 File candidate = matches[0];
-                log.info("Resolved dataset file: {}", candidate.getName());
+                log.debug("Resolved dataset file: {}", candidate.getName());
                 return createParser(format).parse(scenarioDir);
             }
         }
@@ -89,7 +89,7 @@ public class DataLoaderFactory {
      * @return a {@link DataParser} implementation corresponding to the format
      * @throws IllegalArgumentException if the format is not supported
      */
-    private static DataParser createParser(DataFormat format) {
+    static DataParser createParser(DataFormat format) {
         if (format == DataFormat.CSV) {
             return new CsvDataParser();
         }

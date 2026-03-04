@@ -52,7 +52,8 @@ The JUnit 5 extension automates per-test data setup and rollback, enabling **Git
 | Java | 11 or higher (CI verified: core on **11 / 17 / 21 / 25**, plugin on **11**) |
 | OS | Windows / macOS / Linux |
 
-> When using Oracle, you need to provide `oracle.jdbc.OracleDriver` (`ojdbc8`) separately.
+> FlexDBLink does not bundle JDBC drivers. Add the driver for your target database in your project
+> or plugin configuration.
 
 ---
 
@@ -427,6 +428,8 @@ Package overview: [GitHub Packages](https://github.com/y-ok?tab=packages&repo_na
 `flexdblink-maven-plugin` is a published GitHub Packages artifact for this repository. Use the plugin
 coordinates shown in the `POM Plugin Example` section below, and make sure GitHub Packages access is
 configured in your build environment before resolving the plugin.
+The plugin excludes `flyway_schema_history` by default so common Flyway-managed schemas work
+without extra configuration.
 
 FlexDBLink can also be used as a Maven plugin wrapper for `load` and `dump`, while reusing the
 existing core logic (`DataLoader` / `DataDumper`).
@@ -435,6 +438,29 @@ existing core logic (`DataLoader` / `DataDumper`).
 
 - Store DB connection settings in `~/.m2/settings.xml` (`servers/server`)
 - Store `dataPath`, `filePatterns`, and `dbunit` settings in your POM plugin configuration
+
+### POM Repository Example
+
+Add GitHub Packages as both a dependency repository and a plugin repository before using the
+published artifacts.
+
+```xml
+<repositories>
+  <repository>
+    <id>github</id>
+    <name>GitHub Packages - FlexDBLink</name>
+    <url>https://maven.pkg.github.com/y-ok/FlexDBLink</url>
+  </repository>
+</repositories>
+
+<pluginRepositories>
+  <pluginRepository>
+    <id>github</id>
+    <name>GitHub Packages - FlexDBLink</name>
+    <url>https://maven.pkg.github.com/y-ok/FlexDBLink</url>
+  </pluginRepository>
+</pluginRepositories>
+```
 
 ### `settings.xml` Example
 
@@ -490,12 +516,40 @@ existing core logic (`DataLoader` / `DataDumper`).
       <pattern>
         <tableName>employee</tableName>
         <columnName>photo</columnName>
-        <filename>employee/${ID}_photo.bin</filename>
+        <filename>{ID}_photo.bin</filename>
       </pattern>
     </filePatterns>
+
+    <excludeTables>
+      <excludeTable>batch_job_instance</excludeTable>
+    </excludeTables>
   </configuration>
 </plugin>
 ```
+
+### Plugin JDBC Driver Dependencies
+
+Add only the JDBC drivers you actually use inside the plugin declaration.
+
+```xml
+<dependencies>
+  <dependency>
+    <groupId>org.postgresql</groupId>
+    <artifactId>postgresql</artifactId>
+    <version>42.7.10</version>
+  </dependency>
+</dependencies>
+```
+
+Use the matching coordinates for your database:
+
+- Oracle: `com.oracle.database.jdbc:ojdbc8` (or `ojdbc10`)
+- PostgreSQL: `org.postgresql:postgresql`
+- MySQL: `com.mysql:mysql-connector-j`
+- SQL Server: `com.microsoft.sqlserver:mssql-jdbc`
+
+`flyway_schema_history` is excluded by default. Use `excludeTables` to add project-specific tables
+on top of that default list.
 
 ### Commands
 
@@ -503,6 +557,14 @@ existing core logic (`DataLoader` / `DataDumper`).
 - `mvn flexdblink:load -Dflexdblink.scenario=scenario1` → loads `pre` and `scenario1`
 - `mvn flexdblink:dump` → dumps to `${dataPath}/dump/<yyyyMMddHHmmss>`
 - `mvn flexdblink:dump -Dflexdblink.scenario=scenario1` → dumps to `${dataPath}/dump/scenario1`
+
+### Debug Logging
+
+Enable `DEBUG` only for FlexDBLink logs during Maven plugin execution:
+
+```bash
+mvn -Dorg.slf4j.simpleLogger.log.io.github.yok.flexdblink=debug flexdblink:load
+```
 
 ### VS Code Classpath Note
 
@@ -523,7 +585,8 @@ If needed, also run `Maven: Reload Projects`.
 
 `io.github.yok:flexdblink` is the published artifact that provides the JUnit 5 extension. Resolve
 this dependency from GitHub Packages for this repository after configuring GitHub Packages access in
-your build environment.
+your build environment. The `repositories` example above is also required when resolving this
+dependency from your test project.
 
 ```xml
 <dependency>
@@ -533,6 +596,10 @@ your build environment.
   <scope>test</scope>
 </dependency>
 ```
+
+Also add the JDBC driver for your target database as a normal project dependency (typically with
+`test` scope). Use the same coordinates listed in the Maven plugin section, but declare them in
+your project's `<dependencies>` instead of `<plugin><dependencies>`.
 
 Simply annotate your test with `@LoadData` to automatically inject the dataset before the test and roll it back on completion.
 This integrates with Spring Test transaction management (`@Transactional`), ensuring the DB state is reliably restored after each test method.

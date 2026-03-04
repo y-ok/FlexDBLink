@@ -1,5 +1,6 @@
 package io.github.yok.flexdblink.db;
 
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -38,5 +39,13 @@ class DbUnitConfigFactoryTest {
         verify(cfg).setProperty(eq(DatabaseConfig.FEATURE_ALLOW_EMPTY_FIELDS), eq(false));
         verify(cfg).setProperty(eq(DatabaseConfig.FEATURE_BATCHED_STATEMENTS), eq(false));
         verify(cfg).setProperty(eq(DatabaseConfig.PROPERTY_BATCH_SIZE), eq(77));
+    }
+
+    @Test
+    void getProperties_正常ケース_コンストラクタ指定プロパティを取得する_同一インスタンスが返ること() {
+        DbUnitConfigProperties props = new DbUnitConfigProperties();
+        DbUnitConfigFactory factory = new DbUnitConfigFactory(props);
+
+        assertSame(props, factory.getProperties());
     }
 }

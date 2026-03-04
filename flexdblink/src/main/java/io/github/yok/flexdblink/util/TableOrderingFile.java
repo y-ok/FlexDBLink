@@ -59,7 +59,7 @@ public final class TableOrderingFile {
         try {
             String content = String.join(System.lineSeparator(), tables);
             FileUtils.writeStringToFile(orderFile, content, StandardCharsets.UTF_8);
-            log.info("Generated table-ordering.txt: {}", orderFile.getAbsolutePath());
+            log.debug("Generated table-ordering.txt: {}", orderFile.getAbsolutePath());
         } catch (IOException e) {
             log.error("Failed to create table-ordering.txt: {}", e.getMessage(), e);
             ErrorHandler.errorAndExit("Failed to create table-ordering.txt", e);
@@ -99,7 +99,7 @@ public final class TableOrderingFile {
                     Arrays.stream(dataFiles).map(f -> FilenameUtils.getBaseName(f.getName()))
                             .sorted().collect(Collectors.joining(System.lineSeparator()));
             FileUtils.writeStringToFile(orderFile, content, StandardCharsets.UTF_8);
-            log.info("Generated table-ordering.txt: {}", orderFile.getAbsolutePath());
+            log.debug("Generated table-ordering.txt: {}", orderFile.getAbsolutePath());
         } catch (IOException e) {
             log.error("Failed to create table-ordering.txt: {}", e.getMessage(), e);
             ErrorHandler.errorAndExit("Failed to create table-ordering.txt", e);
@@ -115,7 +115,7 @@ public final class TableOrderingFile {
     public static void delete(File dir) {
         File orderFile = new File(dir, FILE_NAME);
         if (FileUtils.deleteQuietly(orderFile)) {
-            log.info("Deleted table-ordering.txt: {}", orderFile.getAbsolutePath());
+            log.debug("Deleted table-ordering.txt: {}", orderFile.getAbsolutePath());
         }
     }
 }

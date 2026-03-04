@@ -32,6 +32,10 @@ public class PluginConfig {
      */
     private List<String> targetDbIds;
     /**
+     * Optional additional table names to exclude from load and dump.
+     */
+    private List<String> excludeTables;
+    /**
      * Scenario name supplied by the user.
      */
     private String scenario;
