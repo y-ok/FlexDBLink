@@ -85,6 +85,28 @@ class FlexDbLinkCoreInvokerOracleIT {
     }
 
     @Test
+    void load_正常ケース_Flyway履歴テーブルが存在する_レコードが登録されること() throws Exception {
+        try (Connection conn = connection(); Statement stmt = conn.createStatement()) {
+            try {
+                stmt.execute("DROP TABLE flyway_schema_history");
+            } catch (Exception ignored) {
+                // table may not exist yet
+            }
+            stmt.execute("CREATE TABLE flyway_schema_history (installed_rank NUMBER(10) PRIMARY KEY)");
+        }
+
+        Path preDir = tempDataPath.resolve("load").resolve("pre").resolve("DB1");
+        Files.createDirectories(preDir);
+        String csv = "ID,NAME\n1,Alice\n2,Bob\n";
+        Files.writeString(preDir.resolve("EMPLOYEE.csv"), csv, StandardCharsets.UTF_8);
+
+        CoreConfigBundle bundle = buildBundle(tempDataPath);
+        invoker.load(bundle, null, List.of("DB1"));
+
+        assertEquals(2, countEmployeeRows());
+    }
+
+    @Test
     void dump_正常ケース_シナリオ指定で実行する_ダンプCSVが生成されること() throws Exception {
         try (Connection conn = connection();
                 PreparedStatement ps = conn

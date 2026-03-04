@@ -71,6 +71,12 @@ public abstract class AbstractFlexDbLinkMojo extends AbstractMojo {
     protected List<String> targetDbIds;
 
     /**
+     * Optional additional table names to exclude from load and dump.
+     */
+    @Parameter
+    protected List<String> excludeTables;
+
+    /**
      * Scenario name provided for load or dump execution.
      */
     @Parameter(property = "flexdblink.scenario")
@@ -162,6 +168,7 @@ public abstract class AbstractFlexDbLinkMojo extends AbstractMojo {
         config.setDataPath(this.dataPath);
         config.setFilePatterns(this.filePatterns);
         config.setTargetDbIds(this.targetDbIds);
+        config.setExcludeTables(copyList(this.excludeTables));
         config.setScenario(this.scenario);
         config.setSkip(this.skip);
         config.setDbunit(this.dbunit);

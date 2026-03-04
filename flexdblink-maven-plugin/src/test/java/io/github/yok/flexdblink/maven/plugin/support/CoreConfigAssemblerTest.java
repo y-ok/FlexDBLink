@@ -5,10 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.config.DbUnitConfigProperties;
-import io.github.yok.flexdblink.db.DbUnitConfigFactory;
+import io.github.yok.flexdblink.config.FlexDbLinkDefaults;
 import io.github.yok.flexdblink.maven.plugin.config.CoreConfigBundle;
 import io.github.yok.flexdblink.maven.plugin.config.PluginConfig;
-import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -22,8 +21,8 @@ class CoreConfigAssemblerTest {
         PluginConfig pluginConfig = new PluginConfig();
         pluginConfig.setDataPath("/tmp/flexdblink-data");
         pluginConfig.setDbunit(dbunit());
-        pluginConfig.setFilePatterns(List.of(
-                filePattern("employee", "photo", "employee/${ID}_photo.bin")));
+        pluginConfig.setFilePatterns(
+                List.of(filePattern("employee", "photo", "employee/{ID}_photo.bin")));
 
         ConnectionConfig connectionConfig = new ConnectionConfig();
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
@@ -36,15 +35,14 @@ class CoreConfigAssemblerTest {
 
         assertEquals("/tmp/flexdblink-data", bundle.getPathsConfig().getDataPath());
         assertEquals("pre", bundle.getDbUnitConfig().getPreDirName());
-        assertTrue(bundle.getFilePatternConfig()
-                .getPattern("employee", "photo").isPresent());
-        assertEquals("employee/${ID}_photo.bin",
-                bundle.getFilePatternConfig()
-                        .getPattern("employee", "photo").get());
+        assertEquals(FlexDbLinkDefaults.DEFAULT_EXCLUDE_TABLES,
+                bundle.getDumpConfig().getExcludeTables());
+        assertTrue(bundle.getFilePatternConfig().getPattern("employee", "photo").isPresent());
+        assertEquals("employee/{ID}_photo.bin",
+                bundle.getFilePatternConfig().getPattern("employee", "photo").get());
 
-        DbUnitConfigFactory factory =
-                extractDbUnitConfigFactory(bundle.getDbDialectHandlerFactory());
-        DbUnitConfigProperties props = extractDbUnitConfigProperties(factory);
+        DbUnitConfigProperties props =
+                bundle.getDbDialectHandlerFactory().getConfigFactory().getProperties();
         assertTrue(props.isAllowEmptyFields());
         assertTrue(props.isBatchedStatements());
         assertEquals(100, props.getBatchSize());
@@ -62,8 +60,7 @@ class CoreConfigAssemblerTest {
 
         CoreConfigBundle bundle = target.assemble(pluginConfig, connectionConfig);
 
-        assertFalse(bundle.getFilePatternConfig()
-                .getPattern("any", "col").isPresent());
+        assertFalse(bundle.getFilePatternConfig().getPattern("any", "col").isPresent());
     }
 
     @Test
@@ -78,8 +75,41 @@ class CoreConfigAssemblerTest {
 
         CoreConfigBundle bundle = target.assemble(pluginConfig, connectionConfig);
 
-        assertFalse(bundle.getFilePatternConfig()
-                .getPattern("any", "col").isPresent());
+        assertFalse(bundle.getFilePatternConfig().getPattern("any", "col").isPresent());
+    }
+
+    @Test
+    void assemble_正常ケース_excludeTablesを変換する_既定値へ追加されること() {
+        PluginConfig pluginConfig = new PluginConfig();
+        pluginConfig.setDataPath("/tmp/flexdblink-data");
+        pluginConfig.setDbunit(dbunit());
+        pluginConfig.setFilePatterns(Collections.emptyList());
+        pluginConfig.setExcludeTables(List.of("scheduler_lock", "FLYWAY_SCHEMA_HISTORY"));
+
+        ConnectionConfig connectionConfig = new ConnectionConfig();
+        connectionConfig.setConnections(List.of());
+
+        CoreConfigBundle bundle = target.assemble(pluginConfig, connectionConfig);
+
+        assertEquals(List.of("flyway_schema_history", "scheduler_lock"),
+                bundle.getDumpConfig().getExcludeTables());
+    }
+
+    @Test
+    void assemble_正常ケース_excludeTables空リストを変換する_既定値のみが返ること() {
+        PluginConfig pluginConfig = new PluginConfig();
+        pluginConfig.setDataPath("/tmp/flexdblink-data");
+        pluginConfig.setDbunit(dbunit());
+        pluginConfig.setFilePatterns(Collections.emptyList());
+        pluginConfig.setExcludeTables(Collections.emptyList());
+
+        ConnectionConfig connectionConfig = new ConnectionConfig();
+        connectionConfig.setConnections(List.of());
+
+        CoreConfigBundle bundle = target.assemble(pluginConfig, connectionConfig);
+
+        assertEquals(FlexDbLinkDefaults.DEFAULT_EXCLUDE_TABLES,
+                bundle.getDumpConfig().getExcludeTables());
     }
 
     @Test
@@ -87,20 +117,16 @@ class CoreConfigAssemblerTest {
         PluginConfig pluginConfig = new PluginConfig();
         pluginConfig.setDataPath("/tmp/flexdblink-data");
         pluginConfig.setDbunit(dbunit());
-        pluginConfig.setFilePatterns(List.of(
-                filePattern("employee", "photo", "photo.bin"),
+        pluginConfig.setFilePatterns(List.of(filePattern("employee", "photo", "photo.bin"),
                 filePattern("employee", "resume", "resume.pdf")));
 
         ConnectionConfig connectionConfig = new ConnectionConfig();
         connectionConfig.setConnections(List.of());
 
-        CoreConfigBundle bundle =
-                target.assemble(pluginConfig, connectionConfig);
+        CoreConfigBundle bundle = target.assemble(pluginConfig, connectionConfig);
 
-        assertTrue(bundle.getFilePatternConfig()
-                .getPattern("employee", "photo").isPresent());
-        assertTrue(bundle.getFilePatternConfig()
-                .getPattern("employee", "resume").isPresent());
+        assertTrue(bundle.getFilePatternConfig().getPattern("employee", "photo").isPresent());
+        assertTrue(bundle.getFilePatternConfig().getPattern("employee", "resume").isPresent());
     }
 
     @Test
@@ -108,16 +134,14 @@ class CoreConfigAssemblerTest {
         PluginConfig pluginConfig = new PluginConfig();
         pluginConfig.setDataPath("/tmp/flexdblink-data");
         pluginConfig.setDbunit(dbunit());
-        pluginConfig.setFilePatterns(List.of(
-                filePattern("employee", "photo", "a.bin"),
+        pluginConfig.setFilePatterns(List.of(filePattern("employee", "photo", "a.bin"),
                 filePattern("EMPLOYEE", "PHOTO", "b.bin")));
 
         ConnectionConfig connectionConfig = new ConnectionConfig();
         connectionConfig.setConnections(List.of());
 
         IllegalArgumentException ex =
-                org.junit.jupiter.api.Assertions.assertThrows(
-                        IllegalArgumentException.class,
+                org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                         () -> target.assemble(pluginConfig, connectionConfig));
 
         assertTrue(ex.getMessage().contains("Duplicate filePatterns"));
@@ -142,28 +166,12 @@ class CoreConfigAssemblerTest {
         return dbunit;
     }
 
-    private PluginConfig.FilePattern filePattern(String tableName,
-            String columnName, String filename) {
+    private PluginConfig.FilePattern filePattern(String tableName, String columnName,
+            String filename) {
         PluginConfig.FilePattern filePattern = new PluginConfig.FilePattern();
         filePattern.setTableName(tableName);
         filePattern.setColumnName(columnName);
         filePattern.setFilename(filename);
         return filePattern;
-    }
-
-    private DbUnitConfigProperties extractDbUnitConfigProperties(
-            DbUnitConfigFactory factory) throws Exception {
-        Field field = DbUnitConfigFactory.class.getDeclaredField("props");
-        field.setAccessible(true);
-        return (DbUnitConfigProperties) field.get(factory);
-    }
-
-    private DbUnitConfigFactory extractDbUnitConfigFactory(
-            io.github.yok.flexdblink.db.DbDialectHandlerFactory factory)
-            throws Exception {
-        Field field = io.github.yok.flexdblink.db.DbDialectHandlerFactory.class
-                .getDeclaredField("configFactory");
-        field.setAccessible(true);
-        return (DbUnitConfigFactory) field.get(factory);
     }
 }

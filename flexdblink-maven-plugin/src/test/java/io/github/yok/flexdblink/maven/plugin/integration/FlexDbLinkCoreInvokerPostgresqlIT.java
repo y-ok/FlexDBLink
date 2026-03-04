@@ -53,7 +53,10 @@ class FlexDbLinkCoreInvokerPostgresqlIT {
         try (Connection conn = connection(); Statement stmt = conn.createStatement()) {
             stmt.execute(
                     "CREATE TABLE IF NOT EXISTS employee (id INT PRIMARY KEY, name VARCHAR(100))");
+            stmt.execute(
+                    "CREATE TABLE IF NOT EXISTS audit_log (id INT PRIMARY KEY, detail VARCHAR(100))");
             stmt.execute("TRUNCATE TABLE employee");
+            stmt.execute("TRUNCATE TABLE audit_log");
         }
     }
 
@@ -74,6 +77,25 @@ class FlexDbLinkCoreInvokerPostgresqlIT {
 
     @Test
     void load_正常ケース_preシナリオを投入する_レコードが登録されること() throws Exception {
+        Path preDir = tempDataPath.resolve("load").resolve("pre").resolve("DB1");
+        Files.createDirectories(preDir);
+        String csv = "ID,NAME\n1,Alice\n2,Bob\n";
+        Files.writeString(preDir.resolve("employee.csv"), csv, StandardCharsets.UTF_8);
+
+        CoreConfigBundle bundle = buildBundle(tempDataPath);
+        invoker.load(bundle, null, List.of("DB1"));
+
+        assertEquals(2, countEmployeeRows());
+    }
+
+    @Test
+    void load_正常ケース_Flyway履歴テーブルが存在する_レコードが登録されること() throws Exception {
+        try (Connection conn = connection(); Statement stmt = conn.createStatement()) {
+            stmt.execute(
+                    "CREATE TABLE IF NOT EXISTS flyway_schema_history (installed_rank INT PRIMARY KEY)");
+            stmt.execute("TRUNCATE TABLE flyway_schema_history");
+        }
+
         Path preDir = tempDataPath.resolve("load").resolve("pre").resolve("DB1");
         Files.createDirectories(preDir);
         String csv = "ID,NAME\n1,Alice\n2,Bob\n";
@@ -116,11 +138,52 @@ class FlexDbLinkCoreInvokerPostgresqlIT {
         assertTrue(dumped.contains("bob"));
     }
 
+    @Test
+    void dump_正常ケース_excludeTables指定で実行する_対象外テーブルのCSVが生成されないこと()
+            throws Exception {
+        try (Connection conn = connection();
+                PreparedStatement employeePs = conn
+                        .prepareStatement("INSERT INTO employee(id, name) VALUES (?, ?), (?, ?)");
+                PreparedStatement auditPs = conn
+                        .prepareStatement("INSERT INTO audit_log(id, detail) VALUES (?, ?)")) {
+            employeePs.setInt(1, 11);
+            employeePs.setString(2, "Alice");
+            employeePs.setInt(3, 22);
+            employeePs.setString(4, "Bob");
+            employeePs.executeUpdate();
+
+            auditPs.setInt(1, 1);
+            auditPs.setString(2, "ignored");
+            auditPs.executeUpdate();
+        }
+
+        CoreConfigBundle bundle = buildBundle(tempDataPath, List.of("audit_log"));
+        invoker.dump(bundle, "scenarioExclude", List.of("DB1"));
+
+        Path dumpDbDir = tempDataPath.resolve("dump").resolve("scenarioExclude").resolve("DB1");
+        assertTrue(Files.isDirectory(dumpDbDir));
+
+        List<String> csvFileNames;
+        try (Stream<Path> files = Files.list(dumpDbDir)) {
+            csvFileNames = files
+                    .filter(path -> path.getFileName().toString().toLowerCase().endsWith(".csv"))
+                    .map(path -> path.getFileName().toString().toLowerCase())
+                    .collect(Collectors.toList());
+        }
+        assertTrue(csvFileNames.contains("employee.csv"));
+        assertFalse(csvFileNames.contains("audit_log.csv"));
+    }
+
     private CoreConfigBundle buildBundle(Path dataPath) {
+        return buildBundle(dataPath, null);
+    }
+
+    private CoreConfigBundle buildBundle(Path dataPath, List<String> excludeTables) {
         PluginConfig pluginConfig = new PluginConfig();
         pluginConfig.setDataPath(dataPath.toString());
         pluginConfig.setDbunit(defaultDbunit());
         pluginConfig.setFilePatterns(List.of());
+        pluginConfig.setExcludeTables(excludeTables);
 
         ConnectionConfig connectionConfig = new ConnectionConfig();
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();

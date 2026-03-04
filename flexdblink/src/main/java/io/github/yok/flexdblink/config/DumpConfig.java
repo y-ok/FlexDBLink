@@ -1,6 +1,5 @@
 package io.github.yok.flexdblink.config;
 
-import com.google.common.collect.ImmutableList;
 import java.util.List;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
@@ -20,7 +19,8 @@ import org.springframework.stereotype.Component;
  * </ul>
  *
  * <p>
- * If not specified, all tables are included in the dump.
+ * If not specified, {@value FlexDbLinkDefaults#FLYWAY_SCHEMA_HISTORY_TABLE} is excluded by
+ * default.
  * </p>
  *
  * @author Yasuharu.Okawauchi
@@ -35,5 +35,5 @@ public class DumpConfig {
     /**
      * List of table names to exclude during dump processing.
      */
-    private List<String> excludeTables = ImmutableList.of();
+    private List<String> excludeTables = FlexDbLinkDefaults.DEFAULT_EXCLUDE_TABLES;
 }

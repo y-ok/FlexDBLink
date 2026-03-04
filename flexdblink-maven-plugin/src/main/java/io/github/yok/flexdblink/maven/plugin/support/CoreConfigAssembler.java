@@ -12,6 +12,7 @@ import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.maven.plugin.config.CoreConfigBundle;
 import io.github.yok.flexdblink.maven.plugin.config.PluginConfig;
 import io.github.yok.flexdblink.util.DateTimeFormatUtil;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,7 +42,7 @@ public class CoreConfigAssembler {
         FilePatternConfig filePatternConfig =
                 buildFilePatternConfig(pluginConfig.getFilePatterns());
         DbUnitConfig dbUnitConfig = buildDbUnitConfig(pluginConfig.getDbunit());
-        DumpConfig dumpConfig = buildDumpConfig();
+        DumpConfig dumpConfig = buildDumpConfig(pluginConfig.getExcludeTables());
         DbUnitConfigProperties dbUnitConfigProperties =
                 buildDbUnitConfigProperties(pluginConfig.getDbunit());
         CsvDateTimeFormatProperties csvProps =
@@ -116,10 +117,29 @@ public class CoreConfigAssembler {
     /**
      * Builds dump configuration.
      *
+     * @param excludeTables additional exclude tables from plugin configuration
      * @return dump configuration with current defaults
      */
-    private DumpConfig buildDumpConfig() {
-        return new DumpConfig();
+    private DumpConfig buildDumpConfig(List<String> excludeTables) {
+        DumpConfig config = new DumpConfig();
+        if (excludeTables == null || excludeTables.isEmpty()) {
+            return config;
+        }
+        List<String> merged = new ArrayList<>(config.getExcludeTables());
+        for (String tableName : excludeTables) {
+            boolean exists = false;
+            for (String current : merged) {
+                if (current.equalsIgnoreCase(tableName)) {
+                    exists = true;
+                    break;
+                }
+            }
+            if (!exists) {
+                merged.add(tableName);
+            }
+        }
+        config.setExcludeTables(merged);
+        return config;
     }
 
     /**

@@ -32,7 +32,3 @@ file-patterns:
   XML_JSON_TEST_TABLE:
     JSON_DATA: "json_data_{ID}.json"
     XML_DATA: "xml_data_{ID}.xml"
-
-dump:
-  exclude-tables:
-    - flyway_schema_history
