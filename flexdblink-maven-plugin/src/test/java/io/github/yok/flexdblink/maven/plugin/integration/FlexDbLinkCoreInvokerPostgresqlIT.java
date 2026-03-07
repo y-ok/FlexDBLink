@@ -139,13 +139,12 @@ class FlexDbLinkCoreInvokerPostgresqlIT {
     }
 
     @Test
-    void dump_正常ケース_excludeTables指定で実行する_対象外テーブルのCSVが生成されないこと()
-            throws Exception {
+    void dump_正常ケース_excludeTables指定で実行する_対象外テーブルのCSVが生成されないこと() throws Exception {
         try (Connection conn = connection();
                 PreparedStatement employeePs = conn
                         .prepareStatement("INSERT INTO employee(id, name) VALUES (?, ?), (?, ?)");
-                PreparedStatement auditPs = conn
-                        .prepareStatement("INSERT INTO audit_log(id, detail) VALUES (?, ?)")) {
+                PreparedStatement auditPs =
+                        conn.prepareStatement("INSERT INTO audit_log(id, detail) VALUES (?, ?)")) {
             employeePs.setInt(1, 11);
             employeePs.setString(2, "Alice");
             employeePs.setInt(3, 22);

@@ -51,8 +51,7 @@ class FlexDbLinkCoreInvokerOracleIT {
             } catch (Exception ignored) {
                 // table may not exist yet
             }
-            stmt.execute(
-                    "CREATE TABLE employee (id NUMBER(10) PRIMARY KEY, name VARCHAR2(100))");
+            stmt.execute("CREATE TABLE employee (id NUMBER(10) PRIMARY KEY, name VARCHAR2(100))");
         }
     }
 
@@ -92,7 +91,8 @@ class FlexDbLinkCoreInvokerOracleIT {
             } catch (Exception ignored) {
                 // table may not exist yet
             }
-            stmt.execute("CREATE TABLE flyway_schema_history (installed_rank NUMBER(10) PRIMARY KEY)");
+            stmt.execute(
+                    "CREATE TABLE flyway_schema_history (installed_rank NUMBER(10) PRIMARY KEY)");
         }
 
         Path preDir = tempDataPath.resolve("load").resolve("pre").resolve("DB1");
@@ -109,8 +109,8 @@ class FlexDbLinkCoreInvokerOracleIT {
     @Test
     void dump_正常ケース_シナリオ指定で実行する_ダンプCSVが生成されること() throws Exception {
         try (Connection conn = connection();
-                PreparedStatement ps = conn
-                        .prepareStatement("INSERT INTO employee(id, name) VALUES (?, ?)")) {
+                PreparedStatement ps =
+                        conn.prepareStatement("INSERT INTO employee(id, name) VALUES (?, ?)")) {
             ps.setInt(1, 11);
             ps.setString(2, "Alice");
             ps.executeUpdate();

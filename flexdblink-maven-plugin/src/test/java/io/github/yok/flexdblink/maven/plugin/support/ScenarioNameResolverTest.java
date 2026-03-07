@@ -65,8 +65,7 @@ class ScenarioNameResolverTest {
 
     @Test
     void generateTimestamp_正常ケース_年末境界を生成する_yyyy形式の文字列が返ること() {
-        Clock fixed =
-                Clock.fixed(Instant.parse("2026-12-31T23:59:59Z"), ZoneOffset.UTC);
+        Clock fixed = Clock.fixed(Instant.parse("2026-12-31T23:59:59Z"), ZoneOffset.UTC);
 
         String actual = target.generateTimestamp(fixed);
 

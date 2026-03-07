@@ -30,16 +30,16 @@ class MaskingLogUtilTest {
 
     @Test
     void maskJdbcUrl_正常ケース_認証情報付きURLを変換する_パスワードがマスクされること() {
-        String actual = MaskingLogUtil.maskJdbcUrl(
-                "jdbc:postgresql://user:secret@localhost:5432/app");
+        String actual =
+                MaskingLogUtil.maskJdbcUrl("jdbc:postgresql://user:secret@localhost:5432/app");
 
         assertEquals("jdbc:postgresql://user:***@localhost:5432/app", actual);
     }
 
     @Test
     void maskJdbcUrl_正常ケース_クエリ文字列を変換する_password値がマスクされること() {
-        String actual = MaskingLogUtil.maskJdbcUrl(
-                "jdbc:sqlserver://localhost;password=secret;encrypt=true");
+        String actual = MaskingLogUtil
+                .maskJdbcUrl("jdbc:sqlserver://localhost;password=secret;encrypt=true");
 
         assertTrue(actual.contains("password=***"));
         assertTrue(actual.contains("encrypt=true"));
@@ -72,7 +72,6 @@ class MaskingLogUtilTest {
         assertTrue(actual.contains("id=DB1"));
         assertTrue(actual.contains("user=***"));
         assertTrue(actual.contains("driverClass=org.postgresql.Driver"));
-        assertTrue(actual.contains(
-                "jdbc:postgresql://user:***@localhost:5432/app"));
+        assertTrue(actual.contains("jdbc:postgresql://user:***@localhost:5432/app"));
     }
 }

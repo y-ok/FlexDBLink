@@ -23,9 +23,9 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.mssqlserver.MSSQLServerContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.mssqlserver.MSSQLServerContainer;
 
 /**
  * Integration test for {@link FlexDbLinkCoreInvoker} with SQL Server.
@@ -87,9 +87,8 @@ class FlexDbLinkCoreInvokerSqlServerIT {
     @Test
     void load_正常ケース_Flyway履歴テーブルが存在する_レコードが登録されること() throws Exception {
         try (Connection conn = connection(); Statement stmt = conn.createStatement()) {
-            stmt.execute(
-                    "IF OBJECT_ID('flyway_schema_history', 'U') IS NULL "
-                            + "CREATE TABLE flyway_schema_history (installed_rank INT PRIMARY KEY)");
+            stmt.execute("IF OBJECT_ID('flyway_schema_history', 'U') IS NULL "
+                    + "CREATE TABLE flyway_schema_history (installed_rank INT PRIMARY KEY)");
             stmt.execute("TRUNCATE TABLE flyway_schema_history");
         }
 

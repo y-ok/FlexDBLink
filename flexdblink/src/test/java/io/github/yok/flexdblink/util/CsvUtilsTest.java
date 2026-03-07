@@ -133,8 +133,7 @@ class CsvUtilsTest {
     }
 
     @Test
-    void resolveTemporalValue_正常ケース_sqlTypeがDATEでtypeName非DATE_getDate値が返ること()
-            throws Exception {
+    void resolveTemporalValue_正常ケース_sqlTypeがDATEでtypeName非DATE_getDate値が返ること() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         java.sql.Date typed = java.sql.Date.valueOf("2026-01-31");
         when(rs.getDate(1)).thenReturn(typed);
@@ -145,24 +144,22 @@ class CsvUtilsTest {
     }
 
     @Test
-    void resolveTemporalValue_正常ケース_DATETIMEOFFSET型でgetStringが非null_文字列値が返ること()
-            throws Exception {
+    void resolveTemporalValue_正常ケース_DATETIMEOFFSET型でgetStringが非null_文字列値が返ること() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         String typed = "2026-02-10 01:02:03 +00:00";
         when(rs.getString(1)).thenReturn(typed);
 
-        Object result =
-                CsvUtils.resolveTemporalValue(rs, 1, "raw", Types.OTHER, "DATETIMEOFFSET");
+        Object result = CsvUtils.resolveTemporalValue(rs, 1, "raw", Types.OTHER, "DATETIMEOFFSET");
 
         assertEquals(typed, result);
     }
 
     @Test
-    void resolveTemporalValue_正常ケース_DATETIMEOFFSET専用getterが存在する_専用値が返ること()
-            throws Exception {
+    void resolveTemporalValue_正常ケース_DATETIMEOFFSET専用getterが存在する_専用値が返ること() throws Exception {
         Object typed = new Object();
-        SqlServerDateTimeOffsetResultSet rs = (SqlServerDateTimeOffsetResultSet) java.lang.reflect.Proxy
-                .newProxyInstance(getClass().getClassLoader(),
+        SqlServerDateTimeOffsetResultSet rs =
+                (SqlServerDateTimeOffsetResultSet) java.lang.reflect.Proxy.newProxyInstance(
+                        getClass().getClassLoader(),
                         new Class<?>[] {SqlServerDateTimeOffsetResultSet.class},
                         (proxy, method, args) -> {
                             if ("getDateTimeOffset".equals(method.getName())) {
@@ -183,21 +180,18 @@ class CsvUtilsTest {
                             throw new UnsupportedOperationException(method.getName());
                         });
 
-        Object result =
-                CsvUtils.resolveTemporalValue(rs, 1, "raw", Types.OTHER, "DATETIMEOFFSET");
+        Object result = CsvUtils.resolveTemporalValue(rs, 1, "raw", Types.OTHER, "DATETIMEOFFSET");
 
         assertEquals(typed, result);
     }
 
     @Test
-    void resolveTemporalValue_正常ケース_DATETIMEOFFSET型でgetStringがnull_raw値が返ること()
-            throws Exception {
+    void resolveTemporalValue_正常ケース_DATETIMEOFFSET型でgetStringがnull_raw値が返ること() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         Object raw = new Object();
         when(rs.getString(1)).thenReturn(null);
 
-        Object result =
-                CsvUtils.resolveTemporalValue(rs, 1, raw, Types.OTHER, "DATETIMEOFFSET");
+        Object result = CsvUtils.resolveTemporalValue(rs, 1, raw, Types.OTHER, "DATETIMEOFFSET");
 
         assertEquals(raw, result);
     }

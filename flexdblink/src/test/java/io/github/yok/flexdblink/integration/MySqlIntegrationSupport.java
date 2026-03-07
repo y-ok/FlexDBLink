@@ -106,8 +106,8 @@ final class MySqlIntegrationSupport {
      * @return assembled runtime
      * @throws IOException on file I/O failure
      */
-    static Runtime prepareRuntime(MySQLContainer container, Path dataPath,
-            boolean copyLoadFixtures) throws IOException {
+    static Runtime prepareRuntime(MySQLContainer container, Path dataPath, boolean copyLoadFixtures)
+            throws IOException {
         Files.createDirectories(dataPath);
         if (copyLoadFixtures) {
             copyLoadFixtures(dataPath);

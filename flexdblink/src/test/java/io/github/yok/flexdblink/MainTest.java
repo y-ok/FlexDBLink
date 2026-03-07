@@ -477,8 +477,7 @@ class MainTest {
     }
 
     @Test
-    void run_異常ケース_confirmBeforeLoad時にIOExceptionが発生する_ErrorHandlerが呼ばれること()
-            throws Exception {
+    void run_異常ケース_confirmBeforeLoad時にIOExceptionが発生する_ErrorHandlerが呼ばれること() throws Exception {
         when(dbUnitConfig.isConfirmBeforeLoad()).thenReturn(true);
 
         InputStream originalIn = System.in;
@@ -510,8 +509,8 @@ class MainTest {
         try (MockedConstruction<SetupRunner> mocked = mockConstruction(SetupRunner.class,
                 (runner, ctx) -> doThrow(new RuntimeException("setupBoom")).when(runner)
                         .execute(anyList()))) {
-            IllegalStateException ex = assertThrows(IllegalStateException.class,
-                    () -> main.run("--setup"));
+            IllegalStateException ex =
+                    assertThrows(IllegalStateException.class, () -> main.run("--setup"));
             assertTrue(ex.getMessage().contains("Fatal error: setupBoom"));
         } finally {
             ErrorHandler.restoreExitForCurrentThread();

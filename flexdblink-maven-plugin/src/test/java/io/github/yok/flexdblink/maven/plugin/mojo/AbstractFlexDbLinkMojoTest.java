@@ -27,8 +27,7 @@ import org.junit.jupiter.api.io.TempDir;
 class AbstractFlexDbLinkMojoTest {
 
     @Test
-    void execute_正常ケース_skip有効で実行する_executeGoalが実行されないこと(@TempDir Path tempDir)
-            throws Exception {
+    void execute_正常ケース_skip有効で実行する_executeGoalが実行されないこと(@TempDir Path tempDir) throws Exception {
         TestMojo target = new TestMojo(GoalType.LOAD);
         configureValid(target, tempDir);
         target.skip = true;
@@ -39,8 +38,7 @@ class AbstractFlexDbLinkMojoTest {
     }
 
     @Test
-    void execute_正常ケース_有効設定で実行する_executeGoalが実行されること(@TempDir Path tempDir)
-            throws Exception {
+    void execute_正常ケース_有効設定で実行する_executeGoalが実行されること(@TempDir Path tempDir) throws Exception {
         TestMojo target = new TestMojo(GoalType.LOAD);
         configureValid(target, tempDir);
 
@@ -50,27 +48,25 @@ class AbstractFlexDbLinkMojoTest {
     }
 
     @Test
-    void execute_異常ケース_executeGoalで例外送出を実行する_MojoExecutionExceptionが再スローされること(
-            @TempDir Path tempDir) throws Exception {
+    void execute_異常ケース_executeGoalで例外送出を実行する_MojoExecutionExceptionが再スローされること(@TempDir Path tempDir)
+            throws Exception {
         TestMojo target = new TestMojo(GoalType.LOAD);
         configureValid(target, tempDir);
         target.toThrow = new Exception("boom");
 
-        MojoExecutionException ex =
-                assertThrows(MojoExecutionException.class, target::execute);
+        MojoExecutionException ex = assertThrows(MojoExecutionException.class, target::execute);
 
         assertTrue(ex.getMessage().contains("Failed to execute FlexDBLink goal"));
     }
 
     @Test
-    void execute_異常ケース_executeGoalでMojoFailureException送出を実行する_同一例外が再スローされること(
-            @TempDir Path tempDir) throws Exception {
+    void execute_異常ケース_executeGoalでMojoFailureException送出を実行する_同一例外が再スローされること(@TempDir Path tempDir)
+            throws Exception {
         TestMojo target = new TestMojo(GoalType.LOAD);
         configureValid(target, tempDir);
         target.toThrow = new MojoFailureException("failure");
 
-        MojoFailureException ex =
-                assertThrows(MojoFailureException.class, target::execute);
+        MojoFailureException ex = assertThrows(MojoFailureException.class, target::execute);
 
         assertEquals("failure", ex.getMessage());
     }
@@ -82,21 +78,18 @@ class AbstractFlexDbLinkMojoTest {
         configureValid(target, tempDir);
         target.toThrow = new MojoExecutionException("execution");
 
-        MojoExecutionException ex =
-                assertThrows(MojoExecutionException.class, target::execute);
+        MojoExecutionException ex = assertThrows(MojoExecutionException.class, target::execute);
 
         assertEquals("execution", ex.getMessage());
     }
 
     @Test
-    void execute_異常ケース_必須パラメータ不足で実行する_MojoFailureExceptionが送出されること(
-            @TempDir Path tempDir) {
+    void execute_異常ケース_必須パラメータ不足で実行する_MojoFailureExceptionが送出されること(@TempDir Path tempDir) {
         TestMojo target = new TestMojo(GoalType.LOAD);
         configureValid(target, tempDir);
         target.serverIds = null;
 
-        MojoFailureException ex =
-                assertThrows(MojoFailureException.class, target::execute);
+        MojoFailureException ex = assertThrows(MojoFailureException.class, target::execute);
 
         assertTrue(ex.getMessage().contains("serverIds"));
     }
@@ -112,11 +105,9 @@ class AbstractFlexDbLinkMojoTest {
                 .thenThrow(new RuntimeException("decrypt failed"));
         target.settingsDecrypter = broken;
 
-        MojoExecutionException ex =
-                assertThrows(MojoExecutionException.class, target::execute);
+        MojoExecutionException ex = assertThrows(MojoExecutionException.class, target::execute);
 
-        assertTrue(ex.getMessage()
-                .contains("Failed to prepare FlexDBLink plugin context"));
+        assertTrue(ex.getMessage().contains("Failed to prepare FlexDBLink plugin context"));
     }
 
     @Test
@@ -130,8 +121,7 @@ class AbstractFlexDbLinkMojoTest {
                 .thenThrow(new IllegalStateException("bad state"));
         target.settingsDecrypter = broken;
 
-        MojoFailureException ex =
-                assertThrows(MojoFailureException.class, target::execute);
+        MojoFailureException ex = assertThrows(MojoFailureException.class, target::execute);
 
         assertTrue(ex.getMessage().contains("bad state"));
     }
@@ -213,8 +203,7 @@ class AbstractFlexDbLinkMojoTest {
         SettingsDecrypter decrypter = mock(SettingsDecrypter.class);
         SettingsDecryptionResult result = mock(SettingsDecryptionResult.class);
         when(result.getServer()).thenReturn(server);
-        when(decrypter.decrypt(any(SettingsDecryptionRequest.class)))
-                .thenReturn(result);
+        when(decrypter.decrypt(any(SettingsDecryptionRequest.class))).thenReturn(result);
         return decrypter;
     }
 

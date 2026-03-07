@@ -26,10 +26,10 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.testcontainers.mssqlserver.MSSQLServerContainer;
-import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.mssqlserver.MSSQLServerContainer;
+import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.oracle.OracleContainer;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
