@@ -1,4 +1,4 @@
-package io.github.yok.flexdblink.maven;
+package io.github.yok.flexdblink.junit;
 
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;

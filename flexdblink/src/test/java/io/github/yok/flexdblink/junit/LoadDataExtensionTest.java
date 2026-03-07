@@ -1,4 +1,4 @@
-package io.github.yok.flexdblink.maven;
+package io.github.yok.flexdblink.junit;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;

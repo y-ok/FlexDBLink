@@ -1,4 +1,4 @@
-package io.github.yok.flexdblink.maven;
+package io.github.yok.flexdblink.junit;
 
 import com.google.common.collect.Lists;
 import io.github.yok.flexdblink.config.ConnectionConfig;
@@ -795,8 +795,8 @@ public class LoadDataExtension
      * @param ds target DS.
      * @return PlatformTransactionManager.
      */
-    PlatformTransactionManager resolveTxManagerByDataSource(ApplicationContext ac,
-            String dbId, DataSource ds) {
+    PlatformTransactionManager resolveTxManagerByDataSource(ApplicationContext ac, String dbId,
+            DataSource ds) {
         String[] tmNames = ac.getBeanNamesForType(PlatformTransactionManager.class);
         List<String> hits = new ArrayList<>();
         PlatformTransactionManager matched = null;

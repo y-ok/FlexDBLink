@@ -1,4 +1,4 @@
-package io.github.yok.flexdblink.maven;
+package io.github.yok.flexdblink.junit;
 
 import java.lang.annotation.Documented;
 import java.lang.annotation.ElementType;

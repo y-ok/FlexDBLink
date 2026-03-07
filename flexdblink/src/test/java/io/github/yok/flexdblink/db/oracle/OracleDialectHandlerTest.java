@@ -1227,9 +1227,9 @@ public class OracleDialectHandlerTest {
     void convertCsvValueToDbType_正常ケース_TIMESTAMP型で設定済みフォーマッタ成功_設定値のTimestampが返ること()
             throws Exception {
         DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
-        OracleDialectHandler handler = createHandlerWithMeta(formatter,
-                mock(DbUnitConfigFactory.class), "TBL",
-                new ColumnDef("TS_COL", DataType.TIMESTAMP));
+        OracleDialectHandler handler =
+                createHandlerWithMeta(formatter, mock(DbUnitConfigFactory.class), "TBL",
+                        new ColumnDef("TS_COL", DataType.TIMESTAMP));
         LocalDateTime expected = LocalDateTime.of(2026, 2, 15, 1, 2, 3);
         when(formatter.parseConfiguredTimestamp("2026-02-15 01:02:03")).thenReturn(expected);
 
@@ -1290,9 +1290,9 @@ public class OracleDialectHandlerTest {
 
     @Test
     void readLobFile_正常ケース_sqlType判定でblobclobを指定する_値が返ること() throws Exception {
-        OracleDialectHandler handler = createHandlerWithMeta("TBL",
-                new ColumnDef("BLOB_COL", Types.BLOB, "BLOB"),
-                new ColumnDef("CLOB_COL", Types.CLOB, "CLOB"));
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("BLOB_COL", Types.BLOB, "BLOB"),
+                        new ColumnDef("CLOB_COL", Types.CLOB, "CLOB"));
         File base = tempDir.toFile();
         File filesDir = new File(base, "files");
         Files.createDirectories(filesDir.toPath());

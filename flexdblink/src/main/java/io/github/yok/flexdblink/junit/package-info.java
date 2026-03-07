@@ -11,4 +11,4 @@
  * resources, execute the load workflow, and coordinate transactions for reliable test isolation.
  * </p>
  */
-package io.github.yok.flexdblink.maven;
+package io.github.yok.flexdblink.junit;
