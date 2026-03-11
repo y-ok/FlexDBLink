@@ -2,49 +2,49 @@ package io.github.yok.flexdblink.integration;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import io.github.yok.flexdblink.config.ConnectionConfig;
+import io.github.yok.flexdblink.config.DbUnitConfig;
+import io.github.yok.flexdblink.config.DumpConfig;
+import io.github.yok.flexdblink.config.FilePatternConfig;
+import io.github.yok.flexdblink.config.PathsConfig;
+import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.util.ErrorHandler;
-import java.io.IOException;
-import java.io.StringReader;
-import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import java.time.OffsetDateTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
-import java.time.temporal.ChronoField;
-import java.util.Arrays;
 import java.util.Map;
-import java.util.Set;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.xpath.XPathConstants;
-import javax.xml.xpath.XPathFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.ContextConfiguration;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.oracle.OracleContainer;
-import org.w3c.dom.Document;
-import org.xml.sax.InputSource;
 
+/**
+ * Integration tests for FlexDBLink against an Oracle container.
+ *
+ * <p>
+ * Covers: DataLoader / DataDumper (CSV + LOB {@code file:} references), including Oracle-specific
+ * types (INTERVAL YEAR TO MONTH, INTERVAL DAY TO SECOND, XMLType).
+ * </p>
+ */
+@SpringBootTest(classes = IntegrationTestConfig.class)
+@ContextConfiguration(initializers = YamlPropertySourceFactory.class)
 @Testcontainers
 class OracleIntegrationTest {
 
-    private static final Set<String> NUMERIC_COLUMNS =
-            Set.of("ID", "MAIN_ID", "NUM_COL", "BF_COL", "BD_COL");
-
-    private static final DateTimeFormatter OFFSET_DATE_TIME_FORMATTER =
-            new DateTimeFormatterBuilder().appendPattern("yyyy-MM-dd HH:mm:ss").optionalStart()
-                    .appendFraction(ChronoField.NANO_OF_SECOND, 1, 9, true).optionalEnd()
-                    .appendLiteral(' ').appendOffset("+HHmm", "Z").toFormatter();
+    private static final String MIGRATION = "classpath:db/migration/oracle";
+    private static final String DB_NAME = "oracle";
 
     @Container
     static final OracleContainer ORACLE = new OracleContainer("gvenzl/oracle-free:slim-faststart");
@@ -52,123 +52,67 @@ class OracleIntegrationTest {
     @TempDir
     Path tempDir;
 
+    @Autowired
+    PathsConfig pathsConfig;
+
+    @Autowired
+    ConnectionConfig connectionConfig;
+
+    @Autowired
+    DbUnitConfig dbUnitConfig;
+
+    @Autowired
+    DumpConfig dumpConfig;
+
+    @Autowired
+    FilePatternConfig filePatternConfig;
+
+    @Autowired
+    DbDialectHandlerFactory dialectFactory;
+
+    /**
+     * Registers container connection properties into the Spring environment.
+     *
+     * @param registry dynamic property registry
+     */
+    @DynamicPropertySource
+    static void containerProps(DynamicPropertyRegistry registry) {
+        registry.add("connections[0].id", () -> "db1");
+        registry.add("connections[0].driver-class", () -> "oracle.jdbc.OracleDriver");
+        registry.add("connections[0].url", ORACLE::getJdbcUrl);
+        registry.add("connections[0].user", ORACLE::getUsername);
+        registry.add("connections[0].password", ORACLE::getPassword);
+    }
+
     @BeforeEach
     void setup_正常ケース_Oracleコンテナに対してFlywayを実行する_マイグレーションが完了すること() {
-        OracleIntegrationSupport.prepareDatabase(ORACLE);
+        IntegrationTestSupport.prepareDatabase(ORACLE, MIGRATION);
     }
 
     @Test
     void execute_正常ケース_拡張Oracle型をロードする_全列値が登録されること() throws Exception {
         Path dataPath = tempDir.resolve("load_data");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
-        OracleIntegrationSupport.executeLoad(runtime, "pre");
+        IntegrationTestSupport.executeLoad(runtime, "pre");
 
-        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
-                Statement st = conn.createStatement()) {
+        Path csvPath = dataPath.resolve("load/pre/db1/IT_TYPED_MAIN.csv");
+        Path filesDir = dataPath.resolve("load/pre/db1/files");
 
-            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
-                assertTrue(rs.next(), "COUNT(*) の結果が取得できません: IT_TYPED_MAIN");
-                assertEquals(6, rs.getInt(1));
-            }
-            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
-                assertTrue(rs.next(), "COUNT(*) の結果が取得できません: IT_TYPED_AUX");
-                assertEquals(2, rs.getInt(1));
-            }
-
-            try (ResultSet rs = st.executeQuery("SELECT MIN(ID), MAX(ID) FROM IT_TYPED_MAIN")) {
-                assertTrue(rs.next(), "MIN/MAX の結果が取得できません: IT_TYPED_MAIN");
-                assertEquals(101L, rs.getLong(1));
-                assertEquals(106L, rs.getLong(2));
-            }
-
-            try (ResultSet rs = st.executeQuery(
-                    "SELECT ID, VC_COL, NCHAR_COL, BF_COL, BD_COL, DATE_COL, TS_COL, IV_YM_COL, IV_DS_COL, RAW_COL, CLOB_COL, NCLOB_COL, BLOB_COL, LOB_KIND "
-                            + "FROM IT_TYPED_MAIN WHERE ID = 101")) {
-
-                assertTrue(rs.next(),
-                        () -> "IT_TYPED_MAIN に ID=101 が存在しません。\n" + dumpMainRows(conn));
-                assertEquals("load-xml", rs.getString("VC_COL"));
-                assertEquals("na-xml", rs.getString("NCHAR_COL").trim());
-                assertEquals(0, BigDecimal.valueOf(rs.getFloat("BF_COL"))
-                        .compareTo(new BigDecimal("1.25")));
-                assertEquals(0, BigDecimal.valueOf(rs.getDouble("BD_COL"))
-                        .compareTo(new BigDecimal("10.125")));
-                assertEquals(java.sql.Date.valueOf("2024-02-01"), rs.getDate("DATE_COL"));
-                assertEquals(java.sql.Timestamp.valueOf("2024-02-01 01:02:03.123"),
-                        rs.getTimestamp("TS_COL"));
-                assertEquals("1-2", rs.getString("IV_YM_COL"));
-                assertEquals("1 2:3:4.0", rs.getString("IV_DS_COL"));
-
-                byte[] rawCol = rs.getBytes("RAW_COL");
-                assertNotNull(rawCol);
-                assertTrue(Arrays.equals(new byte[] {0x0A, 0x0B, 0x0C, 0x21}, rawCol),
-                        "RAW_COL が期待値と一致しません");
-
-                String clobCol = rs.getString("CLOB_COL");
-                assertXmlTextEquals(clobCol, "/root/kind/text()", "xml");
-                assertXmlTextEquals(clobCol, "/root/source/text()", "load");
-                assertEquals("nclob-load-xml", rs.getString("NCLOB_COL"));
-                assertEquals(null, rs.getBytes("BLOB_COL"));
-                assertEquals("xml", rs.getString("LOB_KIND"));
-                assertFalse(rs.next(), "ID=101 が複数行です");
-            }
-
-            try (ResultSet rs =
-                    st.executeQuery("SELECT BLOB_COL FROM IT_TYPED_MAIN WHERE LOB_KIND='zip'")) {
-                assertTrue(rs.next(),
-                        () -> "IT_TYPED_MAIN に LOB_KIND='zip' 行が存在しません。\n" + dumpMainRows(conn));
-                byte[] actual = rs.getBytes(1);
-                assertFalse(rs.next(), "IT_TYPED_MAIN の LOB_KIND='zip' が複数行です。");
-
-                Path expectedPath = dataPath.resolve("load/pre/db1/files/main_zip_1.zip");
-                byte[] expected = Files.readAllBytes(expectedPath);
-                assertArrayEquals(expected, actual);
-            }
-
-            try (ResultSet rs =
-                    st.executeQuery("SELECT BLOB_COL FROM IT_TYPED_MAIN WHERE LOB_KIND='bin'")) {
-                assertTrue(rs.next(),
-                        () -> "IT_TYPED_MAIN に LOB_KIND='bin' 行が存在しません。\n" + dumpMainRows(conn));
-                byte[] actual = rs.getBytes(1);
-                assertFalse(rs.next(), "IT_TYPED_MAIN の LOB_KIND='bin' が複数行です。");
-
-                byte[] expected =
-                        Files.readAllBytes(dataPath.resolve("load/pre/db1/files/main_bin_1.bin"));
-                assertArrayEquals(expected, actual);
-            }
-
-            try (ResultSet rs = st.executeQuery(
-                    "SELECT PAYLOAD_CLOB FROM IT_TYPED_AUX WHERE PAYLOAD_CLOB IS NOT NULL")) {
-                String auxDump = dumpAuxRows(conn);
-                assertTrue(rs.next(), () -> "IT_TYPED_AUX に PAYLOAD_CLOB が存在しません。\n" + auxDump);
-                String payloadClob = rs.getString(1);
-                assertFalse(rs.next(), () -> "IT_TYPED_AUX の PAYLOAD_CLOB が複数行です。\n" + auxDump);
-
-                assertXmlTextEquals(payloadClob, "/aux/kind/text()", "xml");
-                assertXmlTextEquals(payloadClob, "/aux/source/text()", "load");
-            }
-
-            try (ResultSet rs = st.executeQuery(
-                    "SELECT PAYLOAD_BLOB FROM IT_TYPED_AUX WHERE PAYLOAD_BLOB IS NOT NULL")) {
-                assertTrue(rs.next(), "IT_TYPED_AUX に PAYLOAD_BLOB が存在しません。\n" + dumpAuxRows(conn));
-
-                byte[] actual = rs.getBytes(1);
-                assertFalse(rs.next(), "IT_TYPED_AUX の PAYLOAD_BLOB が複数行です。");
-
-                byte[] expected =
-                        Files.readAllBytes(dataPath.resolve("load/pre/db1/files/aux_zip_1.zip"));
-                assertArrayEquals(expected, actual);
-            }
+        try (Connection conn = IntegrationTestSupport.openConnection(ORACLE)) {
+            IntegrationTestSupport.assertCsvMatchesDb(csvPath, "IT_TYPED_MAIN", "ID", conn,
+                    filesDir, runtime.newDialectHandler());
         }
     }
 
     @Test
     void execute_異常ケース_interval形式が不正である_ロールバックされること() throws Exception {
         Path dataPath = tempDir.resolve("load_error_data");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
         Path mainCsv = dataPath.resolve("load/pre/db1/IT_TYPED_MAIN.csv");
         String csv = Files.readString(mainCsv);
@@ -178,12 +122,12 @@ class OracleIntegrationTest {
         ErrorHandler.disableExitForCurrentThread();
         try {
             assertThrows(IllegalStateException.class,
-                    () -> OracleIntegrationSupport.executeLoad(runtime, "pre"));
+                    () -> IntegrationTestSupport.executeLoad(runtime, "pre"));
         } finally {
             ErrorHandler.restoreExitForCurrentThread();
         }
 
-        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+        try (Connection conn = IntegrationTestSupport.openConnection(ORACLE);
                 Statement st = conn.createStatement()) {
             try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
                 assertTrue(rs.next());
@@ -200,10 +144,11 @@ class OracleIntegrationTest {
     @Test
     void execute_正常ケース_拡張Oracle型をダンプする_CSVとLOBファイルが出力されること() throws Exception {
         Path dataPath = tempDir.resolve("dump_data");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, false);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                false, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
-        Path dbDir = OracleIntegrationSupport.executeDump(runtime, "it_dump_case");
+        Path dbDir = IntegrationTestSupport.executeDump(runtime, "it_dump_case");
         Path filesDir = dbDir.resolve("files");
 
         assertTrue(Files.exists(dbDir.resolve("IT_TYPED_MAIN.csv")));
@@ -227,7 +172,7 @@ class OracleIntegrationTest {
         assertTrue(Files.exists(filesDir.resolve("aux_xml_11.txt")));
         assertTrue(Files.exists(filesDir.resolve("aux_zip_12.bin")));
 
-        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+        try (Connection conn = IntegrationTestSupport.openConnection(ORACLE);
                 Statement st = conn.createStatement()) {
             try (ResultSet rs = st.executeQuery("SELECT BLOB_COL FROM IT_TYPED_MAIN WHERE ID=6")) {
                 rs.next();
@@ -249,10 +194,11 @@ class OracleIntegrationTest {
     @Test
     void execute_正常ケース_interval列をダンプする_規定フォーマットで出力されること() throws Exception {
         Path dataPath = tempDir.resolve("dump_interval_data");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, false);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                false, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
-        Path dbDir = OracleIntegrationSupport.executeDump(runtime, "it_dump_interval_case");
+        Path dbDir = IntegrationTestSupport.executeDump(runtime, "it_dump_interval_case");
         String csvText =
                 Files.readString(dbDir.resolve("IT_TYPED_MAIN.csv"), StandardCharsets.UTF_8);
         assertTrue(csvText.contains("+01-02") || csvText.contains("1-2"));
@@ -264,10 +210,11 @@ class OracleIntegrationTest {
     @Test
     void execute_正常ケース_nullと空LOBを含むデータをダンプする_CSV表現とLOBファイル内容が期待どおりであること() throws Exception {
         Path dataPath = tempDir.resolve("dump_null_empty_data");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, false);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                false, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
-        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+        try (Connection conn = IntegrationTestSupport.openConnection(ORACLE);
                 Statement st = conn.createStatement()) {
             st.execute("INSERT INTO IT_TYPED_MAIN (ID, VC_COL, CHAR_COL, NVC_COL, NCHAR_COL, "
                     + "CLOB_COL, NCLOB_COL, BLOB_COL, LOB_KIND) "
@@ -277,11 +224,11 @@ class OracleIntegrationTest {
                             + "VALUES (99, 99, NULL, NULL, NULL, 'nullcase')");
         }
 
-        Path dbDir = OracleIntegrationSupport.executeDump(runtime, "it_dump_null_empty_case");
+        Path dbDir = IntegrationTestSupport.executeDump(runtime, "it_dump_null_empty_case");
         Path filesDir = dbDir.resolve("files");
 
-        Map<String, String> mainRow =
-                OracleIntegrationSupport.readCsvRowById(dbDir.resolve("IT_TYPED_MAIN.csv"), "99");
+        Map<String, String> mainRow = IntegrationTestSupport
+                .readCsvRowById(dbDir.resolve("IT_TYPED_MAIN.csv"), "ID", "99");
         assertEquals("", mainRow.get("VC_COL"));
         assertEquals("", mainRow.get("CHAR_COL"));
         assertEquals("", mainRow.get("NVC_COL"));
@@ -297,8 +244,8 @@ class OracleIntegrationTest {
         assertEquals(0L, Files.size(emptyClobFile));
         assertEquals(0L, Files.size(emptyBlobFile));
 
-        Map<String, String> auxRow =
-                OracleIntegrationSupport.readCsvRowById(dbDir.resolve("IT_TYPED_AUX.csv"), "99");
+        Map<String, String> auxRow = IntegrationTestSupport
+                .readCsvRowById(dbDir.resolve("IT_TYPED_AUX.csv"), "ID", "99");
         assertEquals("", auxRow.get("LABEL"));
         assertEquals("", auxRow.get("PAYLOAD_CLOB"));
         assertEquals("", auxRow.get("PAYLOAD_BLOB"));
@@ -307,13 +254,14 @@ class OracleIntegrationTest {
     }
 
     @Test
-    void execute_正常ケース_拡張Oracle型をロード後にダンプする_件数と全列値が一致すること() throws Exception {
+    void execute_正常ケース_ロード後にダンプする_入力CSVと出力CSVが一致すること() throws Exception {
         Path dataPath = tempDir.resolve("roundtrip_data");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
-        OracleIntegrationSupport.executeLoad(runtime, "pre");
-        Path outputDbDir = OracleIntegrationSupport.executeDump(runtime, "it_roundtrip_case");
+        IntegrationTestSupport.executeLoad(runtime, "pre");
+        Path outputDbDir = IntegrationTestSupport.executeDump(runtime, "it_roundtrip_case");
 
         Path inputMainCsv = dataPath.resolve("load/pre/db1/IT_TYPED_MAIN.csv");
         Path inputAuxCsv = dataPath.resolve("load/pre/db1/IT_TYPED_AUX.csv");
@@ -323,196 +271,22 @@ class OracleIntegrationTest {
         Path outputAuxCsv = outputDbDir.resolve("IT_TYPED_AUX.csv");
         Path outputFilesDir = outputDbDir.resolve("files");
 
-        assertTableEquals("IT_TYPED_MAIN", "ID", inputMainCsv, outputMainCsv, inputFilesDir,
-                outputFilesDir);
-        assertTableEquals("IT_TYPED_AUX", "ID", inputAuxCsv, outputAuxCsv, inputFilesDir,
-                outputFilesDir);
+        IntegrationTestSupport.assertCsvEquals("IT_TYPED_MAIN", "ID", inputMainCsv, outputMainCsv,
+                inputFilesDir, outputFilesDir);
+        IntegrationTestSupport.assertCsvEquals("IT_TYPED_AUX", "ID", inputAuxCsv, outputAuxCsv,
+                inputFilesDir, outputFilesDir);
     }
-
-    private static void assertTableEquals(String table, String idColumn, Path inputCsv,
-            Path outputCsv, Path inputFilesDir, Path outputFilesDir) throws Exception {
-        Map<String, Map<String, String>> inputRows =
-                OracleIntegrationSupport.readCsvById(inputCsv, idColumn);
-        Map<String, Map<String, String>> outputRows =
-                OracleIntegrationSupport.readCsvById(outputCsv, idColumn);
-
-        assertEquals(inputRows.size(), outputRows.size(),
-                table + " 件数が一致しません: input=" + inputRows.size() + " output=" + outputRows.size());
-
-        for (Map.Entry<String, Map<String, String>> entry : inputRows.entrySet()) {
-            String id = entry.getKey();
-            Map<String, String> inRow = entry.getValue();
-            Map<String, String> outRow = outputRows.get(id);
-            assertTrue(outRow != null, table + " に ID=" + id + " が存在しません");
-
-            for (Map.Entry<String, String> colEntry : inRow.entrySet()) {
-                String column = colEntry.getKey();
-                String inVal = colEntry.getValue();
-                String outVal = outRow.get(column);
-                assertCellEquals(table, id, column, inVal, outVal, inputFilesDir, outputFilesDir);
-            }
-        }
-    }
-
-    private static void assertCellEquals(String table, String id, String column, String inputValue,
-            String outputValue, Path inputFilesDir, Path outputFilesDir) throws Exception {
-        String inVal = OracleIntegrationSupport.trimToNull(inputValue);
-        String outVal = OracleIntegrationSupport.trimToNull(outputValue);
-
-        if (inVal == null && outVal == null) {
-            return;
-        }
-
-        if (isBlobColumn(column)) {
-            byte[] inBlob = resolveBlobValue(inVal, inputFilesDir);
-            byte[] outBlob = resolveBlobValue(outVal, outputFilesDir);
-            assertArrayEquals(inBlob, outBlob, diffPrefix(table, id, column) + "BLOB値が一致しません");
-            return;
-        }
-
-        if (isLobTextColumn(column)) {
-            String inText = resolveTextValue(inVal, inputFilesDir);
-            String outText = resolveTextValue(outVal, outputFilesDir);
-            assertEquals(inText, outText, diffPrefix(table, id, column) + "CLOB/NCLOB値が一致しません");
-            return;
-        }
-
-        if ("RAW_COL".equalsIgnoreCase(column)) {
-            byte[] inRaw =
-                    OracleIntegrationSupport.decodeHex(OracleIntegrationSupport.trimToEmpty(inVal));
-            byte[] outRaw = OracleIntegrationSupport
-                    .decodeHex(OracleIntegrationSupport.trimToEmpty(outVal));
-            assertArrayEquals(inRaw, outRaw, diffPrefix(table, id, column) + "RAW値が一致しません");
-            return;
-        }
-
-        if (NUMERIC_COLUMNS.contains(column.toUpperCase())) {
-            BigDecimal inNum = new BigDecimal(OracleIntegrationSupport.trimToEmpty(inVal));
-            BigDecimal outNum = new BigDecimal(OracleIntegrationSupport.trimToEmpty(outVal));
-            assertEquals(0, inNum.compareTo(outNum), diffPrefix(table, id, column) + "数値が一致しません");
-            return;
-        }
-
-        if ("TSTZ_COL".equalsIgnoreCase(column) || "TSLTZ_COL".equalsIgnoreCase(column)) {
-            assertDateTimeWithOffsetEquals(table, id, column, inVal, outVal);
-            return;
-        }
-
-        if ("IV_YM_COL".equalsIgnoreCase(column) || "IV_DS_COL".equalsIgnoreCase(column)
-                || "DATE_COL".equalsIgnoreCase(column)) {
-            assertEquals(OracleIntegrationSupport.trimToEmpty(inVal),
-                    OracleIntegrationSupport.trimToEmpty(outVal),
-                    diffPrefix(table, id, column) + "日時/INTERVAL値が一致しません");
-            return;
-        }
-
-        if ("CHAR_COL".equalsIgnoreCase(column) || "NCHAR_COL".equalsIgnoreCase(column)) {
-            assertEquals(OracleIntegrationSupport.trimToEmpty(inVal),
-                    OracleIntegrationSupport.trimToEmpty(outVal),
-                    diffPrefix(table, id, column) + "固定長文字が一致しません");
-            return;
-        }
-
-        assertEquals(OracleIntegrationSupport.trimToEmpty(inVal),
-                OracleIntegrationSupport.trimToEmpty(outVal),
-                diffPrefix(table, id, column) + "値が一致しません");
-    }
-
-    private static boolean isBlobColumn(String column) {
-        String c = column.toUpperCase();
-        return "BLOB_COL".equals(c) || "PAYLOAD_BLOB".equals(c);
-    }
-
-    private static boolean isLobTextColumn(String column) {
-        String c = column.toUpperCase();
-        return "CLOB_COL".equals(c) || "NCLOB_COL".equals(c) || "PAYLOAD_CLOB".equals(c);
-    }
-
-    private static byte[] resolveBlobValue(String value, Path filesDir) throws IOException {
-        if (value == null || value.isEmpty()) {
-            return new byte[0];
-        }
-        if (value.startsWith("file:")) {
-            return Files.readAllBytes(filesDir.resolve(value.substring("file:".length())));
-        }
-        return OracleIntegrationSupport.decodeHex(value);
-    }
-
-    private static String resolveTextValue(String value, Path filesDir) throws IOException {
-        if (value == null) {
-            return "";
-        }
-        if (value.startsWith("file:")) {
-            return Files.readString(filesDir.resolve(value.substring("file:".length())),
-                    StandardCharsets.UTF_8);
-        }
-        return value;
-    }
-
-    private static String diffPrefix(String table, String id, String column) {
-        return "Table=" + table + " ID=" + id + " Column=" + column + " ";
-    }
-
-    private static void assertDateTimeWithOffsetEquals(String table, String id, String column,
-            String inputValue, String outputValue) {
-        OffsetDateTime inDateTime = parseOffsetDateTime(inputValue);
-        OffsetDateTime outDateTime = parseOffsetDateTime(outputValue);
-        assertEquals(inDateTime.toInstant(), outDateTime.toInstant(),
-                diffPrefix(table, id, column) + "日時/INTERVAL値が一致しません");
-    }
-
-    private static OffsetDateTime parseOffsetDateTime(String value) {
-        return OffsetDateTime.parse(OracleIntegrationSupport.trimToEmpty(value),
-                OFFSET_DATE_TIME_FORMATTER);
-    }
-
-    private static String dumpMainRows(Connection conn) {
-        StringBuilder sb = new StringBuilder();
-        try (Statement st = conn.createStatement();
-                ResultSet rs = st.executeQuery(
-                        "SELECT ID, VC_COL, LOB_KIND FROM IT_TYPED_MAIN ORDER BY ID")) {
-            while (rs.next()) {
-                sb.append("ID=").append(rs.getLong("ID")).append(" VC_COL=")
-                        .append(rs.getString("VC_COL")).append(" LOB_KIND=")
-                        .append(rs.getString("LOB_KIND")).append("\n");
-            }
-        } catch (Exception e) {
-            sb.append("Error dumping main rows: ").append(e.getMessage());
-        }
-        return sb.toString();
-    }
-
-    private static String dumpAuxRows(Connection conn) {
-        StringBuilder sb = new StringBuilder();
-        try (Statement st = conn.createStatement();
-                ResultSet rs = st.executeQuery("SELECT ID, "
-                        + "CASE WHEN PAYLOAD_CLOB IS NULL THEN 'NULL' ELSE 'NOT_NULL' END AS HAS_CLOB, "
-                        + "CASE WHEN PAYLOAD_BLOB IS NULL THEN 'NULL' ELSE 'NOT_NULL' END AS HAS_BLOB "
-                        + "FROM IT_TYPED_AUX ORDER BY ID")) {
-            while (rs.next()) {
-                sb.append("ID=").append(rs.getLong("ID")).append(" PAYLOAD_CLOB=")
-                        .append(rs.getString("HAS_CLOB")).append(" PAYLOAD_BLOB=")
-                        .append(rs.getString("HAS_BLOB")).append("\n");
-            }
-        } catch (Exception e) {
-            sb.append("Error dumping aux rows: ").append(e.getMessage());
-        }
-        return sb.toString();
-    }
-
-    // ── FK dependency resolution tests ──────────────────────────────────────
 
     @Test
     void execute_正常ケース_FK制約あり_tableOrderingが毎回再生成されてロードが成功すること() throws Exception {
         Path dataPath = tempDir.resolve("fk_load_no_ordering");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
-        // table-ordering.txt is always regenerated at the start and deleted at the end;
-        // the FK resolver corrects the alphabetical order (AUX before MAIN) to load order
-        OracleIntegrationSupport.executeLoad(runtime, "pre");
+        IntegrationTestSupport.executeLoad(runtime, "pre");
 
-        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+        try (Connection conn = IntegrationTestSupport.openConnection(ORACLE);
                 Statement st = conn.createStatement()) {
             try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
                 assertTrue(rs.next());
@@ -528,14 +302,13 @@ class OracleIntegrationTest {
     @Test
     void execute_正常ケース_FK制約あり_FK解決でアルファベット順が修正されてロードが成功すること() throws Exception {
         Path dataPath = tempDir.resolve("fk_load_reversed_ordering");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
-        // table-ordering.txt is always regenerated alphabetically (AUX before MAIN);
-        // FK resolver must correct the order so the load completes without FK violation
-        OracleIntegrationSupport.executeLoad(runtime, "pre");
+        IntegrationTestSupport.executeLoad(runtime, "pre");
 
-        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+        try (Connection conn = IntegrationTestSupport.openConnection(ORACLE);
                 Statement st = conn.createStatement()) {
             try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
                 assertTrue(rs.next());
@@ -551,16 +324,16 @@ class OracleIntegrationTest {
     @Test
     void execute_正常ケース_FK制約あり_ダンプが完了してCSVと件数が出力されること() throws Exception {
         Path dataPath = tempDir.resolve("fk_dump_data");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, false);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                false, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
-        Path dbDir = OracleIntegrationSupport.executeDump(runtime, "fk_dump_case");
+        Path dbDir = IntegrationTestSupport.executeDump(runtime, "fk_dump_case");
 
         assertTrue(Files.exists(dbDir.resolve("IT_TYPED_MAIN.csv")));
         assertTrue(Files.exists(dbDir.resolve("IT_TYPED_AUX.csv")));
 
-        // Row counts in the dumped CSVs must match what is in the DB (seed data)
-        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+        try (Connection conn = IntegrationTestSupport.openConnection(ORACLE);
                 Statement st = conn.createStatement()) {
             int expectedMain, expectedAux;
             try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
@@ -571,8 +344,7 @@ class OracleIntegrationTest {
                 rs.next();
                 expectedAux = rs.getInt(1);
             }
-            long mainCsvRows = Files.lines(dbDir.resolve("IT_TYPED_MAIN.csv")).count() - 1; // minus
-                                                                                            // header
+            long mainCsvRows = Files.lines(dbDir.resolve("IT_TYPED_MAIN.csv")).count() - 1;
             long auxCsvRows = Files.lines(dbDir.resolve("IT_TYPED_AUX.csv")).count() - 1;
             assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
             assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");
@@ -582,11 +354,12 @@ class OracleIntegrationTest {
     @Test
     void execute_正常ケース_FK制約あり_ロード後にダンプする_件数が一致すること() throws Exception {
         Path dataPath = tempDir.resolve("fk_roundtrip_data");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
-        OracleIntegrationSupport.executeLoad(runtime, "pre");
-        Path dbDir = OracleIntegrationSupport.executeDump(runtime, "fk_roundtrip_case");
+        IntegrationTestSupport.executeLoad(runtime, "pre");
+        Path dbDir = IntegrationTestSupport.executeDump(runtime, "fk_roundtrip_case");
 
         assertTrue(Files.exists(dbDir.resolve("IT_TYPED_MAIN.csv")));
         assertTrue(Files.exists(dbDir.resolve("IT_TYPED_AUX.csv")));
@@ -597,20 +370,17 @@ class OracleIntegrationTest {
         assertEquals(2L, auxCsvRows, "IT_TYPED_AUX should have 2 rows after load");
     }
 
-    // ── FK constraint-free tests ──────────────────────────────────────────────
-
     @Test
     void execute_正常ケース_FK制約なし_tableOrderingが毎回再生成されてロードが成功すること() throws Exception {
-        OracleIntegrationSupport.prepareDatabaseWithoutFk(ORACLE);
+        IntegrationTestSupport.prepareDatabaseWithoutFk(ORACLE, MIGRATION);
         Path dataPath = tempDir.resolve("nofk_load_no_ordering");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
-        // table-ordering.txt is always regenerated alphabetically; without FK constraints
-        // any load order is acceptable, so load completes successfully
-        OracleIntegrationSupport.executeLoad(runtime, "pre");
+        IntegrationTestSupport.executeLoad(runtime, "pre");
 
-        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+        try (Connection conn = IntegrationTestSupport.openConnection(ORACLE);
                 Statement st = conn.createStatement()) {
             try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
                 assertTrue(rs.next());
@@ -625,16 +395,15 @@ class OracleIntegrationTest {
 
     @Test
     void execute_正常ケース_FK制約なし_アルファベット順でロードが成功すること() throws Exception {
-        OracleIntegrationSupport.prepareDatabaseWithoutFk(ORACLE);
+        IntegrationTestSupport.prepareDatabaseWithoutFk(ORACLE, MIGRATION);
         Path dataPath = tempDir.resolve("nofk_load_reversed_ordering");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
-        // table-ordering.txt is always regenerated alphabetically (AUX before MAIN);
-        // without FK constraints, this order is acceptable for CLEAN_INSERT
-        OracleIntegrationSupport.executeLoad(runtime, "pre");
+        IntegrationTestSupport.executeLoad(runtime, "pre");
 
-        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+        try (Connection conn = IntegrationTestSupport.openConnection(ORACLE);
                 Statement st = conn.createStatement()) {
             try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
                 assertTrue(rs.next());
@@ -649,17 +418,18 @@ class OracleIntegrationTest {
 
     @Test
     void execute_正常ケース_FK制約なし_ダンプが完了してCSVと件数が出力されること() throws Exception {
-        OracleIntegrationSupport.prepareDatabaseWithoutFk(ORACLE);
+        IntegrationTestSupport.prepareDatabaseWithoutFk(ORACLE, MIGRATION);
         Path dataPath = tempDir.resolve("nofk_dump_data");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, false);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                false, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
-        Path dbDir = OracleIntegrationSupport.executeDump(runtime, "nofk_dump_case");
+        Path dbDir = IntegrationTestSupport.executeDump(runtime, "nofk_dump_case");
 
         assertTrue(Files.exists(dbDir.resolve("IT_TYPED_MAIN.csv")));
         assertTrue(Files.exists(dbDir.resolve("IT_TYPED_AUX.csv")));
 
-        try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE);
+        try (Connection conn = IntegrationTestSupport.openConnection(ORACLE);
                 Statement st = conn.createStatement()) {
             int expectedMain, expectedAux;
             try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_MAIN")) {
@@ -670,8 +440,7 @@ class OracleIntegrationTest {
                 rs.next();
                 expectedAux = rs.getInt(1);
             }
-            long mainCsvRows = Files.lines(dbDir.resolve("IT_TYPED_MAIN.csv")).count() - 1; // minus
-                                                                                            // header
+            long mainCsvRows = Files.lines(dbDir.resolve("IT_TYPED_MAIN.csv")).count() - 1;
             long auxCsvRows = Files.lines(dbDir.resolve("IT_TYPED_AUX.csv")).count() - 1;
             assertEquals(expectedMain, mainCsvRows, "IT_TYPED_MAIN CSV row count mismatch");
             assertEquals(expectedAux, auxCsvRows, "IT_TYPED_AUX CSV row count mismatch");
@@ -680,13 +449,14 @@ class OracleIntegrationTest {
 
     @Test
     void execute_正常ケース_FK制約なし_ロード後にダンプする_件数が一致すること() throws Exception {
-        OracleIntegrationSupport.prepareDatabaseWithoutFk(ORACLE);
+        IntegrationTestSupport.prepareDatabaseWithoutFk(ORACLE, MIGRATION);
         Path dataPath = tempDir.resolve("nofk_roundtrip_data");
-        OracleIntegrationSupport.Runtime runtime =
-                OracleIntegrationSupport.prepareRuntime(ORACLE, dataPath, true);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
 
-        OracleIntegrationSupport.executeLoad(runtime, "pre");
-        Path dbDir = OracleIntegrationSupport.executeDump(runtime, "nofk_roundtrip_case");
+        IntegrationTestSupport.executeLoad(runtime, "pre");
+        Path dbDir = IntegrationTestSupport.executeDump(runtime, "nofk_roundtrip_case");
 
         assertTrue(Files.exists(dbDir.resolve("IT_TYPED_MAIN.csv")));
         assertTrue(Files.exists(dbDir.resolve("IT_TYPED_AUX.csv")));
@@ -697,19 +467,4 @@ class OracleIntegrationTest {
         assertEquals(2L, auxCsvRows, "IT_TYPED_AUX should have 2 rows after load");
     }
 
-    private static void assertXmlTextEquals(String xml, String xPathExpr, String expected)
-            throws Exception {
-        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-        dbf.setNamespaceAware(false);
-        dbf.setExpandEntityReferences(false);
-        dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-
-        Document doc = dbf.newDocumentBuilder().parse(new InputSource(new StringReader(xml)));
-
-        String actual = (String) XPathFactory.newInstance().newXPath().evaluate(xPathExpr, doc,
-                XPathConstants.STRING);
-
-        assertEquals(expected, actual,
-                () -> "XML の値が一致しません。\nXPath=" + xPathExpr + "\nxml=\n" + xml);
-    }
 }

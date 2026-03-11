@@ -1,0 +1,26 @@
+dbunit:
+  pre-dir-name: pre
+  csv:
+    format:
+      date: "yyyy-MM-dd"
+      time: "HH:mm:ss"
+      date-time: "yyyy-MM-dd HH:mm:ss"
+      date-time-with-millis: "yyyy-MM-dd HH:mm:ss.SSS"
+
+dump:
+  exclude-tables:
+    - flyway_schema_history
+
+file-patterns:
+  IT_TYPED_MAIN:
+    XML_COL: "main_xmlcol_{ID}.xml"
+    CLOB_COL: "main_{LOB_KIND}_{ID}.txt"
+    NCLOB_COL: "main_n_{LOB_KIND}_{ID}.txt"
+    BLOB_COL: "main_{LOB_KIND}_{ID}.bin"
+    TINYBLOB_COL: "main_tiny_{LOB_KIND}_{ID}.bin"
+    MEDIUMBLOB_COL: "main_medium_{LOB_KIND}_{ID}.bin"
+    LONGBLOB_COL: "main_long_{LOB_KIND}_{ID}.bin"
+  IT_TYPED_AUX:
+    PAYLOAD_XML: "aux_xmlcol_{ID}.xml"
+    PAYLOAD_CLOB: "aux_{LOB_KIND}_{ID}.txt"
+    PAYLOAD_BLOB: "aux_{LOB_KIND}_{ID}.bin"

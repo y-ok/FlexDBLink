@@ -1,11 +1,11 @@
 -- Seed data for dump tests (bytea/text/date/time/timestamp/timestamptz)
 
 INSERT INTO IT_TYPED_MAIN
-(ID, VC_COL, CHAR_COL, NVC_COL, NCHAR_COL, NUM_COL, BF_COL, BD_COL,
+(ID, VC_COL, CHAR_COL, NVC_COL, NCHAR_COL, NUM_COL, BF_COL, BD_COL, BOOL_COL,
  DATE_COL, TIME_COL, TS_COL, TSTZ_COL, RAW_COL, XML_COL, CLOB_COL, NCLOB_COL, BLOB_COL, LOB_KIND)
 VALUES
 (1, 'seed-xml',  'seed-char', 'seed-nvc', 'seed-nchar',
- 123.456000, 1.25, 10.125,
+ 123.456000, 1.25, 10.125, true,
  DATE '2026-02-01', TIME '01:02:03', TIMESTAMP '2026-02-01 01:02:03', TIMESTAMPTZ '2026-02-01 01:02:03+09',
  decode('0A0B0C21', 'hex'),
  '<root><kind>xml</kind><source>seed-main</source></root>',
@@ -14,11 +14,11 @@ VALUES
  'xml');
 
 INSERT INTO IT_TYPED_MAIN
-(ID, VC_COL, CHAR_COL, NVC_COL, NCHAR_COL, NUM_COL, BF_COL, BD_COL,
+(ID, VC_COL, CHAR_COL, NVC_COL, NCHAR_COL, NUM_COL, BF_COL, BD_COL, BOOL_COL,
  DATE_COL, TIME_COL, TS_COL, TSTZ_COL, RAW_COL, XML_COL, CLOB_COL, NCLOB_COL, BLOB_COL, LOB_KIND)
 VALUES
 (2, 'seed-zip',  'seed-char', 'seed-nvc', 'seed-nchar',
- 999.000000, 2.50, 20.250,
+ 999.000000, 2.50, 20.250, false,
  DATE '2026-02-02', TIME '02:03:04', TIMESTAMP '2026-02-02 02:03:04', TIMESTAMPTZ '2026-02-02 02:03:04+09',
  decode('0D0E0F10', 'hex'),
  '<root><kind>zip</kind><source>seed-main</source></root>',
@@ -27,11 +27,11 @@ VALUES
  'zip');
 
 INSERT INTO IT_TYPED_MAIN
-(ID, VC_COL, CHAR_COL, NVC_COL, NCHAR_COL, NUM_COL, BF_COL, BD_COL,
+(ID, VC_COL, CHAR_COL, NVC_COL, NCHAR_COL, NUM_COL, BF_COL, BD_COL, BOOL_COL,
  DATE_COL, TIME_COL, TS_COL, TSTZ_COL, RAW_COL, XML_COL, CLOB_COL, NCLOB_COL, BLOB_COL, LOB_KIND)
 VALUES
 (3, 'seed-bin',  'seed-char', 'seed-nvc', 'seed-nchar',
- 1.000000, 3.75, 30.375,
+ 1.000000, 3.75, 30.375, true,
  DATE '2026-02-03', TIME '03:04:05', TIMESTAMP '2026-02-03 03:04:05', TIMESTAMPTZ '2026-02-03 03:04:05+09',
  decode('11121314', 'hex'),
  '<root><kind>bin</kind><source>seed-main</source></root>',

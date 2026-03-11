@@ -2,8 +2,6 @@ package io.github.yok.flexdblink.integration;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.yok.flexdblink.config.ConnectionConfig;
-import io.github.yok.flexdblink.config.DumpConfig;
-import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.core.SetupRunner;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.util.ErrorHandler;
@@ -13,6 +11,11 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.ContextConfiguration;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.oracle.OracleContainer;
@@ -25,6 +28,8 @@ import org.testcontainers.oracle.OracleContainer;
  * the expected {@code file-patterns} entries in {@code application.yml}.
  * </p>
  */
+@SpringBootTest(classes = IntegrationTestConfig.class)
+@ContextConfiguration(initializers = YamlPropertySourceFactory.class)
 @Testcontainers
 class SetupRunnerOracleIntegrationTest {
 
@@ -34,9 +39,29 @@ class SetupRunnerOracleIntegrationTest {
     @TempDir
     Path tempDir;
 
+    @Autowired
+    ConnectionConfig connectionConfig;
+
+    @Autowired
+    DbDialectHandlerFactory dialectFactory;
+
+    /**
+     * Registers container connection properties into the Spring environment.
+     *
+     * @param registry dynamic property registry
+     */
+    @DynamicPropertySource
+    static void containerProps(DynamicPropertyRegistry registry) {
+        registry.add("connections[0].id", () -> "db1");
+        registry.add("connections[0].driver-class", () -> "oracle.jdbc.OracleDriver");
+        registry.add("connections[0].url", ORACLE::getJdbcUrl);
+        registry.add("connections[0].user", ORACLE::getUsername);
+        registry.add("connections[0].password", ORACLE::getPassword);
+    }
+
     @BeforeAll
     static void setup_正常ケース_Oracleコンテナに対してFlywayを実行する_マイグレーションが完了すること() {
-        OracleIntegrationSupport.prepareDatabase(ORACLE);
+        IntegrationTestSupport.prepareDatabase(ORACLE, "classpath:db/migration/oracle");
     }
 
     @Test
@@ -95,6 +120,12 @@ class SetupRunnerOracleIntegrationTest {
         assertTrue(!yaml.contains("file-patterns"), "対象外 DB なのに file-patterns が書き込まれています");
     }
 
+    /**
+     * Creates a minimal application.yml in the temp directory and sets the Spring config location.
+     *
+     * @return path to the created application.yml
+     * @throws Exception if file creation fails
+     */
     private Path prepareConfigFile() throws Exception {
         Path configFile = tempDir.resolve("application.yml");
         Files.writeString(configFile, "data-path: /tmp\n");
@@ -103,15 +134,12 @@ class SetupRunnerOracleIntegrationTest {
         return configFile;
     }
 
+    /**
+     * Builds a {@link SetupRunner} wired with the Spring-injected connection configuration.
+     *
+     * @return configured SetupRunner instance
+     */
     private SetupRunner buildRunner() {
-        ConnectionConfig connectionConfig = OracleIntegrationSupport.connectionConfig(ORACLE);
-        PathsConfig pathsConfig = new PathsConfig();
-        pathsConfig.setDataPath(tempDir.toAbsolutePath().toString());
-        DumpConfig dumpConfig = OracleIntegrationSupport.dumpConfig();
-        dumpConfig.setExcludeTables(List.of("flyway_schema_history"));
-        DbDialectHandlerFactory factory =
-                OracleIntegrationSupport.dialectFactory(OracleIntegrationSupport.dbUnitConfig(),
-                        dumpConfig, pathsConfig, OracleIntegrationSupport.dateTimeUtil());
-        return new SetupRunner(connectionConfig, factory::create);
+        return new SetupRunner(connectionConfig, dialectFactory::create);
     }
 }

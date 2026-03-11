@@ -3,7 +3,6 @@ package io.github.yok.flexdblink.integration;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.yok.flexdblink.config.ConnectionConfig;
-import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.core.SetupRunner;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import java.nio.file.Files;
@@ -12,6 +11,11 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.ContextConfiguration;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mssqlserver.MSSQLServerContainer;
@@ -33,6 +37,8 @@ import org.testcontainers.mssqlserver.MSSQLServerContainer;
  * the type-name extension map, and the JDBC type does not match {@code Types.BLOB/CLOB/NCLOB}.
  * </p>
  */
+@SpringBootTest(classes = IntegrationTestConfig.class)
+@ContextConfiguration(initializers = YamlPropertySourceFactory.class)
 @Testcontainers
 class SetupRunnerSqlServerIntegrationTest {
 
@@ -42,6 +48,32 @@ class SetupRunnerSqlServerIntegrationTest {
     @TempDir
     Path tempDir;
 
+    @Autowired
+    ConnectionConfig connectionConfig;
+
+    @Autowired
+    DbDialectHandlerFactory dialectFactory;
+
+    /**
+     * Registers container connection properties into the Spring environment.
+     *
+     * @param registry dynamic property registry
+     */
+    @DynamicPropertySource
+    static void containerProps(DynamicPropertyRegistry registry) {
+        registry.add("connections[0].id", () -> "db1");
+        registry.add("connections[0].driver-class",
+                () -> "com.microsoft.sqlserver.jdbc.SQLServerDriver");
+        registry.add("connections[0].url", sqlserver::getJdbcUrl);
+        registry.add("connections[0].user", sqlserver::getUsername);
+        registry.add("connections[0].password", sqlserver::getPassword);
+    }
+
+    /**
+     * Creates a SQL Server Testcontainer configured for integration tests.
+     *
+     * @return configured SQL Server container
+     */
     private static MSSQLServerContainer createSqlServer() {
         MSSQLServerContainer container =
                 new MSSQLServerContainer("mcr.microsoft.com/mssql/server:2019-latest");
@@ -51,7 +83,7 @@ class SetupRunnerSqlServerIntegrationTest {
 
     @BeforeEach
     void setup_正常ケース_SQLServerコンテナに対してFlywayを実行する_マイグレーションが完了すること() {
-        SqlServerIntegrationSupport.prepareDatabase(sqlserver);
+        IntegrationTestSupport.prepareDatabase(sqlserver, "classpath:db/migration/sqlserver");
     }
 
     @Test
@@ -123,6 +155,12 @@ class SetupRunnerSqlServerIntegrationTest {
         assertFalse(yaml.contains("file-patterns"), "対象外 DB なのに file-patterns が書き込まれています");
     }
 
+    /**
+     * Creates a minimal application.yml in the temp directory and sets the Spring config location.
+     *
+     * @return path to the created application.yml
+     * @throws Exception if file creation fails
+     */
     private Path prepareConfigFile() throws Exception {
         Path configFile = tempDir.resolve("application.yml");
         Files.writeString(configFile, "data-path: /tmp\n");
@@ -131,14 +169,12 @@ class SetupRunnerSqlServerIntegrationTest {
         return configFile;
     }
 
+    /**
+     * Builds a {@link SetupRunner} wired with the Spring-injected connection configuration.
+     *
+     * @return configured SetupRunner instance
+     */
     private SetupRunner buildRunner() {
-        ConnectionConfig connectionConfig = SqlServerIntegrationSupport.connectionConfig(sqlserver);
-        PathsConfig pathsConfig = new PathsConfig();
-        pathsConfig.setDataPath(tempDir.toAbsolutePath().toString());
-        DbDialectHandlerFactory factory = SqlServerIntegrationSupport.dialectFactory(
-                SqlServerIntegrationSupport.dbUnitConfig(),
-                SqlServerIntegrationSupport.dumpConfig(), pathsConfig,
-                SqlServerIntegrationSupport.dateTimeUtil());
-        return new SetupRunner(connectionConfig, factory::create);
+        return new SetupRunner(connectionConfig, dialectFactory::create);
     }
 }

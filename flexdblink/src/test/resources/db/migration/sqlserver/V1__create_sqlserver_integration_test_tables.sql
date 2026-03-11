@@ -13,6 +13,7 @@ CREATE TABLE IT_TYPED_MAIN (
   NUM_COL       NUMERIC(20, 6),
   BF_COL        REAL,
   BD_COL        FLOAT,
+  BOOL_COL      BIT,
 
   DATE_COL      DATE,
   TIME_COL      TIME,

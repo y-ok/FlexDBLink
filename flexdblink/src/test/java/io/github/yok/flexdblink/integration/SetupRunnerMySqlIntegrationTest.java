@@ -3,7 +3,6 @@ package io.github.yok.flexdblink.integration;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.yok.flexdblink.config.ConnectionConfig;
-import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.core.SetupRunner;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import java.nio.file.Files;
@@ -12,6 +11,11 @@ import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.ContextConfiguration;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mysql.MySQLContainer;
@@ -35,6 +39,8 @@ import org.testcontainers.mysql.MySQLContainer;
  * {@code Types.LONGVARCHAR} and "text" is not in the type-name extension map.
  * </p>
  */
+@SpringBootTest(classes = IntegrationTestConfig.class)
+@ContextConfiguration(initializers = YamlPropertySourceFactory.class)
 @Testcontainers
 class SetupRunnerMySqlIntegrationTest {
 
@@ -44,6 +50,31 @@ class SetupRunnerMySqlIntegrationTest {
     @TempDir
     Path tempDir;
 
+    @Autowired
+    ConnectionConfig connectionConfig;
+
+    @Autowired
+    DbDialectHandlerFactory dialectFactory;
+
+    /**
+     * Registers container connection properties into the Spring environment.
+     *
+     * @param registry dynamic property registry
+     */
+    @DynamicPropertySource
+    static void containerProps(DynamicPropertyRegistry registry) {
+        registry.add("connections[0].id", () -> "db1");
+        registry.add("connections[0].driver-class", () -> "com.mysql.cj.jdbc.Driver");
+        registry.add("connections[0].url", mysql::getJdbcUrl);
+        registry.add("connections[0].user", mysql::getUsername);
+        registry.add("connections[0].password", mysql::getPassword);
+    }
+
+    /**
+     * Creates a MySQL Testcontainer configured for integration tests.
+     *
+     * @return configured MySQL container
+     */
     private static MySQLContainer createMySql() {
         MySQLContainer container = new MySQLContainer("mysql:8.4");
         container.withDatabaseName("testdb").withUsername("test").withPassword("test");
@@ -52,7 +83,7 @@ class SetupRunnerMySqlIntegrationTest {
 
     @BeforeEach
     void setup_正常ケース_MySQLコンテナに対してFlywayを実行する_マイグレーションが完了すること() {
-        MySqlIntegrationSupport.prepareDatabase(mysql);
+        IntegrationTestSupport.prepareDatabase(mysql, "classpath:db/migration/mysql");
     }
 
     @Test
@@ -151,6 +182,12 @@ class SetupRunnerMySqlIntegrationTest {
         assertFalse(yaml.contains("file-patterns"), "対象外 DB なのに file-patterns が書き込まれています");
     }
 
+    /**
+     * Creates a minimal application.yml in the temp directory and sets the Spring config location.
+     *
+     * @return path to the created application.yml
+     * @throws Exception if file creation fails
+     */
     private Path prepareConfigFile() throws Exception {
         Path configFile = tempDir.resolve("application.yml");
         Files.writeString(configFile, "data-path: /tmp\n");
@@ -159,13 +196,12 @@ class SetupRunnerMySqlIntegrationTest {
         return configFile;
     }
 
+    /**
+     * Builds a {@link SetupRunner} wired with the Spring-injected connection configuration.
+     *
+     * @return configured SetupRunner instance
+     */
     private SetupRunner buildRunner() {
-        ConnectionConfig connectionConfig = MySqlIntegrationSupport.connectionConfig(mysql);
-        PathsConfig pathsConfig = new PathsConfig();
-        pathsConfig.setDataPath(tempDir.toAbsolutePath().toString());
-        DbDialectHandlerFactory factory = MySqlIntegrationSupport.dialectFactory(
-                MySqlIntegrationSupport.dbUnitConfig(), MySqlIntegrationSupport.dumpConfig(),
-                pathsConfig, MySqlIntegrationSupport.dateTimeUtil());
-        return new SetupRunner(connectionConfig, factory::create);
+        return new SetupRunner(connectionConfig, dialectFactory::create);
     }
 }

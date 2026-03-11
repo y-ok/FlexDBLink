@@ -10,6 +10,7 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.FilePatternConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
+import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.util.DateTimeFormatUtil;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,12 +21,17 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ContextConfiguration;
+import org.testcontainers.containers.JdbcDatabaseContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.mssqlserver.MSSQLServerContainer;
@@ -41,6 +47,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * {@code connections[]} configuration and target filtering per DB ID.
  * </p>
  */
+@SpringBootTest(classes = IntegrationTestConfig.class)
+@ContextConfiguration(initializers = YamlPropertySourceFactory.class)
 @Testcontainers
 class MainMultiDbIntegrationTest {
 
@@ -48,6 +56,11 @@ class MainMultiDbIntegrationTest {
     private static final String POSTGRES_ID = "pg";
     private static final String MYSQL_ID = "my";
     private static final String SQLSERVER_ID = "ss";
+
+    private static final Map<String, String> DRIVER_CLASSES = Map.of("oracle",
+            "oracle.jdbc.OracleDriver", "postgresql", "org.postgresql.Driver", "mysql",
+            "com.mysql.cj.jdbc.Driver", "sqlserver",
+            "com.microsoft.sqlserver.jdbc.SQLServerDriver");
 
     @Container
     static final OracleContainer ORACLE = new OracleContainer("gvenzl/oracle-free:slim-faststart");
@@ -64,18 +77,45 @@ class MainMultiDbIntegrationTest {
     @TempDir
     Path tempDir;
 
+    @Autowired
+    DbUnitConfig dbUnitConfig;
+
+    @Autowired
+    DumpConfig dumpConfig;
+
+    @Autowired
+    FilePatternConfig filePatternConfig;
+
+    @Autowired
+    DateTimeFormatUtil dateTimeUtil;
+
+    /**
+     * Creates a PostgreSQL Testcontainer configured for integration tests.
+     *
+     * @return configured PostgreSQL container
+     */
     private static PostgreSQLContainer createPostgres() {
         PostgreSQLContainer container = new PostgreSQLContainer("postgres:16-alpine");
         container.withDatabaseName("testdb").withUsername("test").withPassword("test");
         return container;
     }
 
+    /**
+     * Creates a MySQL Testcontainer configured for integration tests.
+     *
+     * @return configured MySQL container
+     */
     private static MySQLContainer createMySql() {
         MySQLContainer container = new MySQLContainer("mysql:8.4");
         container.withDatabaseName("testdb").withUsername("test").withPassword("test");
         return container;
     }
 
+    /**
+     * Creates a SQL Server Testcontainer configured for integration tests.
+     *
+     * @return configured SQL Server container
+     */
     private static MSSQLServerContainer createSqlServer() {
         MSSQLServerContainer container =
                 new MSSQLServerContainer("mcr.microsoft.com/mssql/server:2019-latest");
@@ -123,49 +163,68 @@ class MainMultiDbIntegrationTest {
         }
     }
 
+    /**
+     * Builds a {@link Main} instance wired with multi-DB connection configuration.
+     *
+     * @param dataPath base directory for load/dump data
+     * @return configured Main instance
+     */
     private Main buildMain(Path dataPath) {
-        PathsConfig pathsConfig = OracleIntegrationSupport.pathsConfig(dataPath);
-        DbUnitConfig dbUnitConfig = OracleIntegrationSupport.dbUnitConfig();
+        PathsConfig pathsConfig = new PathsConfig();
+        pathsConfig.setDataPath(dataPath.toAbsolutePath().toString());
+
         ConnectionConfig connectionConfig = buildMultiConnectionConfig();
-        FilePatternConfig filePatternConfig = OracleIntegrationSupport.filePatternConfig();
-        DumpConfig dumpConfig = OracleIntegrationSupport.dumpConfig();
+
         dumpConfig.setExcludeTables(List.of("FLYWAY_SCHEMA_HISTORY", "flyway_schema_history"));
-        DateTimeFormatUtil dateTimeUtil = OracleIntegrationSupport.dateTimeUtil();
-        DbDialectHandlerFactory factory = OracleIntegrationSupport.dialectFactory(dbUnitConfig,
-                dumpConfig, pathsConfig, dateTimeUtil);
+
+        DbDialectHandlerFactory factory = new DbDialectHandlerFactory(dbUnitConfig, dumpConfig,
+                pathsConfig, dateTimeUtil, new DbUnitConfigFactory());
         return new Main(pathsConfig, dbUnitConfig, connectionConfig, filePatternConfig, dumpConfig,
                 factory);
     }
 
+    /**
+     * Assembles a {@link ConnectionConfig} containing entries for all four database types.
+     *
+     * @return connection config with entries for Oracle, PostgreSQL, MySQL, and SQL Server
+     */
     private ConnectionConfig buildMultiConnectionConfig() {
         List<ConnectionConfig.Entry> entries = new ArrayList<>();
-        entries.add(
-                copyEntry(OracleIntegrationSupport.connectionConfig(ORACLE).getConnections().get(0),
-                        ORACLE_ID));
-        entries.add(copyEntry(
-                PostgresqlIntegrationSupport.connectionConfig(POSTGRES).getConnections().get(0),
-                POSTGRES_ID));
-        entries.add(copyEntry(
-                MySqlIntegrationSupport.connectionConfig(MYSQL).getConnections().get(0), MYSQL_ID));
-        entries.add(copyEntry(
-                SqlServerIntegrationSupport.connectionConfig(SQLSERVER).getConnections().get(0),
-                SQLSERVER_ID));
+        entries.add(buildConnectionEntry(ORACLE, ORACLE_ID, "oracle"));
+        entries.add(buildConnectionEntry(POSTGRES, POSTGRES_ID, "postgresql"));
+        entries.add(buildConnectionEntry(MYSQL, MYSQL_ID, "mysql"));
+        entries.add(buildConnectionEntry(SQLSERVER, SQLSERVER_ID, "sqlserver"));
 
         ConnectionConfig config = new ConnectionConfig();
         config.setConnections(entries);
         return config;
     }
 
-    private ConnectionConfig.Entry copyEntry(ConnectionConfig.Entry source, String id) {
+    /**
+     * Builds a connection entry for the specified container and database type.
+     *
+     * @param container JDBC container
+     * @param id logical connection ID
+     * @param dbName database name for driver class lookup
+     * @return connection entry
+     */
+    private ConnectionConfig.Entry buildConnectionEntry(JdbcDatabaseContainer<?> container,
+            String id, String dbName) {
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId(id);
-        entry.setUrl(source.getUrl());
-        entry.setUser(source.getUser());
-        entry.setPassword(source.getPassword());
-        entry.setDriverClass(source.getDriverClass());
+        entry.setDriverClass(DRIVER_CLASSES.get(dbName));
+        entry.setUrl(container.getJdbcUrl());
+        entry.setUser(container.getUsername());
+        entry.setPassword(container.getPassword());
         return entry;
     }
 
+    /**
+     * Creates a minimal application.yml in the temp directory and sets the Spring config location.
+     *
+     * @return path to the created application.yml
+     * @throws Exception if file creation fails
+     */
     private Path prepareConfigFile() throws Exception {
         Path configFile = tempDir.resolve("application.yml");
         Files.writeString(configFile, "data-path: /tmp\n");
@@ -174,6 +233,13 @@ class MainMultiDbIntegrationTest {
         return configFile;
     }
 
+    /**
+     * Copies load fixture files for each target database into the data directory.
+     *
+     * @param dataPath base directory for test data
+     * @param targets list of target database kinds
+     * @throws Exception if file copy fails
+     */
     private void copyLoadFixturesForTargets(Path dataPath, List<DbKind> targets) throws Exception {
         Files.createDirectories(dataPath);
         for (DbKind target : targets) {
@@ -181,16 +247,15 @@ class MainMultiDbIntegrationTest {
         }
     }
 
+    /**
+     * Copies load fixtures for a single database type, renaming the directory to the target ID.
+     *
+     * @param dataPath base directory for test data
+     * @param target database kind to copy fixtures for
+     * @throws Exception if file copy or move fails
+     */
     private void copySingleTargetFixtures(Path dataPath, DbKind target) throws Exception {
-        if (target == DbKind.ORACLE) {
-            OracleIntegrationSupport.copyLoadFixtures(dataPath);
-        } else if (target == DbKind.POSTGRESQL) {
-            PostgresqlIntegrationSupport.copyLoadFixtures(dataPath);
-        } else if (target == DbKind.MYSQL) {
-            MySqlIntegrationSupport.copyLoadFixtures(dataPath);
-        } else {
-            SqlServerIntegrationSupport.copyLoadFixtures(dataPath);
-        }
+        IntegrationTestSupport.copyLoadFixtures(dataPath, target.dbName());
 
         Path source = dataPath.resolve("load").resolve("pre").resolve("db1");
         Path targetDir = dataPath.resolve("load").resolve("pre").resolve(target.id());
@@ -198,50 +263,38 @@ class MainMultiDbIntegrationTest {
         Files.move(source, targetDir, StandardCopyOption.REPLACE_EXISTING);
     }
 
+    /**
+     * Runs Flyway migration for each target database to prepare the schema.
+     *
+     * @param targets list of target database kinds to migrate
+     */
     private void prepareTargetDatabases(List<DbKind> targets) {
         for (DbKind target : targets) {
-            if (target == DbKind.ORACLE) {
-                OracleIntegrationSupport.prepareDatabase(ORACLE);
-                continue;
-            }
-            if (target == DbKind.POSTGRESQL) {
-                PostgresqlIntegrationSupport.prepareDatabase(POSTGRES);
-                continue;
-            }
-            if (target == DbKind.MYSQL) {
-                MySqlIntegrationSupport.prepareDatabase(MYSQL);
-                continue;
-            }
-            SqlServerIntegrationSupport.prepareDatabase(SQLSERVER);
+            IntegrationTestSupport.prepareDatabase(containerFor(target),
+                    target.migrationLocation());
         }
     }
 
+    /**
+     * Deletes all rows from the test tables in each target database.
+     *
+     * @param targets list of target database kinds to clear
+     * @throws Exception if database operation fails
+     */
     private void clearTargetTestTables(List<DbKind> targets) throws Exception {
         for (DbKind target : targets) {
-            if (target == DbKind.ORACLE) {
-                try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE)) {
-                    clearTestTables(conn);
-                }
-                continue;
-            }
-            if (target == DbKind.POSTGRESQL) {
-                try (Connection conn = PostgresqlIntegrationSupport.openConnection(POSTGRES)) {
-                    clearTestTables(conn);
-                }
-                continue;
-            }
-            if (target == DbKind.MYSQL) {
-                try (Connection conn = MySqlIntegrationSupport.openConnection(MYSQL)) {
-                    clearTestTables(conn);
-                }
-                continue;
-            }
-            try (Connection conn = SqlServerIntegrationSupport.openConnection(SQLSERVER)) {
+            try (Connection conn = IntegrationTestSupport.openConnection(containerFor(target))) {
                 clearTestTables(conn);
             }
         }
     }
 
+    /**
+     * Deletes all rows from IT_TYPED_AUX and IT_TYPED_MAIN via the given connection.
+     *
+     * @param conn JDBC connection to use
+     * @throws Exception if SQL execution fails
+     */
     private void clearTestTables(Connection conn) throws Exception {
         try (Statement st = conn.createStatement()) {
             st.executeUpdate("DELETE FROM IT_TYPED_AUX");
@@ -249,36 +302,29 @@ class MainMultiDbIntegrationTest {
         }
     }
 
+    /**
+     * Asserts that the expected number of rows were loaded into each target database.
+     *
+     * @param targets list of target database kinds to verify
+     * @throws Exception if database query fails
+     */
     private void assertLoadedRowCounts(List<DbKind> targets) throws Exception {
         for (DbKind target : targets) {
-            if (target == DbKind.ORACLE) {
-                try (Connection conn = OracleIntegrationSupport.openConnection(ORACLE)) {
-                    assertEquals(6, countRows(conn, "IT_TYPED_MAIN"));
-                    assertEquals(2, countRows(conn, "IT_TYPED_AUX"));
-                }
-                continue;
-            }
-            if (target == DbKind.POSTGRESQL) {
-                try (Connection conn = PostgresqlIntegrationSupport.openConnection(POSTGRES)) {
-                    assertEquals(6, countRows(conn, "IT_TYPED_MAIN"));
-                    assertEquals(2, countRows(conn, "IT_TYPED_AUX"));
-                }
-                continue;
-            }
-            if (target == DbKind.MYSQL) {
-                try (Connection conn = MySqlIntegrationSupport.openConnection(MYSQL)) {
-                    assertEquals(6, countRows(conn, "IT_TYPED_MAIN"));
-                    assertEquals(2, countRows(conn, "IT_TYPED_AUX"));
-                }
-                continue;
-            }
-            try (Connection conn = SqlServerIntegrationSupport.openConnection(SQLSERVER)) {
+            try (Connection conn = IntegrationTestSupport.openConnection(containerFor(target))) {
                 assertEquals(6, countRows(conn, "IT_TYPED_MAIN"));
                 assertEquals(2, countRows(conn, "IT_TYPED_AUX"));
             }
         }
     }
 
+    /**
+     * Returns the row count of the specified table via {@code SELECT COUNT(*)}.
+     *
+     * @param conn JDBC connection to use
+     * @param tableName name of the table to count
+     * @return number of rows in the table
+     * @throws Exception if SQL execution fails
+     */
     private int countRows(Connection conn, String tableName) throws Exception {
         try (Statement st = conn.createStatement();
                 ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM " + tableName)) {
@@ -287,6 +333,13 @@ class MainMultiDbIntegrationTest {
         }
     }
 
+    /**
+     * Asserts that dump CSV files exist for target databases and do not exist for non-targets.
+     *
+     * @param dataPath base directory for test data
+     * @param scenario dump scenario name
+     * @param targets list of target database kinds
+     */
     private void assertDumpOutputs(Path dataPath, String scenario, List<DbKind> targets) {
         List<String> targetIds = targets.stream().map(DbKind::id).collect(Collectors.toList());
         for (DbKind dbKind : DbKind.values()) {
@@ -303,6 +356,13 @@ class MainMultiDbIntegrationTest {
         }
     }
 
+    /**
+     * Checks whether the directory contains a CSV file matching the table name (case-insensitive).
+     *
+     * @param dbDir directory to search
+     * @param tableName table name to match against CSV file names
+     * @return true if a matching CSV file exists
+     */
     private boolean containsCsvIgnoreCase(Path dbDir, String tableName) {
         if (!Files.isDirectory(dbDir)) {
             return false;
@@ -316,17 +376,68 @@ class MainMultiDbIntegrationTest {
         }
     }
 
+    /**
+     * Returns the container instance for the given database kind.
+     *
+     * @param dbKind database kind to look up
+     * @return JDBC container for the specified database kind
+     */
+    private JdbcDatabaseContainer<?> containerFor(DbKind dbKind) {
+        switch (dbKind) {
+            case ORACLE:
+                return ORACLE;
+            case POSTGRESQL:
+                return POSTGRES;
+            case MYSQL:
+                return MYSQL;
+            case SQLSERVER:
+                return SQLSERVER;
+            default:
+                throw new IllegalArgumentException("Unknown DbKind: " + dbKind);
+        }
+    }
+
     private enum DbKind {
-        ORACLE(ORACLE_ID), POSTGRESQL(POSTGRES_ID), MYSQL(MYSQL_ID), SQLSERVER(SQLSERVER_ID);
+        ORACLE(ORACLE_ID, "oracle", "classpath:db/migration/oracle"), POSTGRESQL(POSTGRES_ID,
+                "postgresql", "classpath:db/migration/postgresql"), MYSQL(MYSQL_ID, "mysql",
+                        "classpath:db/migration/mysql"), SQLSERVER(SQLSERVER_ID, "sqlserver",
+                                "classpath:db/migration/sqlserver");
 
         private final String id;
+        private final String dbName;
+        private final String migrationLocation;
 
-        DbKind(String id) {
+        DbKind(String id, String dbName, String migrationLocation) {
             this.id = id;
+            this.dbName = dbName;
+            this.migrationLocation = migrationLocation;
         }
 
+        /**
+         * Returns the connection ID (e.g. {@code ora}, {@code pg}).
+         *
+         * @return connection ID
+         */
         String id() {
             return id;
+        }
+
+        /**
+         * Returns the database name used for fixture paths (e.g. {@code oracle}, {@code mysql}).
+         *
+         * @return database name
+         */
+        String dbName() {
+            return dbName;
+        }
+
+        /**
+         * Returns the Flyway migration location.
+         *
+         * @return Flyway migration classpath location
+         */
+        String migrationLocation() {
+            return migrationLocation;
         }
     }
 }
