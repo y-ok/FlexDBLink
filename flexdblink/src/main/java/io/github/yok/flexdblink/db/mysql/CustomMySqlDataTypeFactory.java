@@ -5,11 +5,13 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.sql.SQLXML;
+import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.Set;
 import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
 import org.dbunit.dataset.ITable;
+import org.dbunit.dataset.datatype.AbstractDataType;
 import org.dbunit.dataset.datatype.DataType;
 import org.dbunit.dataset.datatype.DataTypeException;
 import org.dbunit.dataset.datatype.StringDataType;
@@ -29,8 +31,10 @@ import org.dbunit.ext.mysql.MySqlDataTypeFactory;
  */
 public class CustomMySqlDataTypeFactory extends MySqlDataTypeFactory {
     private static final DataType XML_DATA_TYPE = new SqlXmlDataType();
+    private static final DataType NULL_SAFE_TIMESTAMP_DATA_TYPE =
+            new NullSafeTimestampDataType(Types.TIMESTAMP);
     private static final Set<Integer> HEX_BINARY_SQL_TYPES =
-            Set.of(Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY);
+            Set.of(Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY, Types.BLOB);
 
     /**
      * Creates DBUnit data type for MySQL.
@@ -44,6 +48,9 @@ public class CustomMySqlDataTypeFactory extends MySqlDataTypeFactory {
     public DataType createDataType(int sqlType, String sqlTypeName) throws DataTypeException {
         if (isYearTypeName(sqlTypeName)) {
             return DataType.INTEGER;
+        }
+        if (isTimestampType(sqlType, sqlTypeName)) {
+            return NULL_SAFE_TIMESTAMP_DATA_TYPE;
         }
         if (HEX_BINARY_SQL_TYPES.contains(sqlType)) {
             return new HexBinaryDataType(sqlTypeName, sqlType);
@@ -84,6 +91,24 @@ public class CustomMySqlDataTypeFactory extends MySqlDataTypeFactory {
     }
 
     /**
+     * Returns true when the SQL type represents a timestamp-like column.
+     *
+     * @param sqlType JDBC SQL type
+     * @param sqlTypeName database type name
+     * @return true if timestamp-like
+     */
+    private boolean isTimestampType(int sqlType, String sqlTypeName) {
+        if (sqlType == Types.TIMESTAMP || sqlType == Types.TIMESTAMP_WITH_TIMEZONE) {
+            return true;
+        }
+        if (sqlTypeName == null) {
+            return false;
+        }
+        return "timestamp".equalsIgnoreCase(sqlTypeName)
+                || "datetime".equalsIgnoreCase(sqlTypeName);
+    }
+
+    /**
      * DBUnit datatype implementation for MySQL XML.
      */
     private static final class SqlXmlDataType extends StringDataType {
@@ -121,6 +146,52 @@ public class CustomMySqlDataTypeFactory extends MySqlDataTypeFactory {
     }
 
     /**
+     * DBUnit datatype that treats blank timestamp strings as SQL NULL.
+     */
+    private static final class NullSafeTimestampDataType extends AbstractDataType {
+
+        /**
+         * Creates datatype for a timestamp-like SQL type.
+         *
+         * @param sqlType JDBC SQL type
+         */
+        private NullSafeTimestampDataType(int sqlType) {
+            super("TIMESTAMP", sqlType, Timestamp.class, false);
+        }
+
+        @Override
+        public Object typeCast(Object value) throws TypeCastException {
+            if (value == null || value == ITable.NO_VALUE) {
+                return null;
+            }
+            if (value instanceof Timestamp) {
+                return value;
+            }
+            String text = DataType.asString(value).trim();
+            if (text.isEmpty()) {
+                return null;
+            }
+            try {
+                return Timestamp.valueOf(text);
+            } catch (IllegalArgumentException ex) {
+                throw new TypeCastException("Unable to typecast value <" + value + "> of type <"
+                        + value.getClass().getName() + "> to TIMESTAMP", ex);
+            }
+        }
+
+        @Override
+        public void setSqlValue(Object value, int column, PreparedStatement statement)
+                throws SQLException, TypeCastException {
+            Timestamp timestamp = (Timestamp) typeCast(value);
+            if (timestamp == null) {
+                statement.setNull(column, getSqlType());
+                return;
+            }
+            statement.setTimestamp(column, timestamp);
+        }
+    }
+
+    /**
      * DBUnit datatype for hex-friendly binary columns.
      */
     private static final class HexBinaryDataType extends StringDataType {
@@ -136,7 +207,8 @@ public class CustomMySqlDataTypeFactory extends MySqlDataTypeFactory {
         }
 
         /**
-         * Binds binary bytes. Hex strings are decoded before binding.
+         * Binds binary bytes. Raw {@code byte[]} values (from LOB file references) are bound
+         * directly; hex strings are decoded before binding.
          *
          * @param value input value
          * @param column column index
@@ -149,6 +221,11 @@ public class CustomMySqlDataTypeFactory extends MySqlDataTypeFactory {
                 throws SQLException, TypeCastException {
             if (value == null || value == ITable.NO_VALUE) {
                 statement.setNull(column, getSqlType());
+                return;
+            }
+
+            if (value instanceof byte[]) {
+                statement.setBytes(column, (byte[]) value);
                 return;
             }
 
