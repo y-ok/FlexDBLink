@@ -115,6 +115,7 @@ public class OracleDialectHandlerTest {
         verify(stmt).execute("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD HH24:MI:SS'");
         verify(stmt).execute("ALTER SESSION SET NLS_TIMESTAMP_FORMAT = 'YYYY-MM-DD HH24:MI:SS.FF'");
         verify(stmt).execute("ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,'");
+        verify(stmt).execute("ALTER SESSION SET TIME_ZONE = '+09:00'");
         verify(stmt).execute("ALTER SESSION SET CURRENT_SCHEMA = APP");
     }
 
@@ -791,7 +792,7 @@ public class OracleDialectHandlerTest {
     }
 
     @Test
-    public void convertCsvValueToDbType_正常ケース_DBUnit列未登録かつJDBC列登録でTSTZを指定する_Timestampが返ること()
+    public void convertCsvValueToDbType_正常ケース_DBUnit列未登録かつJDBC列登録でTSTZを指定する_OffsetDateTimeが返ること()
             throws Exception {
         OracleDialectHandler handler = createHandlerWithMetaAndJdbc("TBL",
                 new ColumnDef[] {new ColumnDef("C1", DataType.VARCHAR)},
@@ -801,7 +802,8 @@ public class OracleDialectHandlerTest {
         Object actual =
                 handler.convertCsvValueToDbType("TBL", "TSTZ_COL", "2026-02-15 01:02:03+09:00");
 
-        assertInstanceOf(Timestamp.class, actual);
+        assertInstanceOf(OffsetDateTime.class, actual);
+        assertEquals(OffsetDateTime.parse("2026-02-15T01:02:03+09:00"), actual);
     }
 
     @Test
@@ -899,7 +901,7 @@ public class OracleDialectHandlerTest {
     }
 
     @Test
-    public void convertCsvValueToDbType_正常ケース_timestampWithTimezoneを指定する_Timestampが返ること()
+    public void convertCsvValueToDbType_正常ケース_timestampWithTimezoneを指定する_OffsetDateTimeが返ること()
             throws Exception {
         OracleDialectHandler handler = createHandlerWithMeta("TBL",
                 new ColumnDef("TZTS_COL", Types.TIMESTAMP_WITH_TIMEZONE, "TIMESTAMP"));
@@ -907,11 +909,12 @@ public class OracleDialectHandlerTest {
         Object actual =
                 handler.convertCsvValueToDbType("TBL", "TZTS_COL", "2026-02-15 01:02:03 +0900");
 
-        assertInstanceOf(Timestamp.class, actual);
+        assertInstanceOf(OffsetDateTime.class, actual);
+        assertEquals(OffsetDateTime.parse("2026-02-15T01:02:03+09:00"), actual);
     }
 
     @Test
-    public void convertCsvValueToDbType_正常ケース_timestampWithTimezone_コロン付きオフセットで2段目パーサを通る_Timestampが返ること()
+    public void convertCsvValueToDbType_正常ケース_timestampWithTimezone_コロン付きオフセットで2段目パーサを通る_OffsetDateTimeが返ること()
             throws Exception {
         OracleDialectHandler handler = createHandlerWithMeta("TBL",
                 new ColumnDef("TZTS_COL", Types.TIMESTAMP_WITH_TIMEZONE, "TIMESTAMP"));
@@ -920,13 +923,8 @@ public class OracleDialectHandlerTest {
         String input = "2026-02-15T01:02:03+09:00";
 
         Object actual = handler.convertCsvValueToDbType("TBL", "TZTS_COL", input);
-        assertInstanceOf(Timestamp.class, actual);
-
-        Timestamp ts = (Timestamp) actual;
-
-        // Timestamp は Instant ベースで入るので、同じ Instant で比較する
-        Timestamp expected = Timestamp.from(OffsetDateTime.parse(input).toInstant());
-        assertEquals(expected.getTime(), ts.getTime());
+        assertInstanceOf(OffsetDateTime.class, actual);
+        assertEquals(OffsetDateTime.parse(input), actual);
     }
 
     @Test
@@ -1235,6 +1233,39 @@ public class OracleDialectHandlerTest {
 
         Object actual = handler.convertCsvValueToDbType("TBL", "TS_COL", "2026-02-15 01:02:03");
         assertEquals(Timestamp.valueOf(expected), actual);
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_TIMESTAMP型でコロン付きオフセットを指定する_UTC換算Timestampが返ること()
+            throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("TS_COL", DataType.TIMESTAMP));
+
+        Object actual = handler.convertCsvValueToDbType("TBL", "TS_COL", "2026-02-15 01:02:03+09:00");
+
+        assertEquals(Timestamp.from(OffsetDateTime.parse("2026-02-15T01:02:03+09:00").toInstant()),
+                actual);
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_TIMESTAMPLTZ型を指定する_Timestampが返ること() throws Exception {
+        OracleDialectHandler handler = createHandlerWithMeta("TBL",
+                new ColumnDef("TS_LTZ_COL", -102, "TIMESTAMP WITH LOCAL TIME ZONE"));
+
+        Object actual = handler.convertCsvValueToDbType("TBL", "TS_LTZ_COL", "2026-02-15 01:02:03");
+
+        assertEquals(Timestamp.valueOf(LocalDateTime.of(2026, 2, 15, 1, 2, 3)), actual);
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_TIMESTAMPTZ型でオフセットなしを指定する_Timestampへフォールバックすること()
+            throws Exception {
+        OracleDialectHandler handler = createHandlerWithMeta("TBL",
+                new ColumnDef("TS_TZ_COL", Types.TIMESTAMP_WITH_TIMEZONE, "TIMESTAMP WITH TIME ZONE"));
+
+        Object actual = handler.convertCsvValueToDbType("TBL", "TS_TZ_COL", "2026-02-15 01:02:03");
+
+        assertEquals(Timestamp.valueOf(LocalDateTime.of(2026, 2, 15, 1, 2, 3)), actual);
     }
 
     @Test
@@ -1618,6 +1649,18 @@ public class OracleDialectHandlerTest {
 
         String actual = handler.formatDateTimeColumn("COL", oracleValue, mock(Connection.class));
         assertEquals("2026-02-15 01:02:03 +0900", actual);
+    }
+
+    @Test
+    public void formatDateTimeColumn_正常ケース_OracleTIMESTAMPTZで1桁時差形式を指定する_ゼロ埋めオフセットへ変換されること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+
+        Object oracleValue = newDynamicOracleTemporalObject("oracle.jdbc.OracleTIMESTAMPTZ",
+                "2024-02-01 01:02:03.0 9:00");
+
+        String actual = handler.formatDateTimeColumn("COL", oracleValue, mock(Connection.class));
+        assertEquals("2024-02-01 01:02:03 +0900", actual);
     }
 
     @Test

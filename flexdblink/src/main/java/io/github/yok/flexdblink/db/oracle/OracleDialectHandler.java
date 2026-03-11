@@ -353,6 +353,7 @@ public class OracleDialectHandler implements DbDialectHandler {
      * <li>NLS_DATE_FORMAT</li>
      * <li>NLS_TIMESTAMP_FORMAT</li>
      * <li>NLS_NUMERIC_CHARACTERS</li>
+     * <li>TIME_ZONE</li>
      * <li>CURRENT_SCHEMA</li>
      * </ul>
      *
@@ -364,11 +365,13 @@ public class OracleDialectHandler implements DbDialectHandler {
         String dateFormat = "YYYY-MM-DD HH24:MI:SS";
         String timestampFormat = "YYYY-MM-DD HH24:MI:SS.FF";
         String numericChars = ".,";
+        String timeZone = "+09:00";
         String schema = connection.getSchema();
         try (Statement stmt = connection.createStatement()) {
             stmt.execute("ALTER SESSION SET NLS_DATE_FORMAT = '" + dateFormat + "'");
             stmt.execute("ALTER SESSION SET NLS_TIMESTAMP_FORMAT = '" + timestampFormat + "'");
             stmt.execute("ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '" + numericChars + "'");
+            stmt.execute("ALTER SESSION SET TIME_ZONE = '" + timeZone + "'");
             stmt.execute("ALTER SESSION SET CURRENT_SCHEMA = " + schema);
         }
     }
@@ -413,9 +416,11 @@ public class OracleDialectHandler implements DbDialectHandler {
                 case Types.TIME_WITH_TIMEZONE:
                     return parseOffsetTime(str, column);
                 case Types.TIMESTAMP:
+                    return parseTimestamp(str, column);
                 case Types.TIMESTAMP_WITH_TIMEZONE:
-                    // Oracle JDBC proprietary codes for timestamp with time zone / local time zone.
                 case -101:
+                    return parseTimestampWithTimeZone(str, column);
+                    // Oracle JDBC proprietary code for timestamp with local time zone.
                 case -102:
                     return parseTimestamp(str, column);
                 case Types.OTHER:
@@ -644,11 +649,18 @@ public class OracleDialectHandler implements DbDialectHandler {
             return null;
         }
         String trimmed = raw.trim();
-        Matcher offsetMatcher = Pattern.compile(
-                "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})(?:\\.\\d+)? ([+-]\\d{2}):(\\d{2})$")
+        String offsetPattern =
+                "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})(?:\\.\\d+)? ([+-]?)(\\d{1,2}):(\\d{2})$";
+        Matcher offsetMatcher = Pattern.compile(offsetPattern)
                 .matcher(trimmed);
         if (offsetMatcher.matches()) {
-            return offsetMatcher.group(1) + " " + offsetMatcher.group(2) + offsetMatcher.group(3);
+            String sign = offsetMatcher.group(2);
+            if (sign.isEmpty()) {
+                sign = "+";
+            }
+            String paddedHour =
+                    String.format(Locale.ENGLISH, "%02d", Integer.valueOf(offsetMatcher.group(3)));
+            return offsetMatcher.group(1) + " " + sign + paddedHour + offsetMatcher.group(4);
         }
         Matcher regionMatcher = Pattern.compile(
                 "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})(?:\\.\\d+)? ([A-Za-z_]+/[A-Za-z_]+)$")
@@ -1214,6 +1226,32 @@ public class OracleDialectHandler implements DbDialectHandler {
                     String.format("Failed to convert TIMESTAMP: column=%s, value=%s", column, str),
                     e);
         }
+    }
+
+    /**
+     * Parses TIMESTAMP WITH TIME ZONE text while preserving an explicit offset when present.
+     *
+     * @param str raw timestamp text
+     * @param column column name (for logging context)
+     * @return {@link OffsetDateTime} when the input carries an offset, otherwise {@link Timestamp}
+     * @throws DataSetException if no supported pattern matches
+     */
+    private Object parseTimestampWithTimeZone(String str, String column) throws DataSetException {
+        String normalized = str.replace('T', ' ').replace('/', '-').trim();
+        try {
+            DateTimeFormatter fmtOffset =
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss Z", Locale.ENGLISH);
+            return OffsetDateTime.parse(normalized, fmtOffset);
+        } catch (DateTimeParseException e) {
+            log.debug("fmtOffset parse failed: column={} value={}", column, normalized);
+        }
+        try {
+            return OffsetDateTime.parse(normalized, FLEXIBLE_OFFSET_DATETIME_PARSER_COLON);
+        } catch (DateTimeParseException e) {
+            log.debug("FLEXIBLE_OFFSET_DATETIME_PARSER_COLON parse failed: column={} value={}",
+                    column, normalized);
+        }
+        return parseTimestamp(str, column);
     }
 
     /**
