@@ -24,6 +24,11 @@
         "java.configuration.updateBuildConfiguration": "automatic",
         "java.import.maven.enabled": true,
         "java.server.launchMode": "Standard",
+        "java.autobuild.enabled": true,
+        "java.import.generatesMetadataFilesAtProjectRoot": false,
+        "files.watcherExclude": {
+            "**/target/**": true
+        },
         "[java]": {
             "editor.formatOnSave": true,
             "editor.insertSpaces": true,
