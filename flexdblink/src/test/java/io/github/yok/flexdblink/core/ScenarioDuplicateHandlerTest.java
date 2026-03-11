@@ -30,10 +30,6 @@ class ScenarioDuplicateHandlerTest {
 
     private final ScenarioDuplicateHandler handler = new ScenarioDuplicateHandler();
 
-    // -------------------------------------------------------------------------
-    // rowsEqual
-    // -------------------------------------------------------------------------
-
     @Test
     void rowsEqual_正常ケース_INTERVAL列が同値である_trueが返ること() throws Exception {
         ITable csvTable = mock(ITable.class);
@@ -50,8 +46,8 @@ class ScenarioDuplicateHandlerTest {
         when(csvTable.getValue(0, "IYM")).thenReturn("+2-3");
         when(dbTable.getValue(0, "IYM")).thenReturn("2-3");
 
-        assertTrue(handler.rowsEqual(csvTable, dbTable, typeNames, "TBL", 0, 0, cols,
-                dialectHandler));
+        assertTrue(
+                handler.rowsEqual(csvTable, dbTable, typeNames, "TBL", 0, 0, cols, dialectHandler));
     }
 
     @Test
@@ -65,8 +61,8 @@ class ScenarioDuplicateHandlerTest {
         when(csvTable.getValue(0, "C1")).thenReturn("A");
         when(dbTable.getValue(0, "C1")).thenReturn("B");
 
-        assertFalse(handler.rowsEqual(csvTable, dbTable, typeNames, "TBL", 0, 0, cols,
-                dialectHandler));
+        assertFalse(
+                handler.rowsEqual(csvTable, dbTable, typeNames, "TBL", 0, 0, cols, dialectHandler));
     }
 
     @Test
@@ -90,8 +86,8 @@ class ScenarioDuplicateHandlerTest {
         when(csvTable.getValue(0, "C1")).thenReturn(" ");
         when(dbTable.getValue(0, "C1")).thenReturn(" ");
 
-        assertTrue(handler.rowsEqual(csvTable, dbTable, typeNames, "TBL", 0, 0, cols,
-                dialectHandler));
+        assertTrue(
+                handler.rowsEqual(csvTable, dbTable, typeNames, "TBL", 0, 0, cols, dialectHandler));
     }
 
     @Test
@@ -107,10 +103,6 @@ class ScenarioDuplicateHandlerTest {
 
         assertTrue(handler.rowsEqual(csv, db, typeNames, "T1", 0, 0, cols, dialect));
     }
-
-    // -------------------------------------------------------------------------
-    // detectDuplicates
-    // -------------------------------------------------------------------------
 
     @Test
     void detectDuplicates_正常ケース_PK一致行がある_重複マップが返ること() throws Exception {
@@ -213,10 +205,6 @@ class ScenarioDuplicateHandlerTest {
         assertTrue(result.isEmpty());
     }
 
-    // -------------------------------------------------------------------------
-    // deleteDuplicates
-    // -------------------------------------------------------------------------
-
     @Test
     void deleteDuplicates_正常ケース_null値列をISNULL条件で削除すること() throws Exception {
         Connection jdbc = mock(Connection.class);
@@ -300,8 +288,7 @@ class ScenarioDuplicateHandlerTest {
     }
 
     @Test
-    void deleteDuplicates_正常ケース_schemaがnullでPK列削除する_スキーマ修飾なしSQLが実行されること()
-            throws Exception {
+    void deleteDuplicates_正常ケース_schemaがnullでPK列削除する_スキーマ修飾なしSQLが実行されること() throws Exception {
         Connection jdbc = mock(Connection.class);
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
         when(dialectHandler.quoteIdentifier("TBL")).thenReturn("\"TBL\"");
@@ -322,10 +309,6 @@ class ScenarioDuplicateHandlerTest {
         verify(ps, times(1)).addBatch();
         verify(ps).executeBatch();
     }
-
-    // -------------------------------------------------------------------------
-    // FilteredTable
-    // -------------------------------------------------------------------------
 
     @Test
     void FilteredTable_正常ケース_除外行を指定する_行数と値が正しく返ること() throws Exception {

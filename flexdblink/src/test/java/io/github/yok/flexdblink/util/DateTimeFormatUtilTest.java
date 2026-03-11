@@ -210,6 +210,11 @@ public class DateTimeFormatUtilTest {
         assertNull(util.parseConfiguredTimestamp("bad-timestamp"));
     }
 
+    /**
+     * Creates a {@link DateTimeFormatUtil} backed by mocked date/time format properties.
+     *
+     * @return DateTimeFormatUtil instance with default format patterns
+     */
     private static DateTimeFormatUtil createUtil() {
         CsvDateTimeFormatProperties props = mock(CsvDateTimeFormatProperties.class);
         when(props.getDate()).thenReturn("yyyy-MM-dd");

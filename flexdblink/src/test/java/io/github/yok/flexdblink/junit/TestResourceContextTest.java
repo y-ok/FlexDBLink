@@ -43,7 +43,7 @@ class TestResourceContextTest {
 
     @Test
     void expectedDir_正常ケース_シナリオ文字列を指定する_expected配下パスが返ること() throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         Path path = trc.expectedDir("scn", "db1");
         assertEquals(tempDir.resolve("scn").resolve("expected").resolve("db1").toAbsolutePath()
                 .normalize(), path);
@@ -51,21 +51,21 @@ class TestResourceContextTest {
 
     @Test
     void baseExpectedDir_正常ケース_シナリオ文字列を指定する_expected配下パスが返ること() throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         Path path = trc.baseExpectedDir("scn");
         assertEquals(tempDir.resolve("scn").resolve("expected").toAbsolutePath().normalize(), path);
     }
 
     @Test
     void expectedDir_正常ケース_シナリオ空文字を指定する_classRoot配下パスが返ること() throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         Path path = trc.expectedDir("", "db1");
         assertEquals(tempDir.resolve("expected").resolve("db1").toAbsolutePath().normalize(), path);
     }
 
     @Test
     void springManagedDataSource_正常ケース_非DataSourceキーのみを指定する_空Optionalが返ること() throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         Map<Object, Object> map = new LinkedHashMap<>();
         map.put("not-ds", "x");
         try (MockedStatic<TransactionSynchronizationManager> mocked =
@@ -79,7 +79,7 @@ class TestResourceContextTest {
     @Test
     void buildEntryFromProps_異常ケース_デフォルトDBで必須項目不足を指定する_IllegalStateExceptionが送出されること()
             throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         IllegalStateException ex =
                 assertThrows(IllegalStateException.class, () -> trc.buildEntryFromProps(" "));
         assertTrue(ex.getMessage().contains("<default>"));
@@ -88,7 +88,7 @@ class TestResourceContextTest {
     @Test
     void buildEntryFromProps_異常ケース_指定DBで必須項目不足を指定する_IllegalStateExceptionが送出されること()
             throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         IllegalStateException ex =
                 assertThrows(IllegalStateException.class, () -> trc.buildEntryFromProps("db1"));
         assertTrue(ex.getMessage().contains("DB=db1"));
@@ -96,7 +96,7 @@ class TestResourceContextTest {
 
     @Test
     void resolvePropertyForDb_正常ケース_非文字列エントリを含める_有効キーの値が返ること() throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         Properties props = new Properties();
         props.setProperty("spring.datasource.aaa.url", "jdbc:a");
         props.put(100, "invalid");
@@ -108,14 +108,14 @@ class TestResourceContextTest {
 
     @Test
     void scoreKeyWithSegments_正常ケース_デフォルトDBでspringDatasource形式を指定する_加点されること() throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score = trc.scoreKeyWithSegments("spring.datasource.url", new String[0], "url");
         assertTrue(score > 50);
     }
 
     @Test
     void scoreKeyWithSegments_正常ケース_DB一致かつfirstIdx1を指定する_一致優先スコアとなること() throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score =
                 trc.scoreKeyWithSegments("spring.foo.datasource.url", new String[] {"foo"}, "url");
         assertTrue(score >= 100);
@@ -123,7 +123,7 @@ class TestResourceContextTest {
 
     @Test
     void scoreKeyWithSegments_正常ケース_DB一致かつfirstIdx2を指定する_一致優先スコアとなること() throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score =
                 trc.scoreKeyWithSegments("spring.datasource.foo.url", new String[] {"foo"}, "url");
         assertTrue(score >= 100);
@@ -132,7 +132,7 @@ class TestResourceContextTest {
     @Test
     void scoreKeyWithSegments_正常ケース_DB不一致かつspringDatasource形式を指定する_非一致分岐が実行されること()
             throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score = trc.scoreKeyWithSegments("spring.datasource.other.url", new String[] {"foo"},
                 "url");
         assertTrue(score >= 0);
@@ -141,7 +141,7 @@ class TestResourceContextTest {
     @Test
     void scoreKeyWithSegments_正常ケース_DB未指定かつspringDatasource以外を指定する_デフォルト加点のみとなること()
             throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score = trc.scoreKeyWithSegments("x.url", new String[0], "url");
         assertTrue(score >= 50);
     }
@@ -149,14 +149,14 @@ class TestResourceContextTest {
     @Test
     void scoreKeyWithSegments_正常ケース_DB一致かつfirstIdx1でdatasource不一致を指定する_条件分岐が実行されること()
             throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score = trc.scoreKeyWithSegments("spring.foo.bar.url", new String[] {"foo"}, "url");
         assertTrue(score >= 100);
     }
 
     @Test
     void scoreKeyWithSegments_正常ケース_DB一致かつfirstIdx2で不一致を指定する_条件分岐が実行されること() throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score = trc.scoreKeyWithSegments("spring.datasource.x.foo.url", new String[] {"foo"},
                 "url");
         assertTrue(score >= 100);
@@ -165,14 +165,14 @@ class TestResourceContextTest {
     @Test
     void scoreKeyWithSegments_正常ケース_DB不一致かつspringDatasource以外を指定する_非一致分岐が実行されること()
             throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score = trc.scoreKeyWithSegments("abc.def.url", new String[] {"foo"}, "url");
         assertTrue(score >= 0);
     }
 
     @Test
     void scoreKeyWithSegments_正常ケース_DB未指定でspring以外を指定する_条件分岐の逆側が実行されること() throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score = trc.scoreKeyWithSegments("x.datasource.url", new String[0], "url");
         assertTrue(score >= 50);
     }
@@ -180,14 +180,14 @@ class TestResourceContextTest {
     @Test
     void scoreKeyWithSegments_正常ケース_DB未指定でspring配下かつdatasource不一致を指定する_分岐の逆側が実行されること()
             throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score = trc.scoreKeyWithSegments("spring.foo.url", new String[0], "url");
         assertTrue(score >= 50);
     }
 
     @Test
     void scoreKeyWithSegments_正常ケース_DB一致でトークン数不足を指定する_条件分岐の逆側が実行されること() throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score = trc.scoreKeyWithSegments("foo.url", new String[] {"foo"}, "url");
         assertTrue(score >= 100);
     }
@@ -195,7 +195,7 @@ class TestResourceContextTest {
     @Test
     void scoreKeyWithSegments_正常ケース_DB一致かつspring配下だがdatasource不一致を指定する_条件分岐の逆側が実行されること()
             throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score = trc.scoreKeyWithSegments("spring.foo.bar.url", new String[] {"foo"}, "url");
         assertTrue(score >= 100);
     }
@@ -203,14 +203,14 @@ class TestResourceContextTest {
     @Test
     void scoreKeyWithSegments_正常ケース_DB不一致かつspring配下でdatasource不一致を指定する_条件分岐の逆側が実行されること()
             throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score = trc.scoreKeyWithSegments("spring.x.y.url", new String[] {"foo"}, "url");
         assertTrue(score >= 0);
     }
 
     @Test
     void scoreKeyWithSegments_正常ケース_DB一致かつspring以外を指定する_if条件の逆側が実行されること() throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score = trc.scoreKeyWithSegments("x.foo.datasource.url", new String[] {"foo"}, "url");
         assertTrue(score >= 100);
     }
@@ -218,7 +218,7 @@ class TestResourceContextTest {
     @Test
     void scoreKeyWithSegments_正常ケース_DB不一致かつspring配下でdatasource不一致を指定する_else条件の逆側が実行されること()
             throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         int score = trc.scoreKeyWithSegments("spring.x.url", new String[] {"foo"}, "url");
         assertTrue(score >= 0);
     }
@@ -352,7 +352,7 @@ class TestResourceContextTest {
 
     @Test
     void springManagedConnection_正常ケース_DataSourceを指定する_Connectionが返ること() throws Exception {
-        TestResourceContext trc = newTrc(tempDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
         try (MockedStatic<DataSourceUtils> mocked = mockStatic(DataSourceUtils.class)) {
@@ -363,10 +363,14 @@ class TestResourceContextTest {
         }
     }
 
-    private static TestResourceContext newTrc(Path classRoot, Properties props) {
-        return new TestResourceContext(classRoot, props);
-    }
-
+    /**
+     * Finds a single-character token that is blank (per {@link StringUtils#isNotBlank}) but not
+     * empty after splitting by comma/semicolon delimiters. Used by
+     * {@code resolveActiveProfiles_正常ケース_blank判定のみを満たすトークンを指定する_空リストが返ること} to exercise the
+     * blank-token branch in profile resolution.
+     *
+     * @return a blank-but-non-empty token, or {@code null} if no such character exists
+     */
     private static String findBlankButNotEmptyToken() {
         for (int c = 0; c <= Character.MAX_VALUE; c++) {
             char ch = (char) c;

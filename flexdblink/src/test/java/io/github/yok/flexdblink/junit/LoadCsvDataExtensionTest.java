@@ -30,7 +30,6 @@ import java.util.Properties;
 import java.util.function.Function;
 import java.util.logging.Logger;
 import javax.sql.DataSource;
-import lombok.SneakyThrows;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
@@ -140,7 +139,7 @@ class LoadCsvDataExtensionTest {
         Properties p = new Properties();
         p.setProperty("spring.datasource.url", "jdbc:h2:mem:test1");
         p.setProperty("x.y.z.datasource.url", "jdbc:h2:mem:other");
-        TestResourceContext trc = newTrc(Paths.get("."), p);
+        TestResourceContext trc = new TestResourceContext(Paths.get("."), p);
         String v = trc.resolvePropertyForDb(p, null, "url");
         assertEquals("jdbc:h2:mem:test1", v);
     }
@@ -151,7 +150,7 @@ class LoadCsvDataExtensionTest {
         p.setProperty("spring.datasource.operator.bbb.url", "jdbc:h2:mem:bbb-close");
         p.setProperty("spring.datasource.operator.url", "jdbc:h2:mem:operator");
         p.setProperty("foo.bar.operator.bbb.baz.datasource.url", "jdbc:h2:mem:far");
-        TestResourceContext trc = newTrc(Paths.get("."), p);
+        TestResourceContext trc = new TestResourceContext(Paths.get("."), p);
         String v = trc.resolvePropertyForDb(p, "operator.bbb", "url");
         assertEquals("jdbc:h2:mem:bbb-close", v);
     }
@@ -161,7 +160,7 @@ class LoadCsvDataExtensionTest {
         Properties p = new Properties();
         p.setProperty("a.b.operator.bbb.datasource.url", "jdbc:h2:mem:near");
         p.setProperty("a.operator.bbb.x.y.datasource.url", "jdbc:h2:mem:far");
-        TestResourceContext trc = newTrc(Paths.get("."), p);
+        TestResourceContext trc = new TestResourceContext(Paths.get("."), p);
         String v = trc.resolvePropertyForDb(p, "operator.bbb", "url");
         assertEquals("jdbc:h2:mem:near", v);
     }
@@ -170,7 +169,7 @@ class LoadCsvDataExtensionTest {
     void resolvePropertyForDb_異常ケース_該当無し_nullが返ること() throws Exception {
         Properties p = new Properties();
         p.setProperty("spring.datasource.url", "jdbc:h2:mem:x");
-        TestResourceContext trc = newTrc(Paths.get("."), p);
+        TestResourceContext trc = new TestResourceContext(Paths.get("."), p);
         String v = trc.resolvePropertyForDb(p, "no.hit", "username");
         assertNull(v);
     }
@@ -181,7 +180,7 @@ class LoadCsvDataExtensionTest {
         Files.createDirectory(tmp.resolve("c"));
         Files.createDirectory(tmp.resolve("b"));
         Files.writeString(tmp.resolve("x.txt"), "ignored");
-        TestResourceContext trc = newTrc(tmp, new Properties());
+        TestResourceContext trc = new TestResourceContext(tmp, new Properties());
         var list = trc.listDirectories(tmp);
         assertEquals(ImmutableList.of("a", "b", "c"), list);
     }
@@ -215,7 +214,7 @@ class LoadCsvDataExtensionTest {
         DataSource ds = mock(DataSource.class);
         TransactionSynchronizationManager.bindResource(ds, new Object());
         boundDsForCleanup = ds;
-        TestResourceContext trc = newTrc(Paths.get("."), new Properties());
+        TestResourceContext trc = new TestResourceContext(Paths.get("."), new Properties());
         Optional<DataSource> got = trc.springManagedDataSource();
         assertTrue(got.isPresent());
     }
@@ -243,7 +242,7 @@ class LoadCsvDataExtensionTest {
         p.setProperty("spring.datasource.operator.bbb.username", "u");
         p.setProperty("spring.datasource.operator.bbb.password", "p");
         p.setProperty("spring.datasource.operator.bbb.driver-class-name", "org.h2.Driver");
-        TestResourceContext trc = newTrc(Paths.get("."), p);
+        TestResourceContext trc = new TestResourceContext(Paths.get("."), p);
         ConnectionConfig.Entry entry = trc.buildEntryFromProps("operator.bbb");
         assertEquals("operator.bbb", entry.getId());
         assertEquals("jdbc:h2:mem:x", entry.getUrl());
@@ -254,7 +253,7 @@ class LoadCsvDataExtensionTest {
     void buildEntryFromProps_異常ケース_必須欠落_例外がスローされること() throws Exception {
         Properties p = new Properties();
         p.setProperty("spring.datasource.url", "jdbc:h2:mem:missing-user");
-        TestResourceContext trc = newTrc(Paths.get("."), p);
+        TestResourceContext trc = new TestResourceContext(Paths.get("."), p);
         IllegalStateException ex =
                 assertThrows(IllegalStateException.class, () -> trc.buildEntryFromProps(null));
         assertTrue(ex.getMessage().contains("Missing connection properties"));
@@ -632,7 +631,7 @@ class LoadCsvDataExtensionTest {
         LoadDataExtension ext = new LoadDataExtension();
         ext.beforeAll(ctx);
 
-        TestResourceContext trc = getTrc(ext);
+        TestResourceContext trc = ext.getTestResourceContext();
         Properties props = trc.getAppProps();
         assertNull(props.getProperty("spring.profiles.active"));
         assertNull(props.getProperty("foo"));
@@ -660,7 +659,7 @@ class LoadCsvDataExtensionTest {
 
         LoadDataExtension ext = new LoadDataExtension();
         assertDoesNotThrow(() -> ext.beforeAll(ctx));
-        TestResourceContext trc = getTrc(ext);
+        TestResourceContext trc = ext.getTestResourceContext();
         assertNull(trc.getAppProps().getProperty("spring.profiles.active"));
         assertNull(trc.getAppProps().getProperty("foo"));
 
@@ -808,15 +807,5 @@ class LoadCsvDataExtensionTest {
         assertDoesNotThrow(() -> ext.beforeTestExecution(ctx));
 
         cl.close();
-    }
-
-    @SneakyThrows
-    private static TestResourceContext newTrc(Path classRoot, Properties props) {
-        return new TestResourceContext(classRoot, props);
-    }
-
-    @SneakyThrows
-    private static TestResourceContext getTrc(LoadDataExtension target) {
-        return target.getTestResourceContext();
     }
 }

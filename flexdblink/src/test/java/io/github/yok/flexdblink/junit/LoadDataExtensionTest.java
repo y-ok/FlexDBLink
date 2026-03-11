@@ -18,8 +18,6 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.core.DataLoader;
 import java.io.IOException;
-import java.io.UncheckedIOException;
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -32,7 +30,6 @@ import java.sql.DatabaseMetaData;
 import java.sql.SQLWarning;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
@@ -42,7 +39,7 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.function.Function;
 import javax.sql.DataSource;
-import lombok.SneakyThrows;
+import org.apache.commons.io.FileUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -97,9 +94,6 @@ class LoadDataExtensionTest {
     private Path dummyClassClassPathDir; // target/test-classes/<pkg>/<ClassName>
     private Path dummyClassResourcesDir; // temp test resources/<pkg>/<ClassName>
 
-    // 後始末用
-    private final List<Path> createdPaths = new ArrayList<>();
-
     @BeforeEach
     void setUp() throws Exception {
         System.clearProperty("spring.profiles.active");
@@ -115,8 +109,8 @@ class LoadDataExtensionTest {
         dummyClassResourcesDir = resourcesRoot.resolve(pkgPath).resolve(clsName);
 
         // 両方の系統の「クラスルート」を作成（beforeAll と loadScenario の双方が参照）
-        mkDirs(dummyClassClassPathDir);
-        mkDirs(dummyClassResourcesDir);
+        Files.createDirectories(dummyClassClassPathDir);
+        Files.createDirectories(dummyClassResourcesDir);
 
         // シナリオ配下のディレクトリは各テストで必要に応じて作成する
 
@@ -129,7 +123,7 @@ class LoadDataExtensionTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws IOException {
         System.clearProperty("spring.profiles.active");
         // TransactionSynchronizationManager にバインドしたものがあれば解除
         try {
@@ -140,21 +134,9 @@ class LoadDataExtensionTest {
         } catch (Exception ignore) {
         }
 
-        // 作成ファイルは残しても良いが、念のため順次削除（存在していれば）
-        createdPaths.sort(Comparator.reverseOrder());
-        for (Path p : createdPaths) {
-            try {
-                if (Files.exists(p)) {
-                    Files.walk(p).sorted(Comparator.reverseOrder()).forEach(q -> {
-                        try {
-                            Files.deleteIfExists(q);
-                        } catch (IOException ignore) {
-                        }
-                    });
-                }
-            } catch (IOException ignore) {
-            }
-        }
+        // classpathRoot 配下に作成したディレクトリ・ファイルを削除
+        FileUtils.deleteDirectory(dummyClassClassPathDir.toFile());
+        Files.deleteIfExists(classpathRoot.resolve("application.properties"));
     }
 
     @Test
@@ -168,7 +150,7 @@ class LoadDataExtensionTest {
         target.beforeAll(ctx);
 
         // Assert：TestResourceContext が設定されていること
-        TestResourceContext trc = getTrc(target);
+        TestResourceContext trc = target.getTestResourceContext();
         assertNotNull(trc);
         assertTrue(trc.getClassRoot().toString().endsWith(DummyTargetTest.class.getSimpleName()));
         Properties appProps = trc.getAppProps();
@@ -241,7 +223,7 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.bbb.password", "");
         props.setProperty("spring.datasource.bbb.driver-class-name", "org.h2.Driver");
 
-        TestResourceContext trc = newTrc(tempDir, props);
+        TestResourceContext trc = new TestResourceContext(tempDir, props);
         target.setTestResourceContext(trc);
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
@@ -331,43 +313,23 @@ class LoadDataExtensionTest {
         }).when(store).remove(Mockito.any());
 
         // ===== (1) rollbackAllIfBegan 用の TX_RECORDS を仕込む =====
-        Class<?> txRecordListClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecordList");
-        Constructor<?> txRecordListCtor = txRecordListClass.getDeclaredConstructor();
-        Object txRecordList = txRecordListCtor.newInstance();
-
-        Class<?> txRecordClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecord");
-        Constructor<?> txRecordCtor = txRecordClass.getDeclaredConstructor(String.class,
-                PlatformTransactionManager.class, TransactionStatus.class);
+        LoadDataExtension.TxRecordList txRecordList = new LoadDataExtension.TxRecordList();
 
         PlatformTransactionManager tm1 = mock(PlatformTransactionManager.class);
         PlatformTransactionManager tm2 = mock(PlatformTransactionManager.class);
         TransactionStatus st1 = mock(TransactionStatus.class);
         TransactionStatus st2 = mock(TransactionStatus.class);
 
-        Object r1 = txRecordCtor.newInstance("db1", tm1, st1);
-        Object r2 = txRecordCtor.newInstance("db2", tm2, st2);
-
-        @SuppressWarnings("unchecked")
-        List<Object> txRecords = (List<Object>) txRecordList;
-        txRecords.add(r1);
-        txRecords.add(r2);
+        txRecordList.add(new LoadDataExtension.TxRecord("db1", tm1, st1));
+        txRecordList.add(new LoadDataExtension.TxRecord("db2", tm2, st2));
 
         // STORE_KEY_TX は "TX_RECORDS"
         storeMap.put("TX_RECORDS", txRecordList);
 
         // ===== (2) restoreTxInterceptorDefaultManager 用の TXI_DEFAULT_SWITCH を仕込む =====
-        Class<?> recClass = Class.forName(
-                "io.github.yok.flexdblink.junit.LoadDataExtension$TxInterceptorSwitchRecord");
-        Constructor<?> recCtor = recClass.getDeclaredConstructor();
-        Object rec = recCtor.newInstance();
-
-        java.lang.reflect.Field touchedField = recClass.getDeclaredField("touched");
-
-        @SuppressWarnings("unchecked")
-        Map<String, Boolean> touched = (Map<String, Boolean>) touchedField.get(rec);
-        touched.put("txInterceptor", Boolean.TRUE);
+        LoadDataExtension.TxInterceptorSwitchRecord rec =
+                new LoadDataExtension.TxInterceptorSwitchRecord();
+        rec.touched.put("txInterceptor", Boolean.TRUE);
 
         // STORE_KEY_TXI_DEFAULT は "TXI_DEFAULT_SWITCH"
         storeMap.put("TXI_DEFAULT_SWITCH", rec);
@@ -432,7 +394,7 @@ class LoadDataExtensionTest {
         DataSource ds = dummyDataSource();
         TransactionSynchronizationManager.bindResource(ds, new Object());
 
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, new Properties());
         Optional<DataSource> opt = trc.springManagedDataSource();
 
         // Assert
@@ -442,7 +404,7 @@ class LoadDataExtensionTest {
 
     @Test
     void maybeGetSpringManagedDataSource_異常ケース_未バインドの場合は空で返ること() throws Exception {
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, new Properties());
         Optional<DataSource> opt = trc.springManagedDataSource();
         assertTrue(opt.isEmpty());
     }
@@ -454,7 +416,7 @@ class LoadDataExtensionTest {
         p.setProperty("spring.datasource.bbb.username", "sa");
         p.setProperty("spring.datasource.bbb.password", "");
         p.setProperty("spring.datasource.bbb.driver-class-name", "org.h2.Driver");
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, p);
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, p);
         ConnectionConfig.Entry entry = trc.buildEntryFromProps("bbb");
 
         // Assert
@@ -469,7 +431,7 @@ class LoadDataExtensionTest {
         Properties p = new Properties();
         p.setProperty("spring.datasource.url", "jdbc:h2:mem:default");
         p.setProperty("spring.datasource.username", "sa");
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, p);
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, p);
         ConnectionConfig.Entry entry = trc.buildEntryFromProps(null);
 
         // Assert
@@ -480,7 +442,7 @@ class LoadDataExtensionTest {
 
     @Test
     void resolveDatasetDir_正常ケース_シナリオありの完全パスが構築されること() throws Exception {
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, new Properties());
         Path resolved = trc.inputDir("CSV", "bbb");
         assertTrue(resolved.toString()
                 .endsWith(DummyTargetTest.class.getSimpleName() + "/CSV/input/bbb"));
@@ -488,7 +450,7 @@ class LoadDataExtensionTest {
 
     @Test
     void resolveDatasetDir_正常ケース_シナリオなしの完全パスが構築されること() throws Exception {
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, new Properties());
         Path resolved = trc.inputDir("", "bbb");
         assertTrue(
                 resolved.toString().endsWith(DummyTargetTest.class.getSimpleName() + "/input/bbb"));
@@ -496,14 +458,14 @@ class LoadDataExtensionTest {
 
     @Test
     void resolveBaseForDbDetection_正常ケース_シナリオありのベースパスが構築されること() throws Exception {
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, new Properties());
         Path base = trc.baseInputDir("CSV");
         assertTrue(base.toString().endsWith(DummyTargetTest.class.getSimpleName() + "/CSV/input"));
     }
 
     @Test
     void resolveBaseForDbDetection_正常ケース_シナリオなしのベースパスが構築されること() throws Exception {
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, new Properties());
         Path base = trc.baseInputDir(null);
         assertTrue(base.toString().endsWith(DummyTargetTest.class.getSimpleName() + "/input"));
     }
@@ -511,8 +473,8 @@ class LoadDataExtensionTest {
     @Test
     void detectDbNames_正常ケース_input配下のDBフォルダが検出されること() throws Exception {
         Path base = dummyClassResourcesDir.resolve("AUTO_SCENARIO").resolve("input");
-        mkDirs(base.resolve("bbb"));
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, new Properties());
+        Files.createDirectories(base.resolve("bbb"));
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, new Properties());
         List<String> names = trc.detectDbIds(base);
 
         // Assert
@@ -521,7 +483,7 @@ class LoadDataExtensionTest {
 
     @Test
     void expectedDir_正常ケース_シナリオありのexpectedパスが構築されること() throws Exception {
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, new Properties());
         Path expected = trc.expectedDir("CSV", "bbb");
         assertTrue(expected.toString()
                 .endsWith(DummyTargetTest.class.getSimpleName() + "/CSV/expected/bbb"));
@@ -529,7 +491,7 @@ class LoadDataExtensionTest {
 
     @Test
     void baseExpectedDir_正常ケース_シナリオなしのexpectedベースパスが構築されること() throws Exception {
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, new Properties());
         Path expected = trc.baseExpectedDir("");
         assertTrue(
                 expected.toString().endsWith(DummyTargetTest.class.getSimpleName() + "/expected"));
@@ -537,14 +499,14 @@ class LoadDataExtensionTest {
 
     @Test
     void listDirectories_正常ケース_親がディレクトリでない場合_空リストが返ること() throws Exception {
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, new Properties());
         List<String> dirs = trc.listDirectories(dummyClassResourcesDir.resolve("not-exists"));
         assertTrue(dirs.isEmpty());
     }
 
     @Test
     void springManagedConnection_正常ケース_datasource未指定の場合_空が返ること() throws Exception {
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, new Properties());
         Optional<Connection> conn = trc.springManagedConnection(Optional.empty());
         assertTrue(conn.isEmpty());
     }
@@ -554,7 +516,7 @@ class LoadDataExtensionTest {
         DataSource ds = dummyDataSource();
         Connection c = mock(Connection.class);
         when(ds.getConnection()).thenReturn(c);
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, new Properties());
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, new Properties());
         Optional<Connection> conn = trc.springManagedConnection(Optional.of(ds));
         assertTrue(conn.isPresent());
     }
@@ -592,55 +554,33 @@ class LoadDataExtensionTest {
         TransactionStatus status = mock(TransactionStatus.class);
         DataSource ds = dummyDataSource();
 
-        Class<?> txRecordClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecord");
-        Constructor<?> txCtor = txRecordClass.getDeclaredConstructor(String.class,
-                PlatformTransactionManager.class, TransactionStatus.class);
-        Object txRecord = txCtor.newInstance("db1", tm, status);
-        assertEquals("db1", readField(txRecordClass, txRecord, "key"));
-        assertSame(tm, readField(txRecordClass, txRecord, "tm"));
-        assertSame(status, readField(txRecordClass, txRecord, "status"));
+        LoadDataExtension.TxRecord txRecord = new LoadDataExtension.TxRecord("db1", tm, status);
+        assertEquals("db1", txRecord.key);
+        assertSame(tm, txRecord.tm);
+        assertSame(status, txRecord.status);
 
-        Class<?> componentsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$Components");
-        Constructor<?> compCtor = componentsClass.getDeclaredConstructor(DataSource.class,
-                PlatformTransactionManager.class);
-        Object components = compCtor.newInstance(ds, tm);
-        assertSame(ds, readField(componentsClass, components, "dataSource"));
-        assertSame(tm, readField(componentsClass, components, "txManager"));
+        LoadDataExtension.Components components = new LoadDataExtension.Components(ds, tm);
+        assertSame(ds, components.dataSource);
+        assertSame(tm, components.txManager);
 
-        Class<?> tmWithDsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TmWithDs");
-        Constructor<?> tmWithDsCtor = tmWithDsClass.getDeclaredConstructor(String.class,
-                String.class, PlatformTransactionManager.class, DataSource.class);
-        Object tmWithDs = tmWithDsCtor.newInstance("tm1", "ds1", tm, ds);
-        assertEquals("tm1", readField(tmWithDsClass, tmWithDs, "tmName"));
-        assertEquals("ds1", readField(tmWithDsClass, tmWithDs, "dsName"));
-        assertSame(tm, readField(tmWithDsClass, tmWithDs, "tm"));
-        assertSame(ds, readField(tmWithDsClass, tmWithDs, "ds"));
+        LoadDataExtension.TmWithDs tmWithDs = new LoadDataExtension.TmWithDs("tm1", "ds1", tm, ds);
+        assertEquals("tm1", tmWithDs.tmName);
+        assertEquals("ds1", tmWithDs.dsName);
+        assertSame(tm, tmWithDs.tm);
+        assertSame(ds, tmWithDs.ds);
 
-        Class<?> namedDsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$NamedDs");
-        Constructor<?> namedDsCtor =
-                namedDsClass.getDeclaredConstructor(String.class, DataSource.class);
-        Object namedDs = namedDsCtor.newInstance("ds2", ds);
-        assertEquals("ds2", readField(namedDsClass, namedDs, "name"));
-        assertSame(ds, readField(namedDsClass, namedDs, "ds"));
+        LoadDataExtension.NamedDs namedDs = new LoadDataExtension.NamedDs("ds2", ds);
+        assertEquals("ds2", namedDs.name);
+        assertSame(ds, namedDs.ds);
 
-        Class<?> probeMetaClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$ProbeMeta");
-        Constructor<?> probeCtor =
-                probeMetaClass.getDeclaredConstructor(String.class, String.class);
-        Object probe = probeCtor.newInstance("jdbc:h2:mem:x", "sa");
-        assertEquals("jdbc:h2:mem:x", readField(probeMetaClass, probe, "url"));
-        assertEquals("sa", readField(probeMetaClass, probe, "user"));
+        LoadDataExtension.ProbeMeta probe = new LoadDataExtension.ProbeMeta("jdbc:h2:mem:x", "sa");
+        assertEquals("jdbc:h2:mem:x", probe.url);
+        assertEquals("sa", probe.user);
 
-        Class<?> txSwitchClass = Class.forName(
-                "io.github.yok.flexdblink.junit.LoadDataExtension$TxInterceptorSwitchRecord");
-        Constructor<?> txSwitchCtor = txSwitchClass.getDeclaredConstructor();
-        Object txSwitch = txSwitchCtor.newInstance();
-        Object touched = readField(txSwitchClass, txSwitch, "touched");
-        assertTrue(touched instanceof Map);
+        LoadDataExtension.TxInterceptorSwitchRecord txSwitch =
+                new LoadDataExtension.TxInterceptorSwitchRecord();
+        assertNotNull(txSwitch.touched);
+        assertTrue(txSwitch.touched instanceof Map);
     }
 
     @Test
@@ -664,14 +604,14 @@ class LoadDataExtensionTest {
         when(md.getUserName()).thenReturn("sa");
         DataSource okDs = mock(DataSource.class);
         when(okDs.getConnection()).thenReturn(okConn);
-        Object meta = target.probeDataSourceMeta(okDs);
+        LoadDataExtension.ProbeMeta meta = target.probeDataSourceMeta(okDs);
         assertNotNull(meta);
-        assertEquals("jdbc:h2:mem:ok", readField(meta.getClass(), meta, "url"));
-        assertEquals("sa", readField(meta.getClass(), meta, "user"));
+        assertEquals("jdbc:h2:mem:ok", meta.url);
+        assertEquals("sa", meta.user);
 
         DataSource ngDs = mock(DataSource.class);
         when(ngDs.getConnection()).thenThrow(new RuntimeException("x"));
-        Object nullMeta = target.probeDataSourceMeta(ngDs);
+        LoadDataExtension.ProbeMeta nullMeta = target.probeDataSourceMeta(ngDs);
         assertEquals(null, nullMeta);
     }
 
@@ -774,24 +714,14 @@ class LoadDataExtensionTest {
         Store store = mock(Store.class);
         when(context.getStore(Mockito.any(Namespace.class))).thenReturn(store);
 
-        Class<?> txRecordListClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecordList");
-        Constructor<?> txRecordListConstructor = txRecordListClass.getDeclaredConstructor();
-        Object txRecordList = txRecordListConstructor.newInstance();
+        LoadDataExtension.TxRecordList txRecordList = new LoadDataExtension.TxRecordList();
 
         PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
         TransactionStatus transactionStatus = mock(TransactionStatus.class);
-        Class<?> txRecordClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecord");
-        Constructor<?> txRecordConstructor = txRecordClass.getDeclaredConstructor(String.class,
-                PlatformTransactionManager.class, TransactionStatus.class);
-        Object txRecord =
-                txRecordConstructor.newInstance("db1", transactionManager, transactionStatus);
-        @SuppressWarnings("unchecked")
-        List<Object> castedList = (List<Object>) txRecordList;
-        castedList.add(txRecord);
+        txRecordList
+                .add(new LoadDataExtension.TxRecord("db1", transactionManager, transactionStatus));
 
-        doReturn(txRecordList).when(store).get("TX_RECORDS", txRecordListClass);
+        doReturn(txRecordList).when(store).get("TX_RECORDS", LoadDataExtension.TxRecordList.class);
 
         // Act
         target.rollbackAllIfBegan(context);
@@ -806,7 +736,7 @@ class LoadDataExtensionTest {
         Properties props = new Properties();
         props.setProperty("spring.datasource.db1.url", "jdbc:h2:mem:match");
         props.setProperty("spring.datasource.db1.username", "sa");
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
         DataSource ds = mock(DataSource.class);
@@ -826,21 +756,20 @@ class LoadDataExtensionTest {
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds);
 
         // Act
-        Object components = target.resolveComponentsForDbId(ac, "db1");
+        LoadDataExtension.Components components = target.resolveComponentsForDbId(ac, "db1");
 
         // Assert
-        Class<?> componentsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$Components");
-        assertSame(ds, readField(componentsClass, components, "dataSource"));
-        assertSame(tm, readField(componentsClass, components, "txManager"));
+        assertSame(ds, components.dataSource);
+        assertSame(tm, components.txManager);
+
     }
 
     @Test
     void listDbIdsFromFolder_正常ケース_入力配下のディレクトリ名を抽出する_DB名セットが返ること() throws Exception {
         // Arrange
         Path base = dummyClassResourcesDir.resolve("LIST_DBIDS").resolve("input");
-        mkDirs(base.resolve("db1"));
-        mkDirs(base.resolve("db2"));
+        Files.createDirectories(base.resolve("db1"));
+        Files.createDirectories(base.resolve("db2"));
         writeToFile(base.resolve("ignore.txt"), "x");
 
         // Act
@@ -872,12 +801,12 @@ class LoadDataExtensionTest {
     void loadScenarioParticipating_正常ケース_singleDBでシナリオ読込する_DataLoader実行まで到達すること() throws Exception {
         // Arrange
         Path scenarioInput = dummyClassResourcesDir.resolve("S1").resolve("input");
-        mkDirs(scenarioInput);
+        Files.createDirectories(scenarioInput);
 
         Properties props = new Properties();
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:s1");
         props.setProperty("spring.datasource.username", "sa");
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
         ExtensionContext context = mock(ExtensionContext.class);
@@ -938,12 +867,12 @@ class LoadDataExtensionTest {
     void loadScenarioParticipating_異常ケース_multiDBで指定フォルダ不足の場合_IllegalStateExceptionが送出されること()
             throws Exception {
         Path baseInput = dummyClassResourcesDir.resolve("S_MULTI_MISSING").resolve("input");
-        mkDirs(baseInput.resolve("db1"));
+        Files.createDirectories(baseInput.resolve("db1"));
 
         Properties props = new Properties();
         props.setProperty("spring.datasource.db1.url", "jdbc:h2:mem:db1");
         props.setProperty("spring.datasource.db1.username", "sa");
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
         ExtensionContext context = mock(ExtensionContext.class);
@@ -961,12 +890,12 @@ class LoadDataExtensionTest {
     void loadScenarioParticipating_異常ケース_multiDBで既存TXにDS未バインドの場合_IllegalStateExceptionが送出されること()
             throws Exception {
         Path baseInput = dummyClassResourcesDir.resolve("S_MULTI_ACTIVE").resolve("input");
-        mkDirs(baseInput.resolve("db1"));
+        Files.createDirectories(baseInput.resolve("db1"));
 
         Properties props = new Properties();
         props.setProperty("spring.datasource.db1.url", "jdbc:h2:mem:match");
         props.setProperty("spring.datasource.db1.username", "sa");
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
         DataSource ds = mock(DataSource.class);
@@ -1058,16 +987,16 @@ class LoadDataExtensionTest {
     @Test
     void loadScenarioParticipating_正常ケース_multiDBで既存TXなしの場合_DBごとにロード実行されること() throws Exception {
         Path baseInput = dummyClassResourcesDir.resolve("S_MULTI_OK").resolve("input");
-        mkDirs(baseInput.resolve("db1"));
-        mkDirs(baseInput.resolve("db2"));
-        mkDirs(baseInput.resolve("extra_db"));
+        Files.createDirectories(baseInput.resolve("db1"));
+        Files.createDirectories(baseInput.resolve("db2"));
+        Files.createDirectories(baseInput.resolve("extra_db"));
 
         Properties props = new Properties();
         props.setProperty("spring.datasource.db1.url", "jdbc:h2:mem:db1");
         props.setProperty("spring.datasource.db1.username", "sa");
         props.setProperty("spring.datasource.db2.url", "jdbc:h2:mem:db2");
         props.setProperty("spring.datasource.db2.username", "sa2");
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
         DataSource ds1 = mock(DataSource.class);
@@ -1157,7 +1086,7 @@ class LoadDataExtensionTest {
         assertDoesNotThrow(() -> target.beforeTestExecution(context));
 
         // Assert
-        assertNotNull(getTrc(target));
+        assertNotNull(target.getTestResourceContext());
     }
 
     @Test
@@ -1165,7 +1094,7 @@ class LoadDataExtensionTest {
         // Arrange
         Path inputDir =
                 dummyClassClassPathDir.resolve("METHOD_ONLY").resolve("input").resolve("bbb");
-        mkDirs(inputDir);
+        Files.createDirectories(inputDir);
 
         Method testMethod = DummyTargetTest.class.getDeclaredMethod("methodHasScenario");
         ExtensionContext context = mock(ExtensionContext.class);
@@ -1224,7 +1153,7 @@ class LoadDataExtensionTest {
             throws Exception {
         // Arrange
         Path scenarioBase = dummyClassClassPathDir.resolve("METHOD_ONLY");
-        mkDirs(scenarioBase);
+        Files.createDirectories(scenarioBase);
 
         Method testMethod = DummyTargetTest.class.getDeclaredMethod("methodHasScenario");
         ExtensionContext context = mock(ExtensionContext.class);
@@ -1249,12 +1178,12 @@ class LoadDataExtensionTest {
             throws Exception {
         // Arrange
         Path scenarioInput = dummyClassResourcesDir.resolve("S_PATHS").resolve("input");
-        mkDirs(scenarioInput);
+        Files.createDirectories(scenarioInput);
 
         Properties props = new Properties();
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:paths");
         props.setProperty("spring.datasource.username", "sa");
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
         ExtensionContext context = mock(ExtensionContext.class);
@@ -1308,12 +1237,12 @@ class LoadDataExtensionTest {
             throws Exception {
         // Arrange
         Path scenarioInput = dummyClassResourcesDir.resolve("S_SINGLE_ACTIVE").resolve("input");
-        mkDirs(scenarioInput);
+        Files.createDirectories(scenarioInput);
 
         Properties props = new Properties();
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:single_active");
         props.setProperty("spring.datasource.username", "sa");
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
         ExtensionContext context = mock(ExtensionContext.class);
@@ -1363,7 +1292,7 @@ class LoadDataExtensionTest {
         Properties props = new Properties();
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:missing");
         props.setProperty("spring.datasource.username", "sa");
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
         ExtensionContext context = mock(ExtensionContext.class);
@@ -1396,7 +1325,7 @@ class LoadDataExtensionTest {
             throws Exception {
         // Arrange
         Path listedBase = dummyClassResourcesDir.resolve("S_MULTI_LISTED").resolve("input");
-        mkDirs(listedBase.resolve("db1"));
+        Files.createDirectories(listedBase.resolve("db1"));
 
         TestResourceContext mockTrc = mock(TestResourceContext.class);
         when(mockTrc.getClassRoot()).thenReturn(dummyClassResourcesDir);
@@ -1446,10 +1375,10 @@ class LoadDataExtensionTest {
     @Test
     void resolveScenarios_正常ケース_アノテーション未指定時にディレクトリ一覧を返す_シナリオ一覧が返ること() throws Exception {
         // Arrange
-        mkDirs(dummyClassResourcesDir.resolve("AUTO_A"));
-        mkDirs(dummyClassResourcesDir.resolve("AUTO_B"));
+        Files.createDirectories(dummyClassResourcesDir.resolve("AUTO_A"));
+        Files.createDirectories(dummyClassResourcesDir.resolve("AUTO_B"));
         Properties props = new Properties();
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
         LoadData ann = DummyTargetTest.class.getDeclaredMethod("methodScenarioAutoDetect")
@@ -1527,15 +1456,10 @@ class LoadDataExtensionTest {
         assertDoesNotThrow(() -> target.restoreTxInterceptorDefaultManager(context));
 
         // rec 有り、存在しない interceptor 名を含める分岐
-        Class<?> recClass = Class.forName(
-                "io.github.yok.flexdblink.junit.LoadDataExtension$TxInterceptorSwitchRecord");
-        Constructor<?> recCtor = recClass.getDeclaredConstructor();
-        Object rec = recCtor.newInstance();
-        var touchedField = recClass.getDeclaredField("touched");
-        @SuppressWarnings("unchecked")
-        Map<String, Boolean> touched = (Map<String, Boolean>) touchedField.get(rec);
-        touched.put("missing", Boolean.TRUE);
-        touched.put("ng", Boolean.TRUE);
+        LoadDataExtension.TxInterceptorSwitchRecord rec =
+                new LoadDataExtension.TxInterceptorSwitchRecord();
+        rec.touched.put("missing", Boolean.TRUE);
+        rec.touched.put("ng", Boolean.TRUE);
         storeMap.put("TXI_DEFAULT_SWITCH", rec);
 
         ApplicationContext ac = mock(ApplicationContext.class);
@@ -1559,23 +1483,12 @@ class LoadDataExtensionTest {
         Map<Object, Object> storeMap = new HashMap<>();
         mockStore(context, storeMap);
 
-        Class<?> txRecordListClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecordList");
-        Constructor<?> txRecordListCtor = txRecordListClass.getDeclaredConstructor();
-        Object txRecordList = txRecordListCtor.newInstance();
-
-        Class<?> txRecordClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$TxRecord");
-        Constructor<?> txRecordCtor = txRecordClass.getDeclaredConstructor(String.class,
-                PlatformTransactionManager.class, TransactionStatus.class);
+        LoadDataExtension.TxRecordList txRecordList = new LoadDataExtension.TxRecordList();
 
         PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
         Mockito.doThrow(new RuntimeException("rollback error")).when(tm).rollback(Mockito.any());
         TransactionStatus status = mock(TransactionStatus.class);
-        Object record = txRecordCtor.newInstance("db1", tm, status);
-        @SuppressWarnings("unchecked")
-        List<Object> list = (List<Object>) txRecordList;
-        list.add(record);
+        txRecordList.add(new LoadDataExtension.TxRecord("db1", tm, status));
         storeMap.put("TX_RECORDS", txRecordList);
 
         // Act
@@ -1644,7 +1557,7 @@ class LoadDataExtensionTest {
     void getTxRecords_正常ケース_ストア未格納時に空リストを返す_空であること() throws Exception {
         ExtensionContext context = mock(ExtensionContext.class);
         mockStore(context, new HashMap<>());
-        List<Object> list = castList(target.getTxRecords(context));
+        List<LoadDataExtension.TxRecord> list = target.getTxRecords(context);
         assertTrue(list.isEmpty());
     }
 
@@ -1668,7 +1581,8 @@ class LoadDataExtensionTest {
         when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"dsMatch"});
         when(ac.getBean("dsMatch", DataSource.class)).thenReturn(dsMatch);
 
-        List<Object> list = castList(target.findTmByMetadata(ac, "jdbc:h2:mem:ftm", "sa"));
+        List<LoadDataExtension.TmWithDs> list =
+                target.findTmByMetadata(ac, "jdbc:h2:mem:ftm", "sa");
         assertEquals(1, list.size());
     }
 
@@ -1741,12 +1655,11 @@ class LoadDataExtensionTest {
         when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"ds1"});
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds);
 
-        Object components = target.resolveComponentsForDbId(ac, "db1");
+        LoadDataExtension.Components components = target.resolveComponentsForDbId(ac, "db1");
 
-        Class<?> componentsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$Components");
-        assertSame(ds, readField(componentsClass, components, "dataSource"));
-        assertSame(tm, readField(componentsClass, components, "txManager"));
+        assertSame(ds, components.dataSource);
+        assertSame(tm, components.txManager);
+
     }
 
     @Test
@@ -1778,12 +1691,11 @@ class LoadDataExtensionTest {
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds1);
         when(ac.getBean("ds2", DataSource.class)).thenReturn(ds2);
 
-        Object components = target.resolveComponentsForDbId(ac, "db1");
+        LoadDataExtension.Components components = target.resolveComponentsForDbId(ac, "db1");
 
-        Class<?> componentsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$Components");
-        assertSame(ds1, readField(componentsClass, components, "dataSource"));
-        assertSame(tm1, readField(componentsClass, components, "txManager"));
+        assertSame(ds1, components.dataSource);
+        assertSame(tm1, components.txManager);
+
     }
 
     @Test
@@ -1855,10 +1767,8 @@ class LoadDataExtensionTest {
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds1);
         when(ac.getBean("ds2", DataSource.class)).thenReturn(ds2);
 
-        Object components = target.resolveComponentsForDbId(ac, "db1");
-        Class<?> componentsClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$Components");
-        assertSame(ds1, readField(componentsClass, components, "dataSource"));
+        LoadDataExtension.Components components = target.resolveComponentsForDbId(ac, "db1");
+        assertSame(ds1, components.dataSource);
     }
 
     @Test
@@ -1920,11 +1830,10 @@ class LoadDataExtensionTest {
         when(ds.getConnection()).thenReturn(conn);
         when(conn.getMetaData()).thenReturn(null);
 
-        Object meta = target.probeDataSourceMeta(ds);
-        Class<?> metaClass =
-                Class.forName("io.github.yok.flexdblink.junit.LoadDataExtension$ProbeMeta");
-        assertEquals(null, readField(metaClass, meta, "url"));
-        assertEquals(null, readField(metaClass, meta, "user"));
+        LoadDataExtension.ProbeMeta meta = target.probeDataSourceMeta(ds);
+        assertEquals(null, meta.url);
+        assertEquals(null, meta.user);
+
     }
 
     @Test
@@ -1937,7 +1846,8 @@ class LoadDataExtensionTest {
         when(ac.getBean("ds1", DataSource.class)).thenReturn(match);
         when(ac.getBean("ds2", DataSource.class)).thenReturn(userMismatch);
 
-        List<Object> list = castList(target.findDataSourceByMetadata(ac, "jdbc:h2:mem:fds", "sa"));
+        List<LoadDataExtension.NamedDs> list =
+                target.findDataSourceByMetadata(ac, "jdbc:h2:mem:fds", "sa");
         assertEquals(1, list.size());
     }
 
@@ -1952,7 +1862,8 @@ class LoadDataExtensionTest {
         when(ac.getBean("fail", DataSource.class)).thenReturn(fail);
         when(ac.getBean("ok", DataSource.class)).thenReturn(match);
 
-        List<Object> list = castList(target.findDataSourceByMetadata(ac, "jdbc:h2:mem:fds2", "sa"));
+        List<LoadDataExtension.NamedDs> list =
+                target.findDataSourceByMetadata(ac, "jdbc:h2:mem:fds2", "sa");
         assertEquals(1, list.size());
     }
 
@@ -1963,10 +1874,8 @@ class LoadDataExtensionTest {
         Map<Object, Object> storeMap = new HashMap<>();
         mockStore(context, storeMap);
 
-        Class<?> recClass = Class.forName(
-                "io.github.yok.flexdblink.junit.LoadDataExtension$TxInterceptorSwitchRecord");
-        Constructor<?> recCtor = recClass.getDeclaredConstructor();
-        Object rec = recCtor.newInstance();
+        LoadDataExtension.TxInterceptorSwitchRecord rec =
+                new LoadDataExtension.TxInterceptorSwitchRecord();
         storeMap.put("TXI_DEFAULT_SWITCH", rec);
 
         assertDoesNotThrow(() -> target.restoreTxInterceptorDefaultManager(context));
@@ -1977,7 +1886,7 @@ class LoadDataExtensionTest {
     void loadScenarioParticipating_正常ケース_DumpConfigにflywayが既存時は重複追加しない_例外とならないこと()
             throws Exception {
         Path scenarioInput = dummyClassResourcesDir.resolve("S_DUMP_CFG").resolve("input");
-        mkDirs(scenarioInput);
+        Files.createDirectories(scenarioInput);
 
         Properties props = new Properties();
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:dcfg");
@@ -2023,12 +1932,12 @@ class LoadDataExtensionTest {
 
     @Test
     void beforeTestExecution_正常ケース_クラスアノテーションblankScenarioを解決する_シナリオロードが実行されること() throws Exception {
-        mkDirs(dummyClassClassPathDir.resolve("input"));
+        Files.createDirectories(dummyClassClassPathDir.resolve("input"));
 
         Properties props = new Properties();
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:blank_class");
         props.setProperty("spring.datasource.username", "sa");
-        TestResourceContext trc = newTrc(dummyClassClassPathDir, props);
+        TestResourceContext trc = new TestResourceContext(dummyClassClassPathDir, props);
         target.setTestResourceContext(trc);
 
         ExtensionContext context = mock(ExtensionContext.class);
@@ -2067,12 +1976,12 @@ class LoadDataExtensionTest {
     @Test
     void beforeTestExecution_正常ケース_メソッドアノテーションblankScenarioを解決する_シナリオロードが実行されること()
             throws Exception {
-        mkDirs(dummyClassClassPathDir.resolve("input"));
+        Files.createDirectories(dummyClassClassPathDir.resolve("input"));
 
         Properties props = new Properties();
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:blank_method");
         props.setProperty("spring.datasource.username", "sa");
-        TestResourceContext trc = newTrc(dummyClassClassPathDir, props);
+        TestResourceContext trc = new TestResourceContext(dummyClassClassPathDir, props);
         target.setTestResourceContext(trc);
 
         Method method = BlankScenarioMethodClass.class.getDeclaredMethod("blankScenarioMethod");
@@ -2113,7 +2022,7 @@ class LoadDataExtensionTest {
     void loadScenarioParticipating_正常ケース_singleDBで既存TXかつDSバインド済みの場合_警告分岐を通過して処理継続すること()
             throws Exception {
         Path scenarioInput = dummyClassResourcesDir.resolve("S_SINGLE_BOUND").resolve("input");
-        mkDirs(scenarioInput);
+        Files.createDirectories(scenarioInput);
 
         Properties props = new Properties();
         props.setProperty("spring.datasource.url", "jdbc:h2:mem:single_bound");
@@ -2167,7 +2076,8 @@ class LoadDataExtensionTest {
         when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"ds1"});
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds);
 
-        List<Object> list = castList(target.findTmByMetadata(ac, "jdbc:h2:mem:u_mismatch", "sa"));
+        List<LoadDataExtension.TmWithDs> list =
+                target.findTmByMetadata(ac, "jdbc:h2:mem:u_mismatch", "sa");
         assertTrue(list.isEmpty());
     }
 
@@ -2191,6 +2101,10 @@ class LoadDataExtensionTest {
         assertEquals("ds2", picked.name);
     }
 
+    /**
+     * Creates a mock {@link ExtensionContext} whose required test class returns the given class
+     * and whose test method is empty.
+     */
     private ExtensionContext mockContextForClass(Class<?> clazz) {
         ExtensionContext ctx = mock(ExtensionContext.class);
         doReturn(clazz).when(ctx).getRequiredTestClass();
@@ -2198,11 +2112,19 @@ class LoadDataExtensionTest {
         return ctx;
     }
 
+    /**
+     * Builds a {@link TestResourceContext} from the given properties and installs it
+     * into the test target.
+     */
     private void setTrc(Properties props) throws Exception {
-        TestResourceContext trc = newTrc(dummyClassResourcesDir, props);
+        TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
     }
 
+    /**
+     * Creates a mock {@link DataSource} whose connection metadata returns the specified
+     * JDBC URL and user name.
+     */
     private DataSource dataSourceWithMeta(String url, String user) throws Exception {
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
@@ -2214,11 +2136,11 @@ class LoadDataExtensionTest {
         return ds;
     }
 
-    @SuppressWarnings("unchecked")
-    private List<Object> castList(List<?> values) {
-        return (List<Object>) values;
-    }
-
+    /**
+     * Creates a mock {@link Store} backed by the given map, wiring it to the supplied
+     * {@link ExtensionContext} so that get, getOrComputeIfAbsent, and remove operations
+     * delegate to the map.
+     */
     private Store mockStore(ExtensionContext context, Map<Object, Object> storeMap) {
         Store store = mock(Store.class);
         when(context.getStore(Mockito.any(Namespace.class))).thenReturn(store);
@@ -2240,44 +2162,46 @@ class LoadDataExtensionTest {
         return store;
     }
 
-    private Object readField(Class<?> owner, Object target, String fieldName) throws Exception {
-        java.lang.reflect.Field field = owner.getDeclaredField(fieldName);
-        return field.get(target);
-    }
-
+    /**
+     * Extracts the transaction manager bean name from the given interceptor by
+     * down-casting to {@link InspectableTransactionInterceptor}.
+     */
     private String readTxManagerBeanName(TransactionInterceptor interceptor) {
         return ((InspectableTransactionInterceptor) interceptor).transactionManagerBeanName();
     }
 
+    /**
+     * A subclass of {@link TransactionInterceptor} that exposes the otherwise
+     * inaccessible transaction manager bean name for test assertions.
+     */
     private static final class InspectableTransactionInterceptor extends TransactionInterceptor {
 
         private static final long serialVersionUID = 1L;
 
+        /**
+         * Returns the configured transaction manager bean name.
+         *
+         * @return transaction manager bean name
+         */
         private String transactionManagerBeanName() {
             return getTransactionManagerBeanName();
         }
     }
 
-    private void mkDirs(Path p) {
-        try {
-            Files.createDirectories(p);
-            createdPaths.add(p);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+    /**
+     * Writes the given content to the specified path, creating parent directories
+     * if they do not exist and truncating any existing file.
+     */
+    private void writeToFile(Path p, String content) throws IOException {
+        Files.createDirectories(p.getParent());
+        Files.write(p, content.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING);
     }
 
-    private void writeToFile(Path p, String content) {
-        try {
-            Files.createDirectories(p.getParent());
-            Files.write(p, content.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING);
-            createdPaths.add(p);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-    }
-
+    /**
+     * Creates a minimal mock {@link DataSource} with a named dummy connection,
+     * suitable for tests that need a DataSource but do not inspect its data.
+     */
     private DataSource dummyDataSource() throws Exception {
         Connection conn = mock(Connection.class, Mockito.withSettings().name("DummyConnection"));
         when(conn.getWarnings()).thenReturn(new SQLWarning());
@@ -2286,16 +2210,5 @@ class LoadDataExtensionTest {
         DataSource ds = mock(DataSource.class);
         when(ds.getConnection()).thenReturn(conn);
         return ds;
-    }
-
-    // リフレクション用
-    @SneakyThrows
-    private static TestResourceContext getTrc(LoadDataExtension target) {
-        return target.getTestResourceContext();
-    }
-
-    @SneakyThrows
-    private static TestResourceContext newTrc(Path classRoot, Properties props) {
-        return new TestResourceContext(classRoot, props);
     }
 }

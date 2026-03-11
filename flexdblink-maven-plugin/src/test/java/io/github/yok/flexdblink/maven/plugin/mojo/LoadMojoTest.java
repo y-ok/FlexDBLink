@@ -2,6 +2,7 @@ package io.github.yok.flexdblink.maven.plugin.mojo;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import io.github.yok.flexdblink.maven.plugin.config.CoreConfigBundle;
 import io.github.yok.flexdblink.maven.plugin.config.PluginConfig;
 import io.github.yok.flexdblink.maven.plugin.support.FlexDbLinkCoreInvoker;
 import io.github.yok.flexdblink.maven.plugin.support.PluginParameterValidator.GoalType;
@@ -52,8 +53,7 @@ class LoadMojoTest {
         private List<String> loadTargetDbIds;
 
         @Override
-        public void load(io.github.yok.flexdblink.maven.plugin.config.CoreConfigBundle bundle,
-                String scenarioOrNull, List<String> targetDbIds) {
+        public void load(CoreConfigBundle bundle, String scenarioOrNull, List<String> targetDbIds) {
             this.loadScenario = scenarioOrNull;
             this.loadTargetDbIds = targetDbIds;
         }

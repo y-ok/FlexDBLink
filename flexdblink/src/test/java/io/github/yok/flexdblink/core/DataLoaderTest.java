@@ -70,6 +70,18 @@ class DataLoaderTest {
         void run() throws Exception;
     }
 
+    /**
+     * Replaces the loader's OperationExecutor with mock operations, runs the given action, then
+     * restores the original.
+     *
+     * @param loader target DataLoader
+     * @param cleanInsert mock clean-insert operation
+     * @param update mock update operation
+     * @param insert mock insert operation
+     * @param deleteAll mock delete-all operation
+     * @param runnable action to execute with mocked operations
+     * @throws Exception if the action throws
+     */
     private void withMockedDatabaseOperations(DataLoader loader, DatabaseOperation cleanInsert,
             DatabaseOperation update, DatabaseOperation insert, DatabaseOperation deleteAll,
             ThrowingRunnable runnable) throws Exception {
@@ -169,6 +181,12 @@ class DataLoaderTest {
         assertDoesNotThrow(() -> loader.setScenarioDuplicateHandler(custom));
     }
 
+    /**
+     * Creates a mock IDatabaseConnection configured for no-op database operations.
+     *
+     * @return mock IDatabaseConnection
+     * @throws Exception if mock setup fails
+     */
     private IDatabaseConnection mockConnectionForNoOpOperation() throws Exception {
         IDatabaseConnection connection = mock(IDatabaseConnection.class);
         DatabaseConfig config = new DatabaseConfig();
@@ -182,23 +200,61 @@ class DataLoaderTest {
         return connection;
     }
 
+    /**
+     * Delegates to the loader's createDbUnitConn method for test access.
+     *
+     * @param loader target DataLoader
+     * @param jdbc JDBC connection
+     * @param entry connection config entry
+     * @param dialectHandler DB dialect handler
+     * @return DatabaseConnection instance
+     * @throws Exception if connection creation fails
+     */
     private DatabaseConnection createDbUnitConn(DataLoader loader, Connection jdbc,
             ConnectionConfig.Entry entry, DbDialectHandler dialectHandler) throws Exception {
         return loader.createDbUnitConn(jdbc, entry, dialectHandler);
     }
 
+    /**
+     * Delegates to the loader's deploy method for test access.
+     *
+     * @param loader target DataLoader
+     * @param dir data directory
+     * @param dbId database identifier
+     * @param initial true for initial load
+     * @param entry connection config entry
+     * @param dialectHandler DB dialect handler
+     * @param tableLogWidth table name log column width
+     * @param errorMessage error message prefix
+     */
     private void deploy(DataLoader loader, File dir, String dbId, boolean initial,
             ConnectionConfig.Entry entry, DbDialectHandler dialectHandler, int tableLogWidth,
             String errorMessage) {
         loader.deploy(dir, dbId, initial, entry, dialectHandler, tableLogWidth, errorMessage);
     }
 
+    /**
+     * Delegates to the loader's deployWithConnection method for test access.
+     *
+     * @param loader target DataLoader
+     * @param dir data directory
+     * @param dbId database identifier
+     * @param entry connection config entry
+     * @param jdbc JDBC connection
+     * @param dialectHandler DB dialect handler
+     * @param errorMessage error message prefix
+     */
     private void deployWithConnection(DataLoader loader, File dir, String dbId,
             ConnectionConfig.Entry entry, Connection jdbc, DbDialectHandler dialectHandler,
             String errorMessage) {
         loader.deployWithConnection(dir, dbId, entry, jdbc, dialectHandler, errorMessage);
     }
 
+    /**
+     * Delegates to the loader's logSummary method for test access.
+     *
+     * @param loader target DataLoader
+     */
     private void logSummary(DataLoader loader) {
         loader.logSummary();
     }
@@ -1753,6 +1809,16 @@ class DataLoaderTest {
                 () -> loader.executeWithConnection(file.toFile(), entry, mock(Connection.class)));
     }
 
+    /**
+     * Builds a mock IDataSet wrapped in SimpleDataSetWrapper with a single table and column.
+     *
+     * @param tableName table name
+     * @param rowCount number of rows
+     * @param colName column name
+     * @param val column value for the first row
+     * @return SimpleDataSetWrapper instance
+     * @throws DataSetException if dataset creation fails
+     */
     private SimpleDataSetWrapper buildSimpleDataSet(String tableName, int rowCount, String colName,
             Object val) throws DataSetException {
         ITable base = mock(ITable.class);

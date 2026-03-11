@@ -25,10 +25,6 @@ class TableOrderingFileTest {
     @TempDir
     Path tempDir;
 
-    // -------------------------------------------------------------------------
-    // write
-    // -------------------------------------------------------------------------
-
     @Test
     void write_正常ケース_テーブルリストを指定する_ファイルが生成されること() throws Exception {
         TableOrderingFile.write(tempDir.toFile(), List.of("T1", "T2", "T3"));
@@ -58,10 +54,6 @@ class TableOrderingFileTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // delete
-    // -------------------------------------------------------------------------
-
     @Test
     void delete_正常ケース_ファイルが存在する_削除されること() throws Exception {
         Path ordering = tempDir.resolve(TableOrderingFile.FILE_NAME);
@@ -79,10 +71,6 @@ class TableOrderingFileTest {
         TableOrderingFile.delete(tempDir.toFile());
         // 例外が発生しないことで false ブランチの通過を確認
     }
-
-    // -------------------------------------------------------------------------
-    // ensure
-    // -------------------------------------------------------------------------
 
     @Test
     void ensure_正常ケース_csv_json_yamlファイルがある_アルファベット順でorderingが生成されること() throws Exception {

@@ -45,6 +45,13 @@ class XmlDataParserKnownIssueTest {
         }
     }
 
+    /**
+     * Writes a minimal XML dataset file containing a single row for the given table.
+     *
+     * @param path output file path
+     * @param table table name for the XML element
+     * @throws Exception if writing fails
+     */
     private static void writeXml(Path path, String table) throws Exception {
         String xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" + "<dataset>\n" + "  <" + table
                 + " ID=\"1\" />\n" + "</dataset>\n";

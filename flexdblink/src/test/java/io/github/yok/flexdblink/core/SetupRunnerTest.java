@@ -663,10 +663,22 @@ class SetupRunnerTest {
         assertTrue(written.contains("T1"));
     }
 
+    /**
+     * Creates a new SetupRunner instance with the test connection config and dialect handler.
+     *
+     * @return new SetupRunner instance
+     */
     private SetupRunner newRunner() {
         return new SetupRunner(connectionConfig, entry -> dialectHandler);
     }
 
+    /**
+     * Builds a mock ResultSet that iterates over the given table names via TABLE_NAME column.
+     *
+     * @param tableNames table names to iterate
+     * @return mock ResultSet
+     * @throws SQLException if mock setup fails
+     */
     private ResultSet buildTableResultSet(String[] tableNames) throws SQLException {
         ResultSet rs = mock(ResultSet.class);
         int[] idx = {0};
@@ -681,6 +693,15 @@ class SetupRunnerTest {
         return rs;
     }
 
+    /**
+     * Builds a mock ResultSet that iterates over column metadata (name, JDBC type, type name).
+     *
+     * @param colNames column names
+     * @param jdbcTypes JDBC type codes
+     * @param typeNames SQL type names
+     * @return mock ResultSet
+     * @throws SQLException if mock setup fails
+     */
     private ResultSet buildColumnResultSet(String[] colNames, int[] jdbcTypes, String[] typeNames)
             throws SQLException {
         ResultSet rs = mock(ResultSet.class);
@@ -698,6 +719,12 @@ class SetupRunnerTest {
         return rs;
     }
 
+    /**
+     * Builds a mock ResultSet that returns no rows.
+     *
+     * @return empty mock ResultSet
+     * @throws SQLException if mock setup fails
+     */
     private ResultSet emptyResultSet() throws SQLException {
         ResultSet rs = mock(ResultSet.class);
         when(rs.next()).thenReturn(false);
