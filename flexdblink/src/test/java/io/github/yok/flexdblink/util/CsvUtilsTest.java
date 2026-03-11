@@ -83,6 +83,13 @@ class CsvUtilsTest {
     }
 
     @Test
+    void buildSortIndices_正常ケース_重複ヘッダを指定する_先頭一致のインデックスが返ること() {
+        String[] headers = {"ID", "NAME", "ID"};
+        List<Integer> result = CsvUtils.buildSortIndices(headers, List.of("ID"));
+        assertEquals(List.of(0), result);
+    }
+
+    @Test
     void trimTrailingSpaces_正常ケース_末尾スペースを指定する_スペースのみ削除されること() {
         assertEquals("abc", CsvUtils.trimTrailingSpaces("abc   "));
     }
@@ -95,6 +102,11 @@ class CsvUtilsTest {
     @Test
     void trimTrailingSpaces_正常ケース_空文字を指定する_空文字が返ること() {
         assertEquals("", CsvUtils.trimTrailingSpaces(""));
+    }
+
+    @Test
+    void trimTrailingSpaces_正常ケース_末尾スペースなしを指定する_元の文字列が返ること() {
+        assertEquals("abc", CsvUtils.trimTrailingSpaces("abc"));
     }
 
     @Test
@@ -129,6 +141,12 @@ class CsvUtilsTest {
         List<String> a = List.of("1", "z");
         List<String> b = List.of("1", "a");
         assertTrue(cmp.compare(a, b) > 0, "second key 'z' > 'a'");
+    }
+
+    @Test
+    void rowComparator_正常ケース_ソートキーなしを指定する_常に0が返ること() {
+        Comparator<List<String>> cmp = CsvUtils.rowComparator(List.of());
+        assertEquals(0, cmp.compare(List.of("a"), List.of("b")));
     }
 
     @Test
@@ -211,6 +229,37 @@ class CsvUtilsTest {
         Object result = CsvUtils.resolveTemporalValue(rs, 1, raw, Types.OTHER, "DATETIMEOFFSET");
 
         assertEquals(raw, result);
+    }
+
+    @Test
+    void resolveTemporalValue_正常ケース_DATETIMEOFFSET専用getterが例外を送出する_getString値が返ること()
+            throws Exception {
+        SqlServerDateTimeOffsetResultSet rs =
+                (SqlServerDateTimeOffsetResultSet) java.lang.reflect.Proxy.newProxyInstance(
+                        getClass().getClassLoader(),
+                        new Class<?>[] {SqlServerDateTimeOffsetResultSet.class},
+                        (proxy, method, args) -> {
+                            if ("getDateTimeOffset".equals(method.getName())) {
+                                throw new java.sql.SQLException("boom");
+                            }
+                            if ("getString".equals(method.getName())) {
+                                return "2026-02-10 01:02:03 +09:00";
+                            }
+                            if ("wasNull".equals(method.getName())) {
+                                return false;
+                            }
+                            if ("unwrap".equals(method.getName())) {
+                                return null;
+                            }
+                            if ("isWrapperFor".equals(method.getName())) {
+                                return false;
+                            }
+                            throw new UnsupportedOperationException(method.getName());
+                        });
+
+        Object result = CsvUtils.resolveTemporalValue(rs, 1, "raw", Types.OTHER, "DATETIMEOFFSET");
+
+        assertEquals("2026-02-10 01:02:03 +09:00", result);
     }
 
     @Test
