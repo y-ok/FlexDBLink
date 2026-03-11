@@ -7,8 +7,10 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.codec.binary.Hex;
 
@@ -61,7 +63,7 @@ class CsvTableExporter {
             // Extract headers from metadata
             headerArray = new String[colCount];
             for (int i = 1; i <= colCount; i++) {
-                headerArray[i - 1] = md.getColumnLabel(i);
+                headerArray[i - 1] = md.getColumnLabel(i).toUpperCase(Locale.ROOT);
             }
 
             // Read all rows
@@ -82,9 +84,13 @@ class CsvTableExporter {
                         cell = (temporalValue == null) ? ""
                                 : dialectHandler.formatDateTimeColumn(columnName, temporalValue,
                                         conn);
+                    } else if (val == null) {
+                        cell = "";
+                    } else if (sqlType == Types.CHAR || sqlType == Types.NCHAR) {
+                        cell = CsvUtils.trimTrailingSpaces(
+                                dialectHandler.formatDbValueForCsv(columnName, val));
                     } else {
-                        cell = (val == null) ? ""
-                                : dialectHandler.formatDbValueForCsv(columnName, val);
+                        cell = dialectHandler.formatDbValueForCsv(columnName, val);
                     }
                     row.add(cell);
                 }

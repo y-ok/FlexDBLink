@@ -387,6 +387,76 @@ class CsvTableExporterTest {
         }
     }
 
+    @Test
+    void export_正常ケース_CHAR型末尾スペースを指定する_末尾スペースのみ削除されること() throws Exception {
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+
+        Connection conn = mock(Connection.class);
+        when(conn.getSchema()).thenReturn("APP");
+        when(conn.getCatalog()).thenReturn(null);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        ResultSet pkRs = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), any(), any())).thenReturn(pkRs);
+        when(pkRs.next()).thenReturn(false);
+        Statement stmt = mock(Statement.class);
+        when(conn.createStatement()).thenReturn(stmt);
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery("SELECT * FROM \"TCHAR_SPACE\"")).thenReturn(rs);
+        ResultSetMetaData md = mock(ResultSetMetaData.class);
+        when(rs.getMetaData()).thenReturn(md);
+        when(md.getColumnCount()).thenReturn(1);
+        when(md.getColumnLabel(1)).thenReturn("CHAR_COL");
+        when(md.getColumnType(1)).thenReturn(Types.CHAR);
+        when(md.getColumnTypeName(1)).thenReturn("CHAR");
+        when(rs.next()).thenReturn(true, false);
+        when(rs.getObject(1)).thenReturn("abc   ");
+
+        File csvFile = tempDir.resolve("TCHAR_SPACE.csv").toFile();
+        new CsvTableExporter().export(conn, "TCHAR_SPACE", csvFile, dialectHandler);
+
+        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, CSVFormat.DEFAULT
+                .builder().setHeader("CHAR_COL").setSkipHeaderRecord(true).get())) {
+            List<CSVRecord> records = parser.getRecords();
+            assertEquals("abc", records.get(0).get("CHAR_COL"));
+        }
+    }
+
+    @Test
+    void export_正常ケース_CHAR型末尾タブを指定する_末尾タブが保持されること() throws Exception {
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+
+        Connection conn = mock(Connection.class);
+        when(conn.getSchema()).thenReturn("APP");
+        when(conn.getCatalog()).thenReturn(null);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        ResultSet pkRs = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), any(), any())).thenReturn(pkRs);
+        when(pkRs.next()).thenReturn(false);
+        Statement stmt = mock(Statement.class);
+        when(conn.createStatement()).thenReturn(stmt);
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery("SELECT * FROM \"TCHAR_TAB\"")).thenReturn(rs);
+        ResultSetMetaData md = mock(ResultSetMetaData.class);
+        when(rs.getMetaData()).thenReturn(md);
+        when(md.getColumnCount()).thenReturn(1);
+        when(md.getColumnLabel(1)).thenReturn("CHAR_COL");
+        when(md.getColumnType(1)).thenReturn(Types.CHAR);
+        when(md.getColumnTypeName(1)).thenReturn("CHAR");
+        when(rs.next()).thenReturn(true, false);
+        when(rs.getObject(1)).thenReturn("abc\t");
+
+        File csvFile = tempDir.resolve("TCHAR_TAB.csv").toFile();
+        new CsvTableExporter().export(conn, "TCHAR_TAB", csvFile, dialectHandler);
+
+        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, CSVFormat.DEFAULT
+                .builder().setHeader("CHAR_COL").setSkipHeaderRecord(true).get())) {
+            List<CSVRecord> records = parser.getRecords();
+            assertEquals("abc\t", records.get(0).get("CHAR_COL"));
+        }
+    }
+
     /**
      * Builds a mock Connection for a single-row, single-column table with no primary key, where
      * getBytes() returns the given bytes value.
@@ -419,6 +489,12 @@ class CsvTableExporterTest {
         return conn;
     }
 
+    /**
+     * Creates a mock DbDialectHandler with stubbed quoting, schema resolution, and type formatting
+     * behavior.
+     *
+     * @return mock DbDialectHandler
+     */
     private DbDialectHandler createDialectHandlerMock() {
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
         when(dialectHandler.quoteIdentifier(any()))

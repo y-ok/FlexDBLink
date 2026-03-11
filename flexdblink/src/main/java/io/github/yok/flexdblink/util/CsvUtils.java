@@ -1,5 +1,6 @@
 package io.github.yok.flexdblink.util;
 
+import io.github.yok.flexdblink.db.DbDialectHandler;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -10,6 +11,7 @@ import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.Date;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
 import java.sql.Time;
 import java.sql.Timestamp;
@@ -18,6 +20,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -62,12 +65,14 @@ public final class CsvUtils {
      * @return list of zero-based column indices to sort by, in PK order
      */
     public static List<Integer> buildSortIndices(String[] headers, List<String> pkColumns) {
-        Map<String, Integer> headerIndex = IntStream.range(0, headers.length).boxed().collect(
-                Collectors.toMap(i -> headers[i], i -> i, (a, b) -> a, LinkedHashMap::new));
+        Map<String, Integer> headerIndex = IntStream.range(0, headers.length).boxed()
+                .collect(Collectors.toMap(i -> headers[i].toUpperCase(Locale.ROOT), i -> i,
+                        (a, b) -> a, LinkedHashMap::new));
         if (pkColumns.isEmpty()) {
             return List.of(0);
         }
-        return pkColumns.stream().map(headerIndex::get).collect(Collectors.toList());
+        return pkColumns.stream().map(pk -> headerIndex.get(pk.toUpperCase(Locale.ROOT)))
+                .collect(Collectors.toList());
     }
 
     /**
@@ -182,6 +187,67 @@ public final class CsvUtils {
             }
         }
         return pkColumns;
+    }
+
+    /**
+     * Removes only trailing ASCII space characters from a value.
+     *
+     * <p>
+     * This is used for fixed-width {@code CHAR}/{@code NCHAR} dump normalization. Other trailing
+     * whitespace such as tabs or newlines is preserved because it may be significant user data.
+     * </p>
+     *
+     * @param value input text
+     * @return text without trailing space characters
+     */
+    public static String trimTrailingSpaces(String value) {
+        int end = value.length();
+        while (end > 0 && value.charAt(end - 1) == ' ') {
+            end--;
+        }
+        return value.substring(0, end);
+    }
+
+    /**
+     * Formats a single column value from a {@link ResultSet} into a CSV-compatible string.
+     *
+     * <p>
+     * This method applies the same formatting rules as the dump path in {@code CsvTableExporter}:
+     * binary columns are hex-encoded, datetime columns go through
+     * {@link DbDialectHandler#formatDateTimeColumn}, CHAR/NCHAR values are right-trimmed, and
+     * everything else is delegated to {@link DbDialectHandler#formatDbValueForCsv}.
+     * </p>
+     *
+     * @param rs result set positioned on the current row
+     * @param columnName column name to format
+     * @param dialectHandler DB dialect handler
+     * @param conn JDBC connection (passed to datetime formatting)
+     * @return formatted string suitable for CSV comparison
+     * @throws Exception on SQL or formatting error
+     */
+    public static String formatColumnValue(ResultSet rs, String columnName,
+            DbDialectHandler dialectHandler, Connection conn) throws Exception {
+        int colIndex = rs.findColumn(columnName);
+        ResultSetMetaData md = rs.getMetaData();
+        int sqlType = md.getColumnType(colIndex);
+        String typeName = md.getColumnTypeName(colIndex);
+        Object val = rs.getObject(colIndex);
+
+        if (dialectHandler.isBinaryTypeForDump(sqlType, typeName)) {
+            byte[] bytes = rs.getBytes(colIndex);
+            return (bytes == null) ? ""
+                    : org.apache.commons.codec.binary.Hex.encodeHexString(bytes).toUpperCase();
+        } else if (dialectHandler.isDateTimeTypeForDump(sqlType, typeName)) {
+            Object temporalValue = resolveTemporalValue(rs, colIndex, val, sqlType, typeName);
+            return (temporalValue == null) ? ""
+                    : dialectHandler.formatDateTimeColumn(columnName, temporalValue, conn);
+        } else if (val == null) {
+            return "";
+        } else if (sqlType == Types.CHAR || sqlType == Types.NCHAR) {
+            return trimTrailingSpaces(dialectHandler.formatDbValueForCsv(columnName, val));
+        } else {
+            return dialectHandler.formatDbValueForCsv(columnName, val);
+        }
     }
 
     /**

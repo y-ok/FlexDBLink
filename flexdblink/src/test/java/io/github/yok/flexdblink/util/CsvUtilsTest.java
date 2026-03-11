@@ -6,12 +6,14 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import io.github.yok.flexdblink.db.DbDialectHandler;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.Types;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -78,6 +80,21 @@ class CsvUtilsTest {
         String[] headers = {"A", "B", "C"};
         List<Integer> result = CsvUtils.buildSortIndices(headers, List.of("C", "A"));
         assertEquals(List.of(2, 0), result);
+    }
+
+    @Test
+    void trimTrailingSpaces_正常ケース_末尾スペースを指定する_スペースのみ削除されること() {
+        assertEquals("abc", CsvUtils.trimTrailingSpaces("abc   "));
+    }
+
+    @Test
+    void trimTrailingSpaces_正常ケース_末尾タブ改行を指定する_スペース以外は保持されること() {
+        assertEquals("abc\t \n", CsvUtils.trimTrailingSpaces("abc\t \n"));
+    }
+
+    @Test
+    void trimTrailingSpaces_正常ケース_空文字を指定する_空文字が返ること() {
+        assertEquals("", CsvUtils.trimTrailingSpaces(""));
     }
 
     @Test
@@ -277,5 +294,41 @@ class CsvUtilsTest {
 
         List<String> result = CsvUtils.fetchPrimaryKeyColumns(conn, "APP", "T1");
         assertEquals(List.of(), result);
+    }
+
+    @Test
+    void formatColumnValue_正常ケース_CHAR型末尾スペースを指定する_末尾スペースのみ削除されること() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        ResultSetMetaData meta = mock(ResultSetMetaData.class);
+        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+
+        when(rs.findColumn("CHAR_COL")).thenReturn(1);
+        when(rs.getMetaData()).thenReturn(meta);
+        when(meta.getColumnType(1)).thenReturn(Types.CHAR);
+        when(meta.getColumnTypeName(1)).thenReturn("CHAR");
+        when(rs.getObject(1)).thenReturn("abc   ");
+        when(dialectHandler.formatDbValueForCsv("CHAR_COL", "abc   ")).thenReturn("abc   ");
+
+        String result = CsvUtils.formatColumnValue(rs, "CHAR_COL", dialectHandler, null);
+
+        assertEquals("abc", result);
+    }
+
+    @Test
+    void formatColumnValue_正常ケース_CHAR型末尾タブを指定する_末尾タブが保持されること() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        ResultSetMetaData meta = mock(ResultSetMetaData.class);
+        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+
+        when(rs.findColumn("CHAR_COL")).thenReturn(1);
+        when(rs.getMetaData()).thenReturn(meta);
+        when(meta.getColumnType(1)).thenReturn(Types.CHAR);
+        when(meta.getColumnTypeName(1)).thenReturn("CHAR");
+        when(rs.getObject(1)).thenReturn("abc\t");
+        when(dialectHandler.formatDbValueForCsv("CHAR_COL", "abc\t")).thenReturn("abc\t");
+
+        String result = CsvUtils.formatColumnValue(rs, "CHAR_COL", dialectHandler, null);
+
+        assertEquals("abc\t", result);
     }
 }

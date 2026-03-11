@@ -39,10 +39,6 @@ class LobFileExporterTest {
     @TempDir
     Path tempDir;
 
-    // -------------------------------------------------------------------------
-    // applyPlaceholders
-    // -------------------------------------------------------------------------
-
     @Test
     void applyPlaceholders_正常ケース_プレースホルダと値Mapを指定する_置換済み文字列が返ること() {
         LobFileExporter exporter = new LobFileExporter(new FilePatternConfig());
@@ -60,10 +56,6 @@ class LobFileExporterTest {
         keyMap.put("UNUSED", "X");
         assertEquals("lob_9.bin", exporter.applyPlaceholders("lob_{ID}.bin", keyMap));
     }
-
-    // -------------------------------------------------------------------------
-    // export
-    // -------------------------------------------------------------------------
 
     @Test
     void export_正常ケース_型別null処理とクォートSQLを適用すること() throws Exception {
@@ -452,6 +444,96 @@ class LobFileExporterTest {
     }
 
     @Test
+    void export_正常ケース_CHAR型末尾スペースを指定する_末尾スペースのみ削除されること() throws Exception {
+        FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+        when(dialectHandler.quoteIdentifier(any()))
+                .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
+        when(filePatternConfig.getPatternsForTable("TCHAR_SPACE")).thenReturn(Collections.emptyMap());
+
+        Connection conn = mock(Connection.class);
+        when(conn.getCatalog()).thenReturn(null);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        ResultSet pkRs = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("TCHAR_SPACE"))).thenReturn(pkRs);
+        when(pkRs.next()).thenReturn(false);
+        Statement stmt = mock(Statement.class);
+        when(conn.createStatement()).thenReturn(stmt);
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery("SELECT * FROM \"TCHAR_SPACE\"")).thenReturn(rs);
+        ResultSetMetaData md = mock(ResultSetMetaData.class);
+        when(rs.getMetaData()).thenReturn(md);
+        when(md.getColumnCount()).thenReturn(1);
+        when(md.getColumnLabel(1)).thenReturn("CHAR_COL");
+        when(md.getColumnType(1)).thenReturn(Types.CHAR);
+        when(md.getColumnTypeName(1)).thenReturn("CHAR");
+        when(rs.next()).thenReturn(true, false);
+        when(rs.getObject(1)).thenReturn("abc   ");
+
+        Path dbDirPath = Files.createDirectories(tempDir.resolve("db_char_space"));
+        Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
+        Path csvPath = dbDirPath.resolve("TCHAR_SPACE.csv");
+        Files.writeString(csvPath, "CHAR_COL\nx\n", StandardCharsets.UTF_8);
+
+        DumpResult result = new LobFileExporter(filePatternConfig).export(conn, "TCHAR_SPACE",
+                dbDirPath.toFile(), filesDirPath.toFile(), "APP", dialectHandler);
+        assertEquals(1, result.getRowCount());
+
+        CSVFormat fmt =
+                CSVFormat.DEFAULT.builder().setHeader("CHAR_COL").setSkipHeaderRecord(true).get();
+        try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
+            List<CSVRecord> records = parser.getRecords();
+            assertEquals("abc", records.get(0).get("CHAR_COL"));
+        }
+    }
+
+    @Test
+    void export_正常ケース_CHAR型末尾タブを指定する_末尾タブが保持されること() throws Exception {
+        FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+        when(dialectHandler.quoteIdentifier(any()))
+                .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
+        when(filePatternConfig.getPatternsForTable("TCHAR_TAB")).thenReturn(Collections.emptyMap());
+
+        Connection conn = mock(Connection.class);
+        when(conn.getCatalog()).thenReturn(null);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        ResultSet pkRs = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("TCHAR_TAB"))).thenReturn(pkRs);
+        when(pkRs.next()).thenReturn(false);
+        Statement stmt = mock(Statement.class);
+        when(conn.createStatement()).thenReturn(stmt);
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery("SELECT * FROM \"TCHAR_TAB\"")).thenReturn(rs);
+        ResultSetMetaData md = mock(ResultSetMetaData.class);
+        when(rs.getMetaData()).thenReturn(md);
+        when(md.getColumnCount()).thenReturn(1);
+        when(md.getColumnLabel(1)).thenReturn("CHAR_COL");
+        when(md.getColumnType(1)).thenReturn(Types.CHAR);
+        when(md.getColumnTypeName(1)).thenReturn("CHAR");
+        when(rs.next()).thenReturn(true, false);
+        when(rs.getObject(1)).thenReturn("abc\t");
+
+        Path dbDirPath = Files.createDirectories(tempDir.resolve("db_char_tab"));
+        Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
+        Path csvPath = dbDirPath.resolve("TCHAR_TAB.csv");
+        Files.writeString(csvPath, "CHAR_COL\nx\n", StandardCharsets.UTF_8);
+
+        DumpResult result = new LobFileExporter(filePatternConfig).export(conn, "TCHAR_TAB",
+                dbDirPath.toFile(), filesDirPath.toFile(), "APP", dialectHandler);
+        assertEquals(1, result.getRowCount());
+
+        CSVFormat fmt =
+                CSVFormat.DEFAULT.builder().setHeader("CHAR_COL").setSkipHeaderRecord(true).get();
+        try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
+            List<CSVRecord> records = parser.getRecords();
+            assertEquals("abc\t", records.get(0).get("CHAR_COL"));
+        }
+    }
+
+    @Test
     void export_正常ケース_重複ヘッダを含むCSVを指定する_先勝ちインデックスで処理されること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DbDialectHandler dialectHandler = createDialectHandlerMock();
@@ -821,10 +903,10 @@ class LobFileExporterTest {
         }
     }
 
-    // -------------------------------------------------------------------------
-    // Helper
-    // -------------------------------------------------------------------------
-
+    /**
+     * Creates a mock DbDialectHandler with stubbed quoting, schema resolution, and type formatting
+     * behavior.
+     */
     private DbDialectHandler createDialectHandlerMock() {
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
         when(dialectHandler.quoteIdentifier(any()))

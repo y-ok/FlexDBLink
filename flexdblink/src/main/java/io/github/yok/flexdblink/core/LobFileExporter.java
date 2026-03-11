@@ -15,6 +15,7 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -127,7 +128,7 @@ class LobFileExporter {
                 List<String> row = csvData.get(rowIndex++);
 
                 for (int i = 1; i <= colCount; i++) {
-                    String col = md.getColumnLabel(i);
+                    String col = md.getColumnLabel(i).toUpperCase(Locale.ROOT);
                     int type = md.getColumnType(i);
                     String typeName = md.getColumnTypeName(i);
                     int idx = headers.indexOf(col);
@@ -176,8 +177,13 @@ class LobFileExporter {
                                 : BaseEncoding.base16().upperCase().encode(bytes);
 
                         // Others
+                    } else if (raw == null) {
+                        cell = "";
+                    } else if (type == Types.CHAR || type == Types.NCHAR) {
+                        cell = CsvUtils
+                                .trimTrailingSpaces(dialectHandler.formatDbValueForCsv(col, raw));
                     } else {
-                        cell = (raw == null) ? "" : dialectHandler.formatDbValueForCsv(col, raw);
+                        cell = dialectHandler.formatDbValueForCsv(col, raw);
                     }
 
                     row.set(idx, cell);
