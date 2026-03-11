@@ -411,6 +411,9 @@ public class MySqlDialectHandler implements DbDialectHandler {
         if (value instanceof SQLXML) {
             return ((SQLXML) value).getString();
         }
+        if (value instanceof BigDecimal) {
+            return ((BigDecimal) value).toPlainString();
+        }
 
         if (isYearColumn(columnName)) {
             if (value instanceof Date) {
@@ -609,6 +612,22 @@ public class MySqlDialectHandler implements DbDialectHandler {
      * @return formatted string
      * @throws SQLException if formatting fails
      */
+    /**
+     * Excludes YEAR type from datetime dump path so that
+     * {@link #formatDbValueForCsv(String, Object)} handles year-only formatting.
+     *
+     * @param sqlType JDBC SQL type
+     * @param sqlTypeName dialect SQL type name
+     * @return {@code false} for YEAR, delegates to super otherwise
+     */
+    @Override
+    public boolean isDateTimeTypeForDump(int sqlType, String sqlTypeName) {
+        if ("year".equalsIgnoreCase(sqlTypeName)) {
+            return false;
+        }
+        return DbDialectHandler.super.isDateTimeTypeForDump(sqlType, sqlTypeName);
+    }
+
     @Override
     public String formatDateTimeColumn(String columnName, Object value, Connection connection)
             throws SQLException {

@@ -1358,10 +1358,24 @@ public class OracleDialectHandlerTest {
         assertFalse(handler.isBinaryTypeForDump(Types.OTHER, null));
     }
 
+    /**
+     * Creates an OracleDialectHandler with default mocked dependencies and no tables.
+     *
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private OracleDialectHandler createHandler() throws Exception {
         return createHandler(mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
     }
 
+    /**
+     * Creates an OracleDialectHandler with explicit formatter and config factory, no tables.
+     *
+     * @param formatter date-time format utility
+     * @param configFactory DbUnit configuration factory
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private OracleDialectHandler createHandler(DateTimeFormatUtil formatter,
             DbUnitConfigFactory configFactory) throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
@@ -1420,12 +1434,30 @@ public class OracleDialectHandlerTest {
         }
     }
 
+    /**
+     * Creates an OracleDialectHandler with table metadata using default mocked dependencies.
+     *
+     * @param tableName name of the table to register
+     * @param columns column definitions for the table
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private OracleDialectHandler createHandlerWithMeta(String tableName, ColumnDef... columns)
             throws Exception {
         return createHandlerWithMeta(mock(DateTimeFormatUtil.class),
                 mock(DbUnitConfigFactory.class), tableName, columns);
     }
 
+    /**
+     * Creates an OracleDialectHandler with explicit dependencies and no JDBC column metadata.
+     *
+     * @param formatter date-time format utility
+     * @param configFactory DbUnit configuration factory
+     * @param tableName name of the table to register
+     * @param columns column definitions for the table
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private OracleDialectHandler createHandlerWithMeta(DateTimeFormatUtil formatter,
             DbUnitConfigFactory configFactory, String tableName, ColumnDef... columns)
             throws Exception {
@@ -1433,12 +1465,32 @@ public class OracleDialectHandlerTest {
                 new JdbcColumnDef[0], false);
     }
 
+    /**
+     * Creates an OracleDialectHandler with both DbUnit and JDBC column metadata using default dependencies.
+     *
+     * @param tableName name of the table to register
+     * @param columns DbUnit column definitions
+     * @param jdbcColumns JDBC column definitions
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private OracleDialectHandler createHandlerWithMetaAndJdbc(String tableName, ColumnDef[] columns,
             JdbcColumnDef[] jdbcColumns) throws Exception {
         return createHandlerWithMetaAndJdbc(mock(DateTimeFormatUtil.class),
                 mock(DbUnitConfigFactory.class), tableName, columns, jdbcColumns);
     }
 
+    /**
+     * Creates an OracleDialectHandler with explicit dependencies and both DbUnit and JDBC column metadata.
+     *
+     * @param formatter date-time format utility
+     * @param configFactory DbUnit configuration factory
+     * @param tableName name of the table to register
+     * @param columns DbUnit column definitions
+     * @param jdbcColumns JDBC column definitions
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private OracleDialectHandler createHandlerWithMetaAndJdbc(DateTimeFormatUtil formatter,
             DbUnitConfigFactory configFactory, String tableName, ColumnDef[] columns,
             JdbcColumnDef[] jdbcColumns) throws Exception {
@@ -1446,6 +1498,18 @@ public class OracleDialectHandlerTest {
                 jdbcColumns, true);
     }
 
+    /**
+     * Creates an OracleDialectHandler with full control over dependencies, column metadata, and JDBC merging behavior.
+     *
+     * @param formatter date-time format utility
+     * @param configFactory DbUnit configuration factory
+     * @param tableName name of the table to register
+     * @param columns DbUnit column definitions
+     * @param jdbcColumns JDBC column definitions
+     * @param includeDbUnitColumnsInJdbcMeta whether to include DbUnit columns in the JDBC metadata ResultSet
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private OracleDialectHandler createHandlerWithMetaAndJdbc(DateTimeFormatUtil formatter,
             DbUnitConfigFactory configFactory, String tableName, ColumnDef[] columns,
             JdbcColumnDef[] jdbcColumns, boolean includeDbUnitColumnsInJdbcMeta) throws Exception {

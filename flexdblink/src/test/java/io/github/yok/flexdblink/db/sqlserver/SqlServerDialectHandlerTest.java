@@ -1198,6 +1198,15 @@ public class SqlServerDialectHandlerTest {
         }
     }
 
+    /**
+     * Creates a SqlServerDialectHandler with default mocked dependencies.
+     *
+     * @param tables list of table names to register
+     * @param dbUnitColumnsByTable DbUnit columns keyed by table name
+     * @param jdbcColumnsByTable JDBC column metadata rows keyed by table name
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private SqlServerDialectHandler createHandlerDefault(List<String> tables,
             Map<String, Column[]> dbUnitColumnsByTable,
             Map<String, List<JdbcRow>> jdbcColumnsByTable) throws Exception {
@@ -1206,6 +1215,17 @@ public class SqlServerDialectHandlerTest {
                 jdbcColumnsByTable);
     }
 
+    /**
+     * Creates a SqlServerDialectHandler with explicit factory and date-time support.
+     *
+     * @param factory DbUnit configuration factory
+     * @param dateTimeSupport date-time format support
+     * @param tables list of table names to register
+     * @param dbUnitColumnsByTable DbUnit columns keyed by table name
+     * @param jdbcColumnsByTable JDBC column metadata rows keyed by table name
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private SqlServerDialectHandler createHandlerDefault(DbUnitConfigFactory factory,
             DateTimeFormatSupport dateTimeSupport, List<String> tables,
             Map<String, Column[]> dbUnitColumnsByTable,
@@ -1268,6 +1288,13 @@ public class SqlServerDialectHandlerTest {
                 dateTimeSupport, paths);
     }
 
+    /**
+     * Creates a mock Column with the specified name and data type.
+     *
+     * @param name column name
+     * @param dt data type of the column
+     * @return mocked Column instance
+     */
     private static Column colMock(String name, DataType dt) {
         Column col = mock(Column.class);
         when(col.getColumnName()).thenReturn(name);
@@ -1275,6 +1302,13 @@ public class SqlServerDialectHandlerTest {
         return col;
     }
 
+    /**
+     * Creates a mock DataType with the specified SQL type code and type name.
+     *
+     * @param sqlType JDBC SQL type constant
+     * @param sqlTypeName SQL type name string
+     * @return mocked DataType instance
+     */
     private static DataType dataTypeMock(int sqlType, String sqlTypeName) {
         DataType dt = mock(DataType.class);
         when(dt.getSqlType()).thenReturn(sqlType);

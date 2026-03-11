@@ -705,10 +705,24 @@ public class MySqlDialectHandlerTest {
         assertNotNull(handler);
     }
 
+    /**
+     * Creates a MySqlDialectHandler with default mocked dependencies and no tables.
+     *
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private MySqlDialectHandler createHandler() throws Exception {
         return createHandler(mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
     }
 
+    /**
+     * Creates a MySqlDialectHandler with explicit formatter and config factory, no tables.
+     *
+     * @param formatter date-time format utility
+     * @param configFactory DbUnit configuration factory
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private MySqlDialectHandler createHandler(DateTimeFormatUtil formatter,
             DbUnitConfigFactory configFactory) throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
@@ -749,18 +763,45 @@ public class MySqlDialectHandlerTest {
         }
     }
 
+    /**
+     * Creates a MySqlDialectHandler with table metadata using default mocked dependencies.
+     *
+     * @param tableName name of the table to register
+     * @param columns column definitions for the table
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private MySqlDialectHandler createHandlerWithMeta(String tableName, ColumnDef... columns)
             throws Exception {
         return createHandlerWithMeta(mock(DateTimeFormatUtil.class),
                 mock(DbUnitConfigFactory.class), tableName, columns);
     }
 
+    /**
+     * Creates a MySqlDialectHandler with separate DbUnit columns and JDBC column definitions.
+     *
+     * @param tableName name of the table to register
+     * @param dbUnitColumns pre-built DbUnit Column array
+     * @param columns JDBC column definitions
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private MySqlDialectHandler createHandlerWithMeta(String tableName, Column[] dbUnitColumns,
             ColumnDef... columns) throws Exception {
         return createHandlerWithMeta(mock(DateTimeFormatUtil.class),
                 mock(DbUnitConfigFactory.class), tableName, dbUnitColumns, columns);
     }
 
+    /**
+     * Creates a MySqlDialectHandler with explicit dependencies, auto-generating DbUnit columns from definitions.
+     *
+     * @param formatter date-time format utility
+     * @param configFactory DbUnit configuration factory
+     * @param tableName name of the table to register
+     * @param columns column definitions used for both DbUnit and JDBC metadata
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private MySqlDialectHandler createHandlerWithMeta(DateTimeFormatUtil formatter,
             DbUnitConfigFactory configFactory, String tableName, ColumnDef... columns)
             throws Exception {
@@ -772,6 +813,17 @@ public class MySqlDialectHandlerTest {
         return createHandlerWithMeta(formatter, configFactory, tableName, dbUnitColumns, columns);
     }
 
+    /**
+     * Creates a MySqlDialectHandler with fully specified dependencies and table metadata.
+     *
+     * @param formatter date-time format utility
+     * @param configFactory DbUnit configuration factory
+     * @param tableName name of the table to register
+     * @param dbUnitColumns pre-built DbUnit Column array
+     * @param columns JDBC column definitions
+     * @return configured handler instance
+     * @throws Exception if mock setup fails
+     */
     private MySqlDialectHandler createHandlerWithMeta(DateTimeFormatUtil formatter,
             DbUnitConfigFactory configFactory, String tableName, Column[] dbUnitColumns,
             ColumnDef... columns) throws Exception {
@@ -1245,6 +1297,13 @@ public class MySqlDialectHandlerTest {
         assertTrue(handler.hasNotNullLobColumn(conn, "public", "t1", new Column[0]));
     }
 
+    /**
+     * Creates a mock Column with the specified name and data type.
+     *
+     * @param name column name
+     * @param dt data type of the column
+     * @return mocked Column instance
+     */
     private static Column colMock(String name, DataType dt) {
         Column col = mock(Column.class);
         when(col.getColumnName()).thenReturn(name);
@@ -1252,6 +1311,13 @@ public class MySqlDialectHandlerTest {
         return col;
     }
 
+    /**
+     * Creates a mock DataType with the specified SQL type code and type name.
+     *
+     * @param sqlType JDBC SQL type constant
+     * @param sqlTypeName SQL type name string
+     * @return mocked DataType instance
+     */
     private static DataType dataTypeMock(int sqlType, String sqlTypeName) {
         DataType dt = mock(DataType.class);
         when(dt.getSqlType()).thenReturn(sqlType);

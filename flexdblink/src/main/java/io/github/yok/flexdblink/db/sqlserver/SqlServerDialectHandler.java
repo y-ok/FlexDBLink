@@ -96,9 +96,9 @@ public class SqlServerDialectHandler implements DbDialectHandler {
     private static final Set<Integer> CLOB_SQL_TYPES = Set.of(Types.CLOB, Types.NCLOB);
     private static final Set<Integer> NUMERIC_SQL_TYPES = Set.of(Types.NUMERIC, Types.DECIMAL);
     private static final Set<String> BINARY_LIKE_TYPE_NAMES =
-            Set.of("binary", "varbinary", "image", "rowversion", "timestamp", "bit");
+            Set.of("binary", "varbinary", "image", "rowversion", "timestamp");
     private static final Set<Integer> BINARY_SQL_TYPES =
-            Set.of(Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY, Types.BLOB, Types.BIT);
+            Set.of(Types.BINARY, Types.VARBINARY, Types.LONGVARBINARY, Types.BLOB);
     private static final Set<Integer> LOB_SQL_TYPES = Set.of(Types.CLOB, Types.BLOB, Types.NCLOB);
     private static final Set<Integer> UNKNOWN_DB_UNIT_SQL_TYPES = Set.of(Types.OTHER);
     private static final Set<String> UNKNOWN_DB_UNIT_TYPE_NAMES = Set.of("unknown");
@@ -341,6 +341,9 @@ public class SqlServerDialectHandler implements DbDialectHandler {
         if (value instanceof Clob) {
             return "";
         }
+        if (value instanceof BigDecimal) {
+            return ((BigDecimal) value).toPlainString();
+        }
         if (value instanceof Date || value instanceof Time || value instanceof Timestamp
                 || value instanceof LocalDate || value instanceof LocalDateTime
                 || value instanceof OffsetDateTime) {
@@ -454,7 +457,8 @@ public class SqlServerDialectHandler implements DbDialectHandler {
     public String formatDateTimeColumn(String columnName, Object value, Connection connection)
             throws SQLException {
         String formatted = dateTimeFormatter.formatJdbcDateTime(columnName, value, connection);
-        return normalizeTimestampFraction(formatted);
+        formatted = normalizeTimestampFraction(formatted);
+        return formatted.replaceAll(" ([+-]\\d{2}:?\\d{2})$", "$1");
     }
 
     /**

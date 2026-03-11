@@ -459,7 +459,16 @@ public class OracleDialectHandler implements DbDialectHandler {
      */
     @Override
     public String formatDbValueForCsv(String columnName, Object dbValue) throws SQLException {
-        return dbValue == null ? "" : dbValue.toString();
+        if (dbValue == null) {
+            return "";
+        }
+        if (dbValue instanceof BigDecimal) {
+            return ((BigDecimal) dbValue).toPlainString();
+        }
+        if (dbValue instanceof INTERVALDS) {
+            return dbValue.toString().replaceAll("\\.0+$", "");
+        }
+        return dbValue.toString();
     }
 
     /**

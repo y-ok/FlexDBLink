@@ -390,6 +390,9 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
         if (value instanceof Clob) {
             return "";
         }
+        if (value instanceof BigDecimal) {
+            return ((BigDecimal) value).toPlainString();
+        }
         if (value instanceof SQLXML) {
             return ((SQLXML) value).getString();
         }
@@ -487,6 +490,11 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
             try (Reader reader = ((Clob) value).getCharacterStream()) {
                 writeReaderAsUtf8(reader, outputPath);
             }
+            logWrittenLobPath(outputPath, table);
+            return;
+        }
+        if (value instanceof SQLXML) {
+            Files.writeString(outputPath, ((SQLXML) value).getString(), StandardCharsets.UTF_8);
             logWrittenLobPath(outputPath, table);
             return;
         }
