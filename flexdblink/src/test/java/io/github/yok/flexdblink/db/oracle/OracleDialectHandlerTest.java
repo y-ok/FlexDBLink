@@ -22,11 +22,12 @@ import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
-import io.github.yok.flexdblink.util.DateTimeFormatUtil;
+import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.StringReader;
 import java.lang.reflect.Constructor;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -94,6 +95,21 @@ public class OracleDialectHandlerTest {
     void formatDbValueForCsv_正常ケース_非null値を指定する_toString値であること() throws Exception {
         OracleDialectHandler handler = createHandler();
         assertEquals("123", handler.formatDbValueForCsv("COL", 123));
+    }
+
+    @Test
+    void formatDbValueForCsv_正常ケース_BigDecimal値を指定する_指数なし文字列であること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+
+        assertEquals("1000", handler.formatDbValueForCsv("COL", new BigDecimal("1E+3")));
+    }
+
+    @Test
+    void formatDbValueForCsv_正常ケース_INTERVALDS値を指定する_末尾ゼロなし文字列であること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+
+        assertEquals("0 0:0:1",
+                handler.formatDbValueForCsv("COL", new oracle.sql.INTERVALDS("+00 00:00:01.0")));
     }
 
     @Test
@@ -230,7 +246,7 @@ public class OracleDialectHandlerTest {
 
     @Test
     void formatDateTimeColumn_正常ケース_フォーマッタが成功する_フォーマット値が返ること() throws Exception {
-        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
+        DateTimeFormatSupport formatter = mock(DateTimeFormatSupport.class);
         OracleDialectHandler handler = createHandler(formatter, mock(DbUnitConfigFactory.class));
         when(formatter.formatJdbcDateTime(eq("COL"), eq("X"), any())).thenReturn("FORMATTED");
         assertEquals("FORMATTED", handler.formatDateTimeColumn("COL", "X", mock(Connection.class)));
@@ -238,7 +254,7 @@ public class OracleDialectHandlerTest {
 
     @Test
     void formatDateTimeColumn_正常ケース_フォーマッタが失敗する_toString値が返ること() throws Exception {
-        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
+        DateTimeFormatSupport formatter = mock(DateTimeFormatSupport.class);
         OracleDialectHandler handler = createHandler(formatter, mock(DbUnitConfigFactory.class));
         doThrow(new RuntimeException("x")).when(formatter).formatJdbcDateTime(eq("COL"), eq("X"),
                 any());
@@ -367,6 +383,21 @@ public class OracleDialectHandlerTest {
 
         Timestamp ts = (Timestamp) actual;
         assertEquals(Timestamp.valueOf("2026-02-15 00:00:00"), ts);
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_timestamp型に数値オフセット付き値を指定する_Instant基準Timestampが返ること()
+            throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("TS_COL", DataType.TIMESTAMP));
+
+        Object actual =
+                handler.convertCsvValueToDbType("TBL", "TS_COL", "2026-02-15 01:02:03 +0900");
+
+        assertEquals(Timestamp.valueOf("2026-02-15 01:02:03"),
+                Timestamp.from(OffsetDateTime.parse("2026-02-15T01:02:03+09:00").toInstant()));
+        assertEquals(Timestamp.from(OffsetDateTime.parse("2026-02-15T01:02:03+09:00").toInstant()),
+                actual);
     }
 
     @Test
@@ -1043,7 +1074,7 @@ public class OracleDialectHandlerTest {
         when(dataSet.getTableMetaData("TBL1")).thenReturn(tableMetaData);
 
         OracleDialectHandler handler = new OracleDialectHandler(dbConn, dumpConfig, dbUnitConfig,
-                mock(DbUnitConfigFactory.class), mock(DateTimeFormatUtil.class), pathsConfig);
+                mock(DbUnitConfigFactory.class), mock(DateTimeFormatSupport.class), pathsConfig);
         assertNotNull(handler);
     }
 
@@ -1077,7 +1108,7 @@ public class OracleDialectHandlerTest {
         when(dataSet.getTableMetaData("TBL2")).thenReturn(tbl2Meta);
 
         OracleDialectHandler handler = new OracleDialectHandler(dbConn, dumpConfig, dbUnitConfig,
-                mock(DbUnitConfigFactory.class), mock(DateTimeFormatUtil.class), pathsConfig);
+                mock(DbUnitConfigFactory.class), mock(DateTimeFormatSupport.class), pathsConfig);
 
         assertNotNull(handler);
         verify(dataSet, never()).getTableMetaData("TBL1");
@@ -1123,7 +1154,7 @@ public class OracleDialectHandlerTest {
         when(dbConn.createDataSet()).thenReturn(dataSet);
 
         OracleDialectHandler handler = new OracleDialectHandler(dbConn, dumpConfig, dbUnitConfig,
-                mock(DbUnitConfigFactory.class), mock(DateTimeFormatUtil.class), pathsConfig);
+                mock(DbUnitConfigFactory.class), mock(DateTimeFormatSupport.class), pathsConfig);
 
         assertNotNull(handler);
 
@@ -1139,7 +1170,7 @@ public class OracleDialectHandlerTest {
         dumpConfig.setExcludeTables(new ArrayList<>());
 
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
-        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
+        DateTimeFormatSupport formatter = mock(DateTimeFormatSupport.class);
 
         DatabaseConnection initialDbConn = mock(DatabaseConnection.class);
         Connection initJdbc = mock(Connection.class);
@@ -1189,7 +1220,7 @@ public class OracleDialectHandlerTest {
 
     @Test
     void convertCsvValueToDbType_正常ケース_TIME型で設定済みフォーマッタ成功_設定値のTimeが返ること() throws Exception {
-        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
+        DateTimeFormatSupport formatter = mock(DateTimeFormatSupport.class);
         OracleDialectHandler handler = createHandlerWithMeta(formatter,
                 mock(DbUnitConfigFactory.class), "TBL", new ColumnDef("TIME_COL", DataType.TIME));
         LocalTime expected = LocalTime.of(14, 5, 30);
@@ -1211,7 +1242,7 @@ public class OracleDialectHandlerTest {
 
     @Test
     void convertCsvValueToDbType_正常ケース_DATE型で設定済みフォーマッタ成功_設定値のDateが返ること() throws Exception {
-        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
+        DateTimeFormatSupport formatter = mock(DateTimeFormatSupport.class);
         OracleDialectHandler handler = createHandlerWithMeta(formatter,
                 mock(DbUnitConfigFactory.class), "TBL", new ColumnDef("DATE_COL", DataType.DATE));
         LocalDate expected = LocalDate.of(2026, 2, 15);
@@ -1224,7 +1255,7 @@ public class OracleDialectHandlerTest {
     @Test
     void convertCsvValueToDbType_正常ケース_TIMESTAMP型で設定済みフォーマッタ成功_設定値のTimestampが返ること()
             throws Exception {
-        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
+        DateTimeFormatSupport formatter = mock(DateTimeFormatSupport.class);
         OracleDialectHandler handler =
                 createHandlerWithMeta(formatter, mock(DbUnitConfigFactory.class), "TBL",
                         new ColumnDef("TS_COL", DataType.TIMESTAMP));
@@ -1241,7 +1272,8 @@ public class OracleDialectHandlerTest {
         OracleDialectHandler handler =
                 createHandlerWithMeta("TBL", new ColumnDef("TS_COL", DataType.TIMESTAMP));
 
-        Object actual = handler.convertCsvValueToDbType("TBL", "TS_COL", "2026-02-15 01:02:03+09:00");
+        Object actual =
+                handler.convertCsvValueToDbType("TBL", "TS_COL", "2026-02-15 01:02:03+09:00");
 
         assertEquals(Timestamp.from(OffsetDateTime.parse("2026-02-15T01:02:03+09:00").toInstant()),
                 actual);
@@ -1258,10 +1290,50 @@ public class OracleDialectHandlerTest {
     }
 
     @Test
-    void convertCsvValueToDbType_正常ケース_TIMESTAMPTZ型でオフセットなしを指定する_Timestampへフォールバックすること()
+    void convertCsvValueToDbType_正常ケース_TIMESTAMPLTZ型にオフセット付き値を指定する_セッション時差基準Timestampが返ること()
             throws Exception {
         OracleDialectHandler handler = createHandlerWithMeta("TBL",
-                new ColumnDef("TS_TZ_COL", Types.TIMESTAMP_WITH_TIMEZONE, "TIMESTAMP WITH TIME ZONE"));
+                new ColumnDef("TS_LTZ_COL", -102, "TIMESTAMP WITH LOCAL TIME ZONE"));
+
+        Object actual =
+                handler.convertCsvValueToDbType("TBL", "TS_LTZ_COL", "2026-02-15 01:02:03 +0900");
+
+        assertEquals(Timestamp.valueOf(LocalDateTime.of(2026, 2, 15, 1, 2, 3)), actual);
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_TIMESTAMPLTZ型にコロン付きオフセット値を指定する_セッション時差基準Timestampが返ること()
+            throws Exception {
+        OracleDialectHandler handler = createHandlerWithMeta("TBL",
+                new ColumnDef("TS_LTZ_COL", -102, "TIMESTAMP WITH LOCAL TIME ZONE"));
+
+        Object actual =
+                handler.convertCsvValueToDbType("TBL", "TS_LTZ_COL", "2026-02-15 01:02:03+09:00");
+
+        assertEquals(Timestamp.valueOf(LocalDateTime.of(2026, 2, 15, 1, 2, 3)), actual);
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_TIMESTAMPLTZ型に設定済み書式値を指定する_設定値のTimestampが返ること()
+            throws Exception {
+        DateTimeFormatSupport formatter = mock(DateTimeFormatSupport.class);
+        Timestamp expected = Timestamp.valueOf("2026-02-15 01:02:03");
+        OracleDialectHandler handler =
+                createHandlerWithMeta(formatter, mock(DbUnitConfigFactory.class), "TBL",
+                        new ColumnDef("TS_LTZ_COL", -102, "TIMESTAMP WITH LOCAL TIME ZONE"));
+        when(formatter.parseConfiguredTimestamp("2026-02-15 01:02:03"))
+                .thenReturn(expected.toLocalDateTime());
+
+        Object actual = handler.convertCsvValueToDbType("TBL", "TS_LTZ_COL", "2026-02-15 01:02:03");
+
+        assertEquals(expected, actual);
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_TIMESTAMPTZ型でオフセットなしを指定する_Timestampへフォールバックすること()
+            throws Exception {
+        OracleDialectHandler handler = createHandlerWithMeta("TBL", new ColumnDef("TS_TZ_COL",
+                Types.TIMESTAMP_WITH_TIMEZONE, "TIMESTAMP WITH TIME ZONE"));
 
         Object actual = handler.convertCsvValueToDbType("TBL", "TS_TZ_COL", "2026-02-15 01:02:03");
 
@@ -1396,7 +1468,7 @@ public class OracleDialectHandlerTest {
      * @throws Exception if mock setup fails
      */
     private OracleDialectHandler createHandler() throws Exception {
-        return createHandler(mock(DateTimeFormatUtil.class), mock(DbUnitConfigFactory.class));
+        return createHandler(mock(DateTimeFormatSupport.class), mock(DbUnitConfigFactory.class));
     }
 
     /**
@@ -1407,7 +1479,7 @@ public class OracleDialectHandlerTest {
      * @return configured handler instance
      * @throws Exception if mock setup fails
      */
-    private OracleDialectHandler createHandler(DateTimeFormatUtil formatter,
+    private OracleDialectHandler createHandler(DateTimeFormatSupport formatter,
             DbUnitConfigFactory configFactory) throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
@@ -1475,7 +1547,7 @@ public class OracleDialectHandlerTest {
      */
     private OracleDialectHandler createHandlerWithMeta(String tableName, ColumnDef... columns)
             throws Exception {
-        return createHandlerWithMeta(mock(DateTimeFormatUtil.class),
+        return createHandlerWithMeta(mock(DateTimeFormatSupport.class),
                 mock(DbUnitConfigFactory.class), tableName, columns);
     }
 
@@ -1489,7 +1561,7 @@ public class OracleDialectHandlerTest {
      * @return configured handler instance
      * @throws Exception if mock setup fails
      */
-    private OracleDialectHandler createHandlerWithMeta(DateTimeFormatUtil formatter,
+    private OracleDialectHandler createHandlerWithMeta(DateTimeFormatSupport formatter,
             DbUnitConfigFactory configFactory, String tableName, ColumnDef... columns)
             throws Exception {
         return createHandlerWithMetaAndJdbc(formatter, configFactory, tableName, columns,
@@ -1497,7 +1569,8 @@ public class OracleDialectHandlerTest {
     }
 
     /**
-     * Creates an OracleDialectHandler with both DbUnit and JDBC column metadata using default dependencies.
+     * Creates an OracleDialectHandler with both DbUnit and JDBC column metadata using default
+     * dependencies.
      *
      * @param tableName name of the table to register
      * @param columns DbUnit column definitions
@@ -1507,12 +1580,13 @@ public class OracleDialectHandlerTest {
      */
     private OracleDialectHandler createHandlerWithMetaAndJdbc(String tableName, ColumnDef[] columns,
             JdbcColumnDef[] jdbcColumns) throws Exception {
-        return createHandlerWithMetaAndJdbc(mock(DateTimeFormatUtil.class),
+        return createHandlerWithMetaAndJdbc(mock(DateTimeFormatSupport.class),
                 mock(DbUnitConfigFactory.class), tableName, columns, jdbcColumns);
     }
 
     /**
-     * Creates an OracleDialectHandler with explicit dependencies and both DbUnit and JDBC column metadata.
+     * Creates an OracleDialectHandler with explicit dependencies and both DbUnit and JDBC column
+     * metadata.
      *
      * @param formatter date-time format utility
      * @param configFactory DbUnit configuration factory
@@ -1522,7 +1596,7 @@ public class OracleDialectHandlerTest {
      * @return configured handler instance
      * @throws Exception if mock setup fails
      */
-    private OracleDialectHandler createHandlerWithMetaAndJdbc(DateTimeFormatUtil formatter,
+    private OracleDialectHandler createHandlerWithMetaAndJdbc(DateTimeFormatSupport formatter,
             DbUnitConfigFactory configFactory, String tableName, ColumnDef[] columns,
             JdbcColumnDef[] jdbcColumns) throws Exception {
         return createHandlerWithMetaAndJdbc(formatter, configFactory, tableName, columns,
@@ -1530,18 +1604,20 @@ public class OracleDialectHandlerTest {
     }
 
     /**
-     * Creates an OracleDialectHandler with full control over dependencies, column metadata, and JDBC merging behavior.
+     * Creates an OracleDialectHandler with full control over dependencies, column metadata, and
+     * JDBC merging behavior.
      *
      * @param formatter date-time format utility
      * @param configFactory DbUnit configuration factory
      * @param tableName name of the table to register
      * @param columns DbUnit column definitions
      * @param jdbcColumns JDBC column definitions
-     * @param includeDbUnitColumnsInJdbcMeta whether to include DbUnit columns in the JDBC metadata ResultSet
+     * @param includeDbUnitColumnsInJdbcMeta whether to include DbUnit columns in the JDBC metadata
+     *        ResultSet
      * @return configured handler instance
      * @throws Exception if mock setup fails
      */
-    private OracleDialectHandler createHandlerWithMetaAndJdbc(DateTimeFormatUtil formatter,
+    private OracleDialectHandler createHandlerWithMetaAndJdbc(DateTimeFormatSupport formatter,
             DbUnitConfigFactory configFactory, String tableName, ColumnDef[] columns,
             JdbcColumnDef[] jdbcColumns, boolean includeDbUnitColumnsInJdbcMeta) throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
@@ -1664,6 +1740,26 @@ public class OracleDialectHandlerTest {
     }
 
     @Test
+    void formatDateTimeColumn_正常ケース_UTC表記文字列を指定する_セッション時差へ正規化されること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+
+        String actual = handler.formatDateTimeColumn("TSLTZ_COL", "2024-01-31 16:02:03 UTC",
+                mock(Connection.class));
+
+        assertEquals("2024-02-01 01:02:03 +0900", actual);
+    }
+
+    @Test
+    void formatDateTimeColumn_正常ケース_Z表記文字列を指定する_セッション時差へ正規化されること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+
+        String actual = handler.formatDateTimeColumn("TSLTZ_COL", "2024-01-31 16:02:03 Z",
+                mock(Connection.class));
+
+        assertEquals("2024-02-01 01:02:03 +0900", actual);
+    }
+
+    @Test
     public void formatDateTimeColumn_異常ケース_OracleTIMESTAMPTZでリージョン形式だが日付が不正_trimmedが返ること()
             throws Exception {
         OracleDialectHandler handler = createHandler();
@@ -1752,7 +1848,7 @@ public class OracleDialectHandlerTest {
         when(dataSet.getTableMetaData("TBL")).thenReturn(md);
 
         OracleDialectHandler handler = new OracleDialectHandler(dbConn, dumpConfig, dbUnitConfig,
-                mock(DbUnitConfigFactory.class), mock(DateTimeFormatUtil.class), pathsConfig);
+                mock(DbUnitConfigFactory.class), mock(DateTimeFormatSupport.class), pathsConfig);
 
         // baseDir/files 配下に LOB ファイルを作成
         File baseDir = tempDir.toFile();
@@ -1789,7 +1885,7 @@ public class OracleDialectHandlerTest {
 
     @Test
     public void formatDateTimeColumn_正常ケース_通常のTimestampを指定する_フォーマット値が返ること() throws Exception {
-        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
+        DateTimeFormatSupport formatter = mock(DateTimeFormatSupport.class);
         OracleDialectHandler handler = createHandler(formatter, mock(DbUnitConfigFactory.class));
         when(formatter.formatJdbcDateTime(any(String.class), any(), any()))
                 .thenReturn("2026-02-15 01:02:03");
@@ -1803,7 +1899,7 @@ public class OracleDialectHandlerTest {
     @Test
     public void formatDateTimeColumn_異常ケース_formatJdbcDateTimeが例外をスローする_toStringが返ること()
             throws Exception {
-        DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
+        DateTimeFormatSupport formatter = mock(DateTimeFormatSupport.class);
         OracleDialectHandler handler = createHandler(formatter, mock(DbUnitConfigFactory.class));
         when(formatter.formatJdbcDateTime(any(String.class), any(), any()))
                 .thenThrow(new RuntimeException("format-fail"));

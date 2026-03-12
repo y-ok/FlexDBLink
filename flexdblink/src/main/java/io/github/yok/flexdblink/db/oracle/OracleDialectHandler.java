@@ -41,6 +41,7 @@ import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.OffsetTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.format.DateTimeParseException;
@@ -51,6 +52,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -62,7 +64,6 @@ import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 import org.apache.commons.io.FilenameUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.dbunit.database.DatabaseConfig;
 import org.dbunit.database.DatabaseConnection;
 import org.dbunit.dataset.Column;
@@ -105,7 +106,7 @@ public class OracleDialectHandler implements DbDialectHandler {
                     .appendLiteral('T').optionalEnd().optionalStart().appendLiteral(' ')
                     .optionalEnd().appendPattern("HHmmss").optionalStart()
                     .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd()
-                    .appendOffset("+HHmm", "Z").toFormatter(Locale.ENGLISH);
+                    .appendOffset("+HHmm", "Z").toFormatter(Locale.ROOT);
 
     private static final DateTimeFormatter FLEXIBLE_TIME_PARSER = new DateTimeFormatterBuilder()
             .appendPattern("HH:mm").optionalStart().appendPattern(":ss").optionalEnd()
@@ -130,14 +131,14 @@ public class OracleDialectHandler implements DbDialectHandler {
                     .appendPattern(":ss").optionalEnd().optionalStart()
                     .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd()
                     // Use "+HH:mm" here; uppercase MM is invalid.
-                    .appendOffset("+HH:mm", "Z").toFormatter(Locale.ENGLISH);
+                    .appendOffset("+HH:mm", "Z").toFormatter(Locale.ROOT);
 
     // OffsetTime without colon separator: HHmm[ss][.fraction]±HHmm
     private static final DateTimeFormatter FLEXIBLE_OFFSET_TIME_PARSER_NO_COLON =
             new DateTimeFormatterBuilder().appendPattern("HHmm").optionalStart().appendPattern("ss")
                     .optionalEnd().optionalStart()
                     .appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true).optionalEnd()
-                    .appendOffset("+HHmm", "Z").toFormatter(Locale.ENGLISH);
+                    .appendOffset("+HHmm", "Z").toFormatter(Locale.ROOT);
 
     private static final DateTimeFormatter DATE_LITERAL_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -365,13 +366,13 @@ public class OracleDialectHandler implements DbDialectHandler {
         String dateFormat = "YYYY-MM-DD HH24:MI:SS";
         String timestampFormat = "YYYY-MM-DD HH24:MI:SS.FF";
         String numericChars = ".,";
-        String timeZone = "+09:00";
         String schema = connection.getSchema();
         try (Statement stmt = connection.createStatement()) {
             stmt.execute("ALTER SESSION SET NLS_DATE_FORMAT = '" + dateFormat + "'");
             stmt.execute("ALTER SESSION SET NLS_TIMESTAMP_FORMAT = '" + timestampFormat + "'");
             stmt.execute("ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '" + numericChars + "'");
-            stmt.execute("ALTER SESSION SET TIME_ZONE = '" + timeZone + "'");
+            stmt.execute("ALTER SESSION SET TIME_ZONE = '" + OracleTimeZoneSupport.SESSION_TIME_ZONE
+                    + "'");
             stmt.execute("ALTER SESSION SET CURRENT_SCHEMA = " + schema);
         }
     }
@@ -388,8 +389,8 @@ public class OracleDialectHandler implements DbDialectHandler {
     @Override
     public Object convertCsvValueToDbType(String table, String column, String csvValue)
             throws DataSetException {
-        String str = StringUtils.trimToNull(csvValue);
-        if (StringUtils.isEmpty(str)) {
+        String str = trimToNull(csvValue);
+        if (str == null) {
             return null;
         }
         ResolvedColumnSpec resolved = resolveColumnSpec(table, column);
@@ -420,9 +421,9 @@ public class OracleDialectHandler implements DbDialectHandler {
                 case Types.TIMESTAMP_WITH_TIMEZONE:
                 case -101:
                     return parseTimestampWithTimeZone(str, column);
-                    // Oracle JDBC proprietary code for timestamp with local time zone.
+                // Oracle JDBC proprietary code for timestamp with local time zone.
                 case -102:
-                    return parseTimestamp(str, column);
+                    return parseTimestampWithLocalTimeZone(str, column);
                 case Types.OTHER:
                 case Types.JAVA_OBJECT:
                 case -103:
@@ -601,6 +602,13 @@ public class OracleDialectHandler implements DbDialectHandler {
             if (isOracleTimestampWithTimeZoneValue(dbValue)) {
                 return formatOracleTimestampWithTimeZone(dbValue, conn);
             }
+            if (dbValue instanceof String) {
+                String rawText = (String) dbValue;
+                String normalized = normalizeOracleTimestampWithTimeZone(rawText);
+                if (!Objects.equals(normalized, rawText)) {
+                    return normalized;
+                }
+            }
             return dateTimeFormatter.formatJdbcDateTime(column, dbValue, conn);
         } catch (Exception e) {
             log.debug("Failed to format DATE/INTERVAL: column={} value={} → fallback to toString()",
@@ -649,17 +657,16 @@ public class OracleDialectHandler implements DbDialectHandler {
             return null;
         }
         String trimmed = raw.trim();
-        String offsetPattern =
-                "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})(?:\\.\\d+)? ([+-]?)(\\d{1,2}):(\\d{2})$";
-        Matcher offsetMatcher = Pattern.compile(offsetPattern)
-                .matcher(trimmed);
+        String offsetPattern = "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})"
+                + "(?:\\.\\d+)? ([+-]?)(\\d{1,2}):(\\d{2})$";
+        Matcher offsetMatcher = Pattern.compile(offsetPattern).matcher(trimmed);
         if (offsetMatcher.matches()) {
             String sign = offsetMatcher.group(2);
             if (sign.isEmpty()) {
                 sign = "+";
             }
             String paddedHour =
-                    String.format(Locale.ENGLISH, "%02d", Integer.valueOf(offsetMatcher.group(3)));
+                    String.format(Locale.ROOT, "%02d", Integer.valueOf(offsetMatcher.group(3)));
             return offsetMatcher.group(1) + " " + sign + paddedHour + offsetMatcher.group(4);
         }
         Matcher regionMatcher = Pattern.compile(
@@ -676,7 +683,83 @@ public class OracleDialectHandler implements DbDialectHandler {
                 return trimmed;
             }
         }
+        OffsetDateTime offsetDateTime = parseOracleOffsetDateTime(trimmed);
+        if (offsetDateTime != null) {
+            return formatOracleSessionOffset(offsetDateTime);
+        }
+        ZonedDateTime zonedDateTime = parseOracleZonedDateTime(trimmed);
+        if (zonedDateTime != null) {
+            return formatOracleSessionOffset(zonedDateTime.toOffsetDateTime());
+        }
         return trimmed.replaceAll("\\.0+$", "");
+    }
+
+    /**
+     * Parses Oracle timestamp text with an explicit numeric offset.
+     *
+     * @param raw raw timestamp text
+     * @return parsed value, or {@code null} when the format is unsupported
+     */
+    private OffsetDateTime parseOracleOffsetDateTime(String raw) {
+        String normalized = raw.replaceFirst("(\\d{2}:\\d{2}:\\d{2})\\.\\d+", "$1");
+        DateTimeFormatter[] formatters =
+                new DateTimeFormatter[] {OracleTimeZoneSupport.TIMESTAMP_WITH_OFFSET_FORMAT,
+                        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss XXX", Locale.ROOT),
+                        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss X", Locale.ROOT)};
+        for (DateTimeFormatter formatter : formatters) {
+            try {
+                return OffsetDateTime.parse(normalized, formatter);
+            } catch (DateTimeParseException ex) {
+                log.debug("Oracle offset timestamp parse failed: value={} formatter={}", raw,
+                        formatter);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Parses Oracle timestamp text with a named timezone such as {@code UTC}.
+     *
+     * @param raw raw timestamp text
+     * @return parsed value, or {@code null} when the format is unsupported
+     */
+    private ZonedDateTime parseOracleZonedDateTime(String raw) {
+        String normalized = raw.replaceFirst("(\\d{2}:\\d{2}:\\d{2})\\.\\d+", "$1");
+        try {
+            return ZonedDateTime.parse(normalized,
+                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z", Locale.ENGLISH));
+        } catch (DateTimeParseException ex) {
+            log.debug("Oracle zoned timestamp parse failed: value={}", raw);
+            return null;
+        }
+    }
+
+    /**
+     * Formats a timezone-aware value using the fixed Oracle session offset.
+     *
+     * @param value value to format
+     * @return formatted timestamp text
+     */
+    private String formatOracleSessionOffset(OffsetDateTime value) {
+        return value.atZoneSameInstant(OracleTimeZoneSupport.SESSION_ZONE_OFFSET).toOffsetDateTime()
+                .format(OracleTimeZoneSupport.TIMESTAMP_WITH_OFFSET_FORMAT);
+    }
+
+    /**
+     * Trims a CSV value and converts blank text to {@code null}.
+     *
+     * @param value raw CSV text
+     * @return trimmed text, or {@code null} when blank
+     */
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        return trimmed;
     }
 
     /**
@@ -763,8 +846,8 @@ public class OracleDialectHandler implements DbDialectHandler {
      */
     @Override
     public Object parseDateTimeValue(String column, String csvValue) throws Exception {
-        String str = StringUtils.trimToNull(csvValue);
-        if (StringUtils.isEmpty(str)) {
+        String str = trimToNull(csvValue);
+        if (str == null) {
             return null;
         }
         if (str.matches("\\d+-\\d+")) {
@@ -1192,9 +1275,8 @@ public class OracleDialectHandler implements DbDialectHandler {
         }
         String normalized = str.replace('T', ' ').replace('/', '-').trim();
         try {
-            DateTimeFormatter fmtOffset =
-                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss Z", Locale.ENGLISH);
-            OffsetDateTime odt = OffsetDateTime.parse(normalized, fmtOffset);
+            OffsetDateTime odt = OffsetDateTime.parse(normalized,
+                    OracleTimeZoneSupport.TIMESTAMP_WITH_OFFSET_FORMAT);
             return Timestamp.from(odt.toInstant());
         } catch (DateTimeParseException e) {
             log.debug("fmtOffset parse failed: column={} value={}", column, normalized);
@@ -1229,6 +1311,51 @@ public class OracleDialectHandler implements DbDialectHandler {
     }
 
     /**
+     * Parses TIMESTAMP WITH LOCAL TIME ZONE text into a session-local {@link Timestamp}.
+     *
+     * <p>
+     * Oracle stores this type normalized to the database/session timezone. When the CSV value
+     * already carries an offset, this method first converts it to the fixed Oracle session offset
+     * and then binds only the local date-time fields so the stored instant is stable across JVM
+     * default timezones.
+     * </p>
+     *
+     * @param str raw timestamp text
+     * @param column column name (for logging context)
+     * @return session-local timestamp
+     * @throws DataSetException if no supported pattern matches
+     */
+    private Timestamp parseTimestampWithLocalTimeZone(String str, String column)
+            throws DataSetException {
+        LocalDateTime configured = dateTimeFormatter.parseConfiguredTimestamp(str);
+        if (configured != null) {
+            return Timestamp.valueOf(configured);
+        }
+        String normalized = str.replace('T', ' ').replace('/', '-').trim();
+        try {
+            OffsetDateTime odt = OffsetDateTime.parse(normalized,
+                    OracleTimeZoneSupport.TIMESTAMP_WITH_OFFSET_FORMAT);
+            return Timestamp
+                    .valueOf(odt.atZoneSameInstant(OracleTimeZoneSupport.SESSION_ZONE_OFFSET)
+                            .toLocalDateTime());
+        } catch (DateTimeParseException e) {
+            log.debug("fmtOffset local-time-zone parse failed: column={} value={}", column,
+                    normalized);
+        }
+        try {
+            OffsetDateTime odt =
+                    OffsetDateTime.parse(normalized, FLEXIBLE_OFFSET_DATETIME_PARSER_COLON);
+            return Timestamp
+                    .valueOf(odt.atZoneSameInstant(OracleTimeZoneSupport.SESSION_ZONE_OFFSET)
+                            .toLocalDateTime());
+        } catch (DateTimeParseException e) {
+            log.debug("FLEXIBLE_OFFSET_DATETIME_PARSER_COLON local-time-zone parse failed:"
+                    + " column={} value={}", column, normalized);
+        }
+        return parseTimestamp(str, column);
+    }
+
+    /**
      * Parses TIMESTAMP WITH TIME ZONE text while preserving an explicit offset when present.
      *
      * @param str raw timestamp text
@@ -1239,9 +1366,8 @@ public class OracleDialectHandler implements DbDialectHandler {
     private Object parseTimestampWithTimeZone(String str, String column) throws DataSetException {
         String normalized = str.replace('T', ' ').replace('/', '-').trim();
         try {
-            DateTimeFormatter fmtOffset =
-                    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss Z", Locale.ENGLISH);
-            return OffsetDateTime.parse(normalized, fmtOffset);
+            return OffsetDateTime.parse(normalized,
+                    OracleTimeZoneSupport.TIMESTAMP_WITH_OFFSET_FORMAT);
         } catch (DateTimeParseException e) {
             log.debug("fmtOffset parse failed: column={} value={}", column, normalized);
         }
