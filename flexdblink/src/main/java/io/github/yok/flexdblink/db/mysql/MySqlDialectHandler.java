@@ -600,19 +600,6 @@ public class MySqlDialectHandler implements DbDialectHandler {
     }
 
     /**
-     * Formats date/time values as CSV strings using the shared formatter abstraction.
-     *
-     * <p>
-     * This keeps date/time formatting consistent across dialect handlers.
-     * </p>
-     *
-     * @param columnName column name
-     * @param value JDBC value
-     * @param connection JDBC connection (may be null)
-     * @return formatted string
-     * @throws SQLException if formatting fails
-     */
-    /**
      * Excludes YEAR type from datetime dump path so that
      * {@link #formatDbValueForCsv(String, Object)} handles year-only formatting.
      *
@@ -628,6 +615,19 @@ public class MySqlDialectHandler implements DbDialectHandler {
         return DbDialectHandler.super.isDateTimeTypeForDump(sqlType, sqlTypeName);
     }
 
+    /**
+     * Formats date/time values as CSV strings using the shared formatter abstraction.
+     *
+     * <p>
+     * This keeps date/time formatting consistent across dialect handlers.
+     * </p>
+     *
+     * @param columnName column name
+     * @param value JDBC value
+     * @param connection JDBC connection (may be null)
+     * @return formatted string
+     * @throws SQLException if formatting fails
+     */
     @Override
     public String formatDateTimeColumn(String columnName, Object value, Connection connection)
             throws SQLException {
