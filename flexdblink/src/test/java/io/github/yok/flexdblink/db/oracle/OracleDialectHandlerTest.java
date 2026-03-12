@@ -394,10 +394,10 @@ public class OracleDialectHandlerTest {
         Object actual =
                 handler.convertCsvValueToDbType("TBL", "TS_COL", "2026-02-15 01:02:03 +0900");
 
-        assertEquals(Timestamp.valueOf("2026-02-15 01:02:03"),
-                Timestamp.from(OffsetDateTime.parse("2026-02-15T01:02:03+09:00").toInstant()));
-        assertEquals(Timestamp.from(OffsetDateTime.parse("2026-02-15T01:02:03+09:00").toInstant()),
-                actual);
+        Timestamp expected =
+                Timestamp.from(OffsetDateTime.parse("2026-02-15T01:02:03+09:00").toInstant());
+
+        assertEquals(expected.toInstant(), ((Timestamp) actual).toInstant());
     }
 
     @Test
