@@ -214,19 +214,28 @@
 			</exclusions>
 		</dependency>
 	</dependencies>
-	<build>
-		<finalName>${project.name}</finalName>
-		<resources>
-			<resource>
-				<directory>src/main/resources</directory>
-				<filtering>true</filtering>
-			</resource>
-			<resource>
-				<directory>src/test/resources</directory>
-				<filtering>true</filtering>
-			</resource>
-		</resources>
-		<plugins>
+		<build>
+			<finalName>${project.name}</finalName>
+			<resources>
+				<resource>
+					<directory>src/main/resources</directory>
+					<filtering>true</filtering>
+				</resource>
+				<resource>
+					<directory>src/test/resources</directory>
+					<filtering>true</filtering>
+					<excludes>
+						<exclude>logback-test.xml</exclude>
+					</excludes>
+				</resource>
+			</resources>
+			<testResources>
+				<testResource>
+					<directory>src/test/resources</directory>
+					<filtering>true</filtering>
+				</testResource>
+			</testResources>
+			<plugins>
 			<!-- maven-jar-plugin で application.yml を JAR から除外 -->
 			<plugin>
 				<artifactId>maven-jar-plugin</artifactId>
@@ -395,6 +404,7 @@
 				<artifactId>jacoco-maven-plugin</artifactId>
 				<version>${jacoco.version}</version>
 				<configuration>
+					<append>true</append>
 					<skip>${skipTests}</skip>
 				</configuration>
 				<executions>
