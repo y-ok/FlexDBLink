@@ -207,8 +207,8 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
 
         IDataSet ds = dbConn.createDataSet();
         for (String tbl : targetTables) {
-            tableColumnsMap.put(tbl.toLowerCase(Locale.ROOT), ds.getTableMetaData(tbl)
-                    .getColumns());
+            tableColumnsMap.put(tbl.toLowerCase(Locale.ROOT),
+                    ds.getTableMetaData(tbl).getColumns());
         }
         cacheJdbcColumnSpecs(jdbcConn, schema, targetTables);
     }

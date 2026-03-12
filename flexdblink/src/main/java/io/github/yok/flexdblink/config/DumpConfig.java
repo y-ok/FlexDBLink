@@ -19,8 +19,7 @@ import org.springframework.stereotype.Component;
  * </ul>
  *
  * <p>
- * If not specified, {@value FlexDbLinkDefaults#FLYWAY_SCHEMA_HISTORY_TABLE} is excluded by
- * default.
+ * If not specified, {@value FlexDbLinkDefaults#FLYWAY_SCHEMA_HISTORY_TABLE} is excluded by default.
  * </p>
  *
  * @author Yasuharu.Okawauchi

@@ -464,10 +464,10 @@ public class MySqlDialectHandlerTest {
 
     @Test
     void convertCsvValueToDbType_正常ケース_型別名を指定する_数値型へ変換されること() throws Exception {
-        MySqlDialectHandler handler = createHandlerWithMeta("t1",
-                new ColumnDef("n1", Types.OTHER, "decimal"),
-                new ColumnDef("r1", Types.OTHER, "real"),
-                new ColumnDef("d1", Types.OTHER, "double precision"));
+        MySqlDialectHandler handler =
+                createHandlerWithMeta("t1", new ColumnDef("n1", Types.OTHER, "decimal"),
+                        new ColumnDef("r1", Types.OTHER, "real"),
+                        new ColumnDef("d1", Types.OTHER, "double precision"));
         assertEquals("12.5", handler.convertCsvValueToDbType("t1", "n1", "12.5").toString());
         assertEquals(1.5f, handler.convertCsvValueToDbType("t1", "r1", "1.5"));
         assertEquals(2.5d, handler.convertCsvValueToDbType("t1", "d1", "2.5"));
@@ -476,8 +476,7 @@ public class MySqlDialectHandlerTest {
     @Test
     void convertCsvValueToDbType_正常ケース_日時型別名を指定する_日時型へ変換されること() throws Exception {
         MySqlDialectHandler handler = createHandlerWithMeta("t1",
-                new ColumnDef("d1", Types.OTHER, "date"),
-                new ColumnDef("t1", Types.OTHER, "time"),
+                new ColumnDef("d1", Types.OTHER, "date"), new ColumnDef("t1", Types.OTHER, "time"),
                 new ColumnDef("z1", Types.OTHER, "timestamp"));
         assertInstanceOf(Date.class, handler.convertCsvValueToDbType("t1", "d1", "2026-02-15"));
         assertInstanceOf(Time.class, handler.convertCsvValueToDbType("t1", "t1", "01:02:03"));
@@ -487,9 +486,9 @@ public class MySqlDialectHandlerTest {
 
     @Test
     void convertCsvValueToDbType_正常ケース_YEAR型とVARBINARY型を指定する_期待値へ変換されること() throws Exception {
-        MySqlDialectHandler handler = createHandlerWithMeta("t1",
-                new ColumnDef("year_col", Types.DATE, "year"),
-                new ColumnDef("bin_col", Types.VARBINARY, "varbinary"));
+        MySqlDialectHandler handler =
+                createHandlerWithMeta("t1", new ColumnDef("year_col", Types.DATE, "year"),
+                        new ColumnDef("bin_col", Types.VARBINARY, "varbinary"));
 
         assertEquals(2026, handler.convertCsvValueToDbType("t1", "year_col", "2026"));
         assertEquals("raw-bytes", handler.convertCsvValueToDbType("t1", "bin_col", "raw-bytes"));
@@ -793,7 +792,8 @@ public class MySqlDialectHandlerTest {
     }
 
     /**
-     * Creates a MySqlDialectHandler with explicit dependencies, auto-generating DbUnit columns from definitions.
+     * Creates a MySqlDialectHandler with explicit dependencies, auto-generating DbUnit columns from
+     * definitions.
      *
      * @param formatter date-time format utility
      * @param configFactory DbUnit configuration factory
@@ -982,9 +982,9 @@ public class MySqlDialectHandlerTest {
         when(formatter.parseConfiguredTimestamp(any())).thenReturn(null);
         when(formatter.parseConfiguredDate(any())).thenReturn(null);
         when(formatter.parseConfiguredTime(any())).thenReturn(null);
-        MySqlDialectHandler handler = createHandlerWithMeta(formatter,
-                mock(DbUnitConfigFactory.class), "T1",
-                new ColumnDef("DT_COL", Types.TIMESTAMP, "DATETIME"));
+        MySqlDialectHandler handler =
+                createHandlerWithMeta(formatter, mock(DbUnitConfigFactory.class), "T1",
+                        new ColumnDef("DT_COL", Types.TIMESTAMP, "DATETIME"));
         assertThrows(DataSetException.class,
                 () -> handler.convertCsvValueToDbType("T1", "DT_COL", "not-a-date"));
     }
@@ -1010,7 +1010,8 @@ public class MySqlDialectHandlerTest {
     }
 
     @Test
-    void convertCsvValueToDbType_正常ケース_DBUnit型名がUNKNOWNである_JDBCメタデータへフォールバックすること() throws Exception {
+    void convertCsvValueToDbType_正常ケース_DBUnit型名がUNKNOWNである_JDBCメタデータへフォールバックすること()
+            throws Exception {
         MySqlDialectHandler handler = createHandlerWithMeta(mock(DateTimeFormatUtil.class),
                 mock(DbUnitConfigFactory.class), "T1",
                 new Column[] {colMock("C1", dataTypeMock(Types.INTEGER, "UNKNOWN"))},
@@ -1061,7 +1062,8 @@ public class MySqlDialectHandlerTest {
     }
 
     @Test
-    void convertCsvValueToDbType_異常ケース_file参照先がディレクトリである_DataSetExceptionが送出されること() throws Exception {
+    void convertCsvValueToDbType_異常ケース_file参照先がディレクトリである_DataSetExceptionが送出されること()
+            throws Exception {
         MySqlDialectHandler handler =
                 createHandlerWithMeta("T1", new ColumnDef("BLOB_COL", Types.BLOB, "blob"));
         Path filesDir = tempDir.resolve("dump").resolve("files");
@@ -1074,7 +1076,8 @@ public class MySqlDialectHandlerTest {
     }
 
     @Test
-    void convertCsvValueToDbType_異常ケース_file参照で非LOB型を指定する_DataSetExceptionが送出されること() throws Exception {
+    void convertCsvValueToDbType_異常ケース_file参照で非LOB型を指定する_DataSetExceptionが送出されること()
+            throws Exception {
         MySqlDialectHandler handler =
                 createHandlerWithMeta("T1", new ColumnDef("INT_COL", Types.INTEGER, "int"));
         Path filesDir = tempDir.resolve("dump").resolve("files");
@@ -1093,8 +1096,7 @@ public class MySqlDialectHandlerTest {
         Files.createDirectories(filesDir);
         Files.writeString(filesDir.resolve("clob.txt"), "hello", StandardCharsets.UTF_8);
 
-        assertEquals("hello",
-                handler.convertCsvValueToDbType("T1", "CLOB_COL", "file:clob.txt"));
+        assertEquals("hello", handler.convertCsvValueToDbType("T1", "CLOB_COL", "file:clob.txt"));
     }
 
     @Test
@@ -1118,13 +1120,11 @@ public class MySqlDialectHandlerTest {
         MySqlDialectHandler handler =
                 createHandlerWithMeta("T1", new ColumnDef("BIT_COL", Types.OTHER, "bit"));
 
-        assertEquals(Integer.valueOf(1),
-                handler.convertCsvValueToDbType("T1", "BIT_COL", "true"));
+        assertEquals(Integer.valueOf(1), handler.convertCsvValueToDbType("T1", "BIT_COL", "true"));
         assertEquals(Integer.valueOf(1), handler.convertCsvValueToDbType("T1", "BIT_COL", "t"));
         assertEquals(Integer.valueOf(0), handler.convertCsvValueToDbType("T1", "BIT_COL", "f"));
         assertEquals(Integer.valueOf(10), handler.convertCsvValueToDbType("T1", "BIT_COL", "0x0A"));
-        assertEquals(Integer.valueOf(10),
-                handler.convertCsvValueToDbType("T1", "BIT_COL", "0X0A"));
+        assertEquals(Integer.valueOf(10), handler.convertCsvValueToDbType("T1", "BIT_COL", "0X0A"));
         assertEquals(Integer.valueOf(5), handler.convertCsvValueToDbType("T1", "BIT_COL", "101"));
         assertEquals(Integer.valueOf(7), handler.convertCsvValueToDbType("T1", "BIT_COL", "7"));
     }
@@ -1160,14 +1160,13 @@ public class MySqlDialectHandlerTest {
 
     @Test
     void convertCsvValueToDbType_正常ケース_DATE型とTIME型を指定する_日時型へ変換されること() throws Exception {
-        MySqlDialectHandler handler = createHandlerWithMeta("T1",
-                new ColumnDef("DATE_COL", Types.DATE, "date"),
-                new ColumnDef("TIME_COL", Types.TIME, "time"));
+        MySqlDialectHandler handler =
+                createHandlerWithMeta("T1", new ColumnDef("DATE_COL", Types.DATE, "date"),
+                        new ColumnDef("TIME_COL", Types.TIME, "time"));
 
         assertInstanceOf(Date.class,
                 handler.convertCsvValueToDbType("T1", "DATE_COL", "2026-02-15"));
-        assertInstanceOf(Time.class,
-                handler.convertCsvValueToDbType("T1", "TIME_COL", "01:02:03"));
+        assertInstanceOf(Time.class, handler.convertCsvValueToDbType("T1", "TIME_COL", "01:02:03"));
     }
 
     @Test
@@ -1194,7 +1193,8 @@ public class MySqlDialectHandlerTest {
     }
 
     @Test
-    void parseDateTimeValue_異常ケース_オフセット末尾が非数値である_IllegalArgumentExceptionが送出されること() throws Exception {
+    void parseDateTimeValue_異常ケース_オフセット末尾が非数値である_IllegalArgumentExceptionが送出されること()
+            throws Exception {
         MySqlDialectHandler handler = createHandler();
 
         assertThrows(IllegalArgumentException.class,

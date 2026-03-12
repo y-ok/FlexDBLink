@@ -457,7 +457,8 @@ class LobFileExporterTest {
         DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
-        when(filePatternConfig.getPatternsForTable("TCHAR_SPACE")).thenReturn(Collections.emptyMap());
+        when(filePatternConfig.getPatternsForTable("TCHAR_SPACE"))
+                .thenReturn(Collections.emptyMap());
 
         Connection conn = mock(Connection.class);
         when(conn.getCatalog()).thenReturn(null);
@@ -866,8 +867,8 @@ class LobFileExporterTest {
         Path dbDirPath = Files.createDirectories(tempDir.resolve("db_missing_csv_real"));
         Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
 
-        DumpResult result = new LobFileExporter(new FilePatternConfig()).export(mock(Connection.class),
-                "NOFILE2", dbDirPath.toFile(), filesDirPath.toFile(), "APP",
+        DumpResult result = new LobFileExporter(new FilePatternConfig()).export(
+                mock(Connection.class), "NOFILE2", dbDirPath.toFile(), filesDirPath.toFile(), "APP",
                 createDialectHandlerMock());
 
         assertEquals(0, result.getRowCount());
@@ -930,7 +931,8 @@ class LobFileExporterTest {
         DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
-        when(filePatternConfig.getPatternsForTable("TNCLOB_ERR")).thenReturn(Collections.emptyMap());
+        when(filePatternConfig.getPatternsForTable("TNCLOB_ERR"))
+                .thenReturn(Collections.emptyMap());
         when(filePatternConfig.getPattern("TNCLOB_ERR", "NCLOB_COL")).thenReturn(Optional.empty());
 
         Connection conn = mock(Connection.class);

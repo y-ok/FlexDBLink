@@ -36,9 +36,8 @@ class DbDialectHandlerFactoryTest {
     @Test
     void getConfigFactory_正常ケース_コンストラクタ指定の設定ファクトリを取得する_同一インスタンスが返ること() {
         DbUnitConfigFactory configFactory = mock(DbUnitConfigFactory.class);
-        DbDialectHandlerFactory factory =
-                new DbDialectHandlerFactory(new DbUnitConfig(), new DumpConfig(),
-                        new PathsConfig(), mock(DateTimeFormatUtil.class), configFactory);
+        DbDialectHandlerFactory factory = new DbDialectHandlerFactory(new DbUnitConfig(),
+                new DumpConfig(), new PathsConfig(), mock(DateTimeFormatUtil.class), configFactory);
 
         assertSame(configFactory, factory.getConfigFactory());
     }
@@ -191,8 +190,7 @@ class DbDialectHandlerFactoryTest {
     }
 
     @Test
-    void create_正常ケース_レガシーMySQLDriverかつURL未設定を指定する_MySqlDialectHandlerが返ること()
-            throws Exception {
+    void create_正常ケース_レガシーMySQLDriverかつURL未設定を指定する_MySqlDialectHandlerが返ること() throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
@@ -236,8 +234,7 @@ class DbDialectHandlerFactoryTest {
     }
 
     @Test
-    void create_正常ケース_新MySQLDriverかつURL未設定を指定する_MySqlDialectHandlerが返ること()
-            throws Exception {
+    void create_正常ケース_新MySQLDriverかつURL未設定を指定する_MySqlDialectHandlerが返ること() throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
@@ -281,8 +278,7 @@ class DbDialectHandlerFactoryTest {
     }
 
     @Test
-    void create_正常ケース_MySQLURL末尾スラッシュを指定する_デフォルトDB名でMySqlDialectHandlerが返ること()
-            throws Exception {
+    void create_正常ケース_MySQLURL末尾スラッシュを指定する_デフォルトDB名でMySqlDialectHandlerが返ること() throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
@@ -312,8 +308,8 @@ class DbDialectHandlerFactoryTest {
                             when(mock.getDataTypeFactory()).thenReturn(dataTypeFactory);
                         })) {
 
-            driverManagerMock.when(() -> DriverManager
-                    .getConnection("jdbc:mysql://localhost:3306/", "app", "pw"))
+            driverManagerMock.when(
+                    () -> DriverManager.getConnection("jdbc:mysql://localhost:3306/", "app", "pw"))
                     .thenReturn(jdbc);
 
             DbDialectHandler actual = factory.create(entry);
@@ -326,8 +322,7 @@ class DbDialectHandlerFactoryTest {
     }
 
     @Test
-    void create_正常ケース_MySQLURLスラッシュなしを指定する_デフォルトDB名でMySqlDialectHandlerが返ること()
-            throws Exception {
+    void create_正常ケース_MySQLURLスラッシュなしを指定する_デフォルトDB名でMySqlDialectHandlerが返ること() throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
@@ -357,8 +352,9 @@ class DbDialectHandlerFactoryTest {
                             when(mock.getDataTypeFactory()).thenReturn(dataTypeFactory);
                         })) {
 
-            driverManagerMock.when(() -> DriverManager.getConnection("jdbc:mysql:testdb", "app",
-                    "pw")).thenReturn(jdbc);
+            driverManagerMock
+                    .when(() -> DriverManager.getConnection("jdbc:mysql:testdb", "app", "pw"))
+                    .thenReturn(jdbc);
 
             DbDialectHandler actual = factory.create(entry);
             MySqlDialectHandler created = handlerMock.constructed().get(0);
@@ -370,8 +366,7 @@ class DbDialectHandlerFactoryTest {
     }
 
     @Test
-    void create_正常ケース_MySQLURLクエリ付きでDB名空を指定する_デフォルトDB名でMySqlDialectHandlerが返ること()
-            throws Exception {
+    void create_正常ケース_MySQLURLクエリ付きでDB名空を指定する_デフォルトDB名でMySqlDialectHandlerが返ること() throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
@@ -401,8 +396,10 @@ class DbDialectHandlerFactoryTest {
                             when(mock.getDataTypeFactory()).thenReturn(dataTypeFactory);
                         })) {
 
-            driverManagerMock.when(() -> DriverManager.getConnection(
-                    "jdbc:mysql://localhost:3306/?useSSL=false", "app", "pw")).thenReturn(jdbc);
+            driverManagerMock
+                    .when(() -> DriverManager.getConnection(
+                            "jdbc:mysql://localhost:3306/?useSSL=false", "app", "pw"))
+                    .thenReturn(jdbc);
 
             DbDialectHandler actual = factory.create(entry);
             MySqlDialectHandler created = handlerMock.constructed().get(0);
@@ -414,8 +411,7 @@ class DbDialectHandlerFactoryTest {
     }
 
     @Test
-    void create_正常ケース_PostgreSQLDriverClassを指定する_PostgresqlDialectHandlerが返ること()
-            throws Exception {
+    void create_正常ケース_PostgreSQLDriverClassを指定する_PostgresqlDialectHandlerが返ること() throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();
@@ -456,8 +452,7 @@ class DbDialectHandlerFactoryTest {
     }
 
     @Test
-    void create_正常ケース_SQLServerDriverClassを指定する_SqlServerDialectHandlerが返ること()
-            throws Exception {
+    void create_正常ケース_SQLServerDriverClassを指定する_SqlServerDialectHandlerが返ること() throws Exception {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
         DumpConfig dumpConfig = new DumpConfig();
         PathsConfig pathsConfig = new PathsConfig();

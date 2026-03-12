@@ -2102,8 +2102,8 @@ class LoadDataExtensionTest {
     }
 
     /**
-     * Creates a mock {@link ExtensionContext} whose required test class returns the given class
-     * and whose test method is empty.
+     * Creates a mock {@link ExtensionContext} whose required test class returns the given class and
+     * whose test method is empty.
      */
     private ExtensionContext mockContextForClass(Class<?> clazz) {
         ExtensionContext ctx = mock(ExtensionContext.class);
@@ -2113,8 +2113,8 @@ class LoadDataExtensionTest {
     }
 
     /**
-     * Builds a {@link TestResourceContext} from the given properties and installs it
-     * into the test target.
+     * Builds a {@link TestResourceContext} from the given properties and installs it into the test
+     * target.
      */
     private void setTrc(Properties props) throws Exception {
         TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
@@ -2122,8 +2122,8 @@ class LoadDataExtensionTest {
     }
 
     /**
-     * Creates a mock {@link DataSource} whose connection metadata returns the specified
-     * JDBC URL and user name.
+     * Creates a mock {@link DataSource} whose connection metadata returns the specified JDBC URL
+     * and user name.
      */
     private DataSource dataSourceWithMeta(String url, String user) throws Exception {
         DataSource ds = mock(DataSource.class);
@@ -2138,8 +2138,8 @@ class LoadDataExtensionTest {
 
     /**
      * Creates a mock {@link Store} backed by the given map, wiring it to the supplied
-     * {@link ExtensionContext} so that get, getOrComputeIfAbsent, and remove operations
-     * delegate to the map.
+     * {@link ExtensionContext} so that get, getOrComputeIfAbsent, and remove operations delegate to
+     * the map.
      */
     private Store mockStore(ExtensionContext context, Map<Object, Object> storeMap) {
         Store store = mock(Store.class);
@@ -2163,16 +2163,16 @@ class LoadDataExtensionTest {
     }
 
     /**
-     * Extracts the transaction manager bean name from the given interceptor by
-     * down-casting to {@link InspectableTransactionInterceptor}.
+     * Extracts the transaction manager bean name from the given interceptor by down-casting to
+     * {@link InspectableTransactionInterceptor}.
      */
     private String readTxManagerBeanName(TransactionInterceptor interceptor) {
         return ((InspectableTransactionInterceptor) interceptor).transactionManagerBeanName();
     }
 
     /**
-     * A subclass of {@link TransactionInterceptor} that exposes the otherwise
-     * inaccessible transaction manager bean name for test assertions.
+     * A subclass of {@link TransactionInterceptor} that exposes the otherwise inaccessible
+     * transaction manager bean name for test assertions.
      */
     private static final class InspectableTransactionInterceptor extends TransactionInterceptor {
 
@@ -2189,8 +2189,8 @@ class LoadDataExtensionTest {
     }
 
     /**
-     * Writes the given content to the specified path, creating parent directories
-     * if they do not exist and truncating any existing file.
+     * Writes the given content to the specified path, creating parent directories if they do not
+     * exist and truncating any existing file.
      */
     private void writeToFile(Path p, String content) throws IOException {
         Files.createDirectories(p.getParent());
@@ -2199,8 +2199,8 @@ class LoadDataExtensionTest {
     }
 
     /**
-     * Creates a minimal mock {@link DataSource} with a named dummy connection,
-     * suitable for tests that need a DataSource but do not inspect its data.
+     * Creates a minimal mock {@link DataSource} with a named dummy connection, suitable for tests
+     * that need a DataSource but do not inspect its data.
      */
     private DataSource dummyDataSource() throws Exception {
         Connection conn = mock(Connection.class, Mockito.withSettings().name("DummyConnection"));

@@ -167,8 +167,8 @@ class ScenarioDuplicateHandler {
                 }
                 for (int i = 0; i < wrapped.getRowCount(); i++) {
                     for (int j = 0; j < originalDbTable.getRowCount(); j++) {
-                        boolean match = rowsEqual(wrapped, originalDbTable, columnTypeNames,
-                                table, i, j, cols, dialectHandler);
+                        boolean match = rowsEqual(wrapped, originalDbTable, columnTypeNames, table,
+                                i, j, cols, dialectHandler);
                         if (match) {
                             identicalMap.put(i, j);
                             log.debug(
