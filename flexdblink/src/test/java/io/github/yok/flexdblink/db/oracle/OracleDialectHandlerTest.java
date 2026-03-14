@@ -1760,6 +1760,36 @@ public class OracleDialectHandlerTest {
     }
 
     @Test
+    void formatDateTimeColumn_正常ケース_未認識オブジェクトのZ表記を指定する_セッション時差へ正規化されること()
+            throws Exception {
+        DateTimeFormatSupport formatter = mock(DateTimeFormatSupport.class);
+        OracleDialectHandler handler = createHandler(formatter, mock(DbUnitConfigFactory.class));
+        Object rawValue = new Object() {
+            @Override
+            public String toString() {
+                return "2024-01-31 16:02:03 Z";
+            }
+        };
+        when(formatter.formatJdbcDateTime(eq("TSLTZ_COL"), eq(rawValue), any()))
+                .thenReturn(rawValue.toString());
+
+        String actual = handler.formatDateTimeColumn("TSLTZ_COL", rawValue, mock(Connection.class));
+
+        assertEquals("2024-02-01 01:02:03 +0900", actual);
+    }
+
+    @Test
+    void formatDateTimeColumn_正常ケース_OffsetDateTimeのUTC値を指定する_セッション時差へ正規化されること()
+            throws Exception {
+        OracleDialectHandler handler = createHandler();
+        OffsetDateTime rawValue = OffsetDateTime.parse("2024-01-31T16:02:03Z");
+
+        String actual = handler.formatDateTimeColumn("TSLTZ_COL", rawValue, mock(Connection.class));
+
+        assertEquals("2024-02-01 01:02:03 +0900", actual);
+    }
+
+    @Test
     public void formatDateTimeColumn_異常ケース_OracleTIMESTAMPTZでリージョン形式だが日付が不正_trimmedが返ること()
             throws Exception {
         OracleDialectHandler handler = createHandler();

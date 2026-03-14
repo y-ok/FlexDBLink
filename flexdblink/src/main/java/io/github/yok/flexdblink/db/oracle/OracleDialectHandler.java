@@ -35,12 +35,14 @@ import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
 import java.sql.Types;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.OffsetTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
@@ -602,6 +604,15 @@ public class OracleDialectHandler implements DbDialectHandler {
             if (isOracleTimestampWithTimeZoneValue(dbValue)) {
                 return formatOracleTimestampWithTimeZone(dbValue, conn);
             }
+            if (dbValue instanceof OffsetDateTime) {
+                return formatOracleSessionOffset((OffsetDateTime) dbValue);
+            }
+            if (dbValue instanceof ZonedDateTime) {
+                return formatOracleSessionOffset(((ZonedDateTime) dbValue).toOffsetDateTime());
+            }
+            if (dbValue instanceof Instant) {
+                return formatOracleSessionOffset(((Instant) dbValue).atOffset(ZoneOffset.UTC));
+            }
             if (dbValue instanceof String) {
                 String rawText = (String) dbValue;
                 String normalized = normalizeOracleTimestampWithTimeZone(rawText);
@@ -609,7 +620,11 @@ public class OracleDialectHandler implements DbDialectHandler {
                     return normalized;
                 }
             }
-            return dateTimeFormatter.formatJdbcDateTime(column, dbValue, conn);
+            String formatted = dateTimeFormatter.formatJdbcDateTime(column, dbValue, conn);
+            if (isOracleTimeZoneTextCandidate(formatted)) {
+                return normalizeOracleTimestampWithTimeZone(formatted);
+            }
+            return formatted;
         } catch (Exception e) {
             log.debug("Failed to format DATE/INTERVAL: column={} value={} → fallback to toString()",
                     column, dbValue, e);
@@ -657,9 +672,10 @@ public class OracleDialectHandler implements DbDialectHandler {
             return null;
         }
         String trimmed = raw.trim();
+        String canonical = trimmed.replaceFirst("^(\\d{4}-\\d{2}-\\d{2})T", "$1 ");
         String offsetPattern = "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})"
                 + "(?:\\.\\d+)? ([+-]?)(\\d{1,2}):(\\d{2})$";
-        Matcher offsetMatcher = Pattern.compile(offsetPattern).matcher(trimmed);
+        Matcher offsetMatcher = Pattern.compile(offsetPattern).matcher(canonical);
         if (offsetMatcher.matches()) {
             String sign = offsetMatcher.group(2);
             if (sign.isEmpty()) {
@@ -671,7 +687,7 @@ public class OracleDialectHandler implements DbDialectHandler {
         }
         Matcher regionMatcher = Pattern.compile(
                 "^(\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2})(?:\\.\\d+)? ([A-Za-z_]+/[A-Za-z_]+)$")
-                .matcher(trimmed);
+                .matcher(canonical);
         if (regionMatcher.matches()) {
             try {
                 LocalDateTime ldt = LocalDateTime.parse(regionMatcher.group(1), DATE_LITERAL_FMT);
@@ -683,15 +699,32 @@ public class OracleDialectHandler implements DbDialectHandler {
                 return trimmed;
             }
         }
-        OffsetDateTime offsetDateTime = parseOracleOffsetDateTime(trimmed);
+        OffsetDateTime offsetDateTime = parseOracleOffsetDateTime(canonical);
         if (offsetDateTime != null) {
             return formatOracleSessionOffset(offsetDateTime);
         }
-        ZonedDateTime zonedDateTime = parseOracleZonedDateTime(trimmed);
+        ZonedDateTime zonedDateTime = parseOracleZonedDateTime(canonical);
         if (zonedDateTime != null) {
             return formatOracleSessionOffset(zonedDateTime.toOffsetDateTime());
         }
-        return trimmed.replaceAll("\\.0+$", "");
+        return canonical.replaceAll("\\.0+$", "");
+    }
+
+    /**
+     * Returns whether text looks like a timezone-aware Oracle timestamp representation.
+     *
+     * @param value formatted text
+     * @return {@code true} when the text contains offset or timezone information
+     */
+    private boolean isOracleTimeZoneTextCandidate(String value) {
+        if (value == null) {
+            return false;
+        }
+        String trimmed = value.trim();
+        String pattern = "^\\d{4}-\\d{2}-\\d{2}[ T]\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?"
+                + "(?:(?: ?)(?:Z|UTC|[+-]?\\d{1,2}:\\d{2}|[A-Za-z_]+/[A-Za-z_]+)"
+                + "|(?:Z|[+-]\\d{2}:\\d{2}))$";
+        return Pattern.compile(pattern).matcher(trimmed).matches();
     }
 
     /**
