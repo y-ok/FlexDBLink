@@ -144,6 +144,7 @@ public class DataDumper {
 
                     // Create dialect handler
                     DbDialectHandler dialectHandler = dialectFactory.apply(entry);
+                    dialectHandler.prepareConnection(conn);
 
                     // Configure DBUnit connection
                     String schema = dialectHandler.resolveSchema(entry);

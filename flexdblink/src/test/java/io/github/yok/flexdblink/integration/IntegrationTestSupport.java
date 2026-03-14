@@ -224,6 +224,7 @@ final class IntegrationTestSupport {
             Path filesDir, DbDialectHandler dialectHandler) throws Exception {
 
         Map<String, Map<String, String>> csvRows = readCsvById(csvPath, idColumn);
+        dialectHandler.prepareConnection(conn);
 
         for (Map.Entry<String, Map<String, String>> entry : csvRows.entrySet()) {
             String id = entry.getKey();
