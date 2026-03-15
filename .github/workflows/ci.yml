@@ -55,12 +55,39 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: always() && matrix.java == '21'
-        uses: codecov/codecov-action@v5
-        with:
-          files: flexdblink/target/site/jacoco/jacoco.xml
-          flags: unittests,integration
-          fail_ci_if_error: false
-          verbose: true
+        run: |
+          set -euo pipefail
+
+          auth_token=""
+          if [ -n "${CODECOV_TOKEN:-}" ]; then
+            auth_token="${CODECOV_TOKEN}"
+          elif [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+            oidc_response="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://codecov.io")"
+            auth_token="$(echo "${oidc_response}" | jq -r '.value')"
+          fi
+
+          if [ -z "${auth_token}" ] || [ "${auth_token}" = "null" ]; then
+            echo "::warning::Codecov auth token could not be resolved. Coverage upload is skipped."
+            exit 0
+          fi
+
+          curl -fsSLo codecov https://cli.codecov.io/latest/linux/codecov
+          chmod +x codecov
+
+          set +e
+          ./codecov --verbose upload-process --disable-search \
+            -t "${auth_token}" \
+            -f flexdblink/target/site/jacoco/jacoco.xml \
+            -F unittests \
+            -F integration
+          upload_exit_code=$?
+          set -e
+
+          if [ "${upload_exit_code}" -ne 0 ]; then
+            echo "::warning::Codecov upload failed with exit code ${upload_exit_code}."
+          fi
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   maven-plugin-test:
     runs-on: ubuntu-latest
