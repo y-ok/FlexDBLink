@@ -184,9 +184,11 @@ public class PostgresqlIntegrationTest {
 
         Path dbDir = IntegrationTestSupport.executeDump(runtime, "dump_null_empty_case");
         Path filesDir = dbDir.resolve("files");
+        Path mainCsv = IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
 
         Map<String, String> mainRow = IntegrationTestSupport
-                .readCsvRowById(dbDir.resolve("IT_TYPED_MAIN.csv"), "ID", "99");
+                .readCsvRowById(mainCsv, "ID", "99");
         assertEquals("", mainRow.get("VC_COL"));
         assertEquals("file:main_empty_99.txt", mainRow.get("CLOB_COL"));
         assertEquals("", mainRow.get("NCLOB_COL"));
@@ -201,7 +203,7 @@ public class PostgresqlIntegrationTest {
         assertTrue(Files.notExists(filesDir.resolve("main_n_empty_99.txt")));
 
         Map<String, String> auxRow = IntegrationTestSupport
-                .readCsvRowById(dbDir.resolve("IT_TYPED_AUX.csv"), "ID", "99");
+                .readCsvRowById(auxCsv, "ID", "99");
         assertEquals("", auxRow.get("LABEL"));
         assertEquals("file:aux_empty_99.txt", auxRow.get("PAYLOAD_CLOB"));
         assertEquals("", auxRow.get("PAYLOAD_BLOB"));
