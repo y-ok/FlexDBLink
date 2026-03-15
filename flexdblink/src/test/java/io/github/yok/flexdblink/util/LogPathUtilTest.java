@@ -30,6 +30,5 @@ class LogPathUtilTest {
     void renderDirForLog_異常ケース_nullを指定する_NullPointerExceptionが送出されること() {
         assertThrows(NullPointerException.class, () -> LogPathUtil.renderDirForLog(null));
     }
-
 }
 

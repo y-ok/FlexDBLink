@@ -658,11 +658,11 @@ public class SqlServerDialectHandlerTest {
 
     @Test
     public void convertCsvValueToDbType_正常ケース_DBUnit曖昧型を検出する_JDBCへフォールバックすること() throws Exception {
-        Map<String, Column[]> dbUnitCols = Map.of("T1",
-                new Column[] {colMock("OTHER_TYPE", dataTypeMock(Types.OTHER, "json")),
+        Map<String, Column[]> dbUnitCols =
+                Map.of("T1", new Column[] {colMock("OTHER_TYPE", dataTypeMock(Types.OTHER, "json")),
                         colMock("UNKNOWN_NAME", dataTypeMock(Types.VARCHAR, "UNKNOWN"))});
-        Map<String, List<JdbcRow>> jdbcCols = Map.of("T1",
-                List.of(new JdbcRow("OTHER_TYPE", Types.INTEGER, "int"),
+        Map<String, List<JdbcRow>> jdbcCols =
+                Map.of("T1", List.of(new JdbcRow("OTHER_TYPE", Types.INTEGER, "int"),
                         new JdbcRow("UNKNOWN_NAME", Types.BIGINT, "bigint")));
 
         SqlServerDialectHandler handler = createHandlerDefault(List.of("T1"), dbUnitCols, jdbcCols);
@@ -672,8 +672,7 @@ public class SqlServerDialectHandlerTest {
     }
 
     @Test
-    public void convertCsvValueToDbType_正常ケース_型名ベースの判定を行う_各型が正しく変換されること()
-            throws Exception {
+    public void convertCsvValueToDbType_正常ケース_型名ベースの判定を行う_各型が正しく変換されること() throws Exception {
         Map<String, Column[]> dbUnitCols = Map.of("T1",
                 new Column[] {colMock("TXT_SQL", dataTypeMock(Types.CLOB, "othertext")),
                         colMock("BOOL_NAME", dataTypeMock(Types.OTHER, "bool")),
@@ -689,11 +688,10 @@ public class SqlServerDialectHandlerTest {
         Files.write(lobDir.resolve("blob.bin"), new byte[] {1, 2});
         Files.write(lobDir.resolve("binary.bin"), new byte[] {3, 4});
 
-        assertEquals("hello", handler.convertCsvValueToDbType("T1", "TXT_SQL",
-                "file:sql-text.txt"));
+        assertEquals("hello",
+                handler.convertCsvValueToDbType("T1", "TXT_SQL", "file:sql-text.txt"));
         assertEquals(Boolean.TRUE, handler.convertCsvValueToDbType("T1", "BOOL_NAME", "true"));
-        assertEquals("1.5",
-                handler.convertCsvValueToDbType("T1", "REAL_NAME", "1.5").toString());
+        assertEquals("1.5", handler.convertCsvValueToDbType("T1", "REAL_NAME", "1.5").toString());
         assertInstanceOf(Timestamp.class,
                 handler.convertCsvValueToDbType("T1", "DT_NAME", "2026-02-15 01:02:03+0900"));
 
@@ -708,9 +706,8 @@ public class SqlServerDialectHandlerTest {
 
     @Test
     public void convertCsvValueToDbType_正常ケース_整数型名で判定する_数値に変換されること() throws Exception {
-        Map<String, Column[]> dbUnitCols =
-                Map.of("T1", new Column[] {colMock("SMALL_BY_NAME",
-                        dataTypeMock(Types.OTHER, "smallint"))});
+        Map<String, Column[]> dbUnitCols = Map.of("T1",
+                new Column[] {colMock("SMALL_BY_NAME", dataTypeMock(Types.OTHER, "smallint"))});
         SqlServerDialectHandler handler = createHandlerDefault(List.of("T1"), dbUnitCols, Map.of());
 
         assertEquals(7, handler.convertCsvValueToDbType("T1", "SMALL_BY_NAME", "7"));
@@ -744,9 +741,8 @@ public class SqlServerDialectHandlerTest {
 
     @Test
     public void getLobColumns_正常ケース_SQL型でLOB判定する_CLOB列が抽出されること() throws Exception {
-        Map<String, Column[]> dbUnitCols =
-                Map.of("T_CLOB", new Column[] {colMock("CLOB_ONLY",
-                        dataTypeMock(Types.CLOB, "othertext"))});
+        Map<String, Column[]> dbUnitCols = Map.of("T_CLOB",
+                new Column[] {colMock("CLOB_ONLY", dataTypeMock(Types.CLOB, "othertext"))});
         SqlServerDialectHandler handler =
                 createHandlerDefault(List.of("T_CLOB"), dbUnitCols, Map.of());
 

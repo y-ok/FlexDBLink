@@ -7,8 +7,8 @@ import java.util.List;
  * Shared default values used across FlexDBLink modules.
  *
  * <p>
- * These constants represent cross-cutting defaults that are referenced by the core runtime,
- * the Maven plugin, and the JUnit extension.
+ * These constants represent cross-cutting defaults that are referenced by the core runtime, the
+ * Maven plugin, and the JUnit extension.
  * </p>
  *
  * @author Yasuharu.Okawauchi

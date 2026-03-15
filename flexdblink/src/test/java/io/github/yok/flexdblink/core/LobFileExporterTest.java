@@ -58,6 +58,14 @@ class LobFileExporterTest {
     }
 
     @Test
+    void applyPlaceholders_正常ケース_null値を指定する_null文字列へ置換されること() {
+        LobFileExporter exporter = new LobFileExporter(new FilePatternConfig());
+        Map<String, Object> keyMap = new LinkedHashMap<>();
+        keyMap.put("ID", null);
+        assertEquals("lob_null.bin", exporter.applyPlaceholders("lob_{ID}.bin", keyMap));
+    }
+
+    @Test
     void export_正常ケース_型別null処理とクォートSQLを適用すること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DbDialectHandler dialectHandler = createDialectHandlerMock();
@@ -449,7 +457,8 @@ class LobFileExporterTest {
         DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
                 .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
-        when(filePatternConfig.getPatternsForTable("TCHAR_SPACE")).thenReturn(Collections.emptyMap());
+        when(filePatternConfig.getPatternsForTable("TCHAR_SPACE"))
+                .thenReturn(Collections.emptyMap());
 
         Connection conn = mock(Connection.class);
         when(conn.getCatalog()).thenReturn(null);
@@ -854,6 +863,19 @@ class LobFileExporterTest {
     }
 
     @Test
+    void export_正常ケース_csvファイルが存在しない実設定を指定する_件数ゼロが返ること() throws Exception {
+        Path dbDirPath = Files.createDirectories(tempDir.resolve("db_missing_csv_real"));
+        Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
+
+        DumpResult result = new LobFileExporter(new FilePatternConfig()).export(
+                mock(Connection.class), "NOFILE2", dbDirPath.toFile(), filesDirPath.toFile(), "APP",
+                createDialectHandlerMock());
+
+        assertEquals(0, result.getRowCount());
+        assertEquals(0, result.getFileCount());
+    }
+
+    @Test
     void export_正常ケース_ヘッダにない列を含む_未定義列は無視されること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DbDialectHandler dialectHandler = createDialectHandlerMock();
@@ -901,6 +923,45 @@ class LobFileExporterTest {
             assertEquals(1, records.size());
             assertEquals("1", records.get(0).get("ID"));
         }
+    }
+
+    @Test
+    void export_異常ケース_NCLOB列でパターン未定義_IllegalStateExceptionが送出されること() throws Exception {
+        FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+        when(dialectHandler.quoteIdentifier(any()))
+                .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
+        when(filePatternConfig.getPatternsForTable("TNCLOB_ERR"))
+                .thenReturn(Collections.emptyMap());
+        when(filePatternConfig.getPattern("TNCLOB_ERR", "NCLOB_COL")).thenReturn(Optional.empty());
+
+        Connection conn = mock(Connection.class);
+        when(conn.getCatalog()).thenReturn(null);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        ResultSet pkRs = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("TNCLOB_ERR"))).thenReturn(pkRs);
+        when(pkRs.next()).thenReturn(false);
+        Statement stmt = mock(Statement.class);
+        when(conn.createStatement()).thenReturn(stmt);
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery("SELECT * FROM \"TNCLOB_ERR\"")).thenReturn(rs);
+        ResultSetMetaData md = mock(ResultSetMetaData.class);
+        when(rs.getMetaData()).thenReturn(md);
+        when(md.getColumnCount()).thenReturn(1);
+        when(md.getColumnLabel(1)).thenReturn("NCLOB_COL");
+        when(md.getColumnType(1)).thenReturn(Types.NCLOB);
+        when(rs.next()).thenReturn(true, false);
+        when(rs.getObject(1)).thenReturn("nclob-body");
+
+        Path dbDirPath = Files.createDirectories(tempDir.resolve("db_nclob_err"));
+        Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
+        Path csvPath = dbDirPath.resolve("TNCLOB_ERR.csv");
+        Files.writeString(csvPath, "NCLOB_COL\nx\n", StandardCharsets.UTF_8);
+
+        assertThrows(IllegalStateException.class,
+                () -> new LobFileExporter(filePatternConfig).export(conn, "TNCLOB_ERR",
+                        dbDirPath.toFile(), filesDirPath.toFile(), "APP", dialectHandler));
     }
 
     /**

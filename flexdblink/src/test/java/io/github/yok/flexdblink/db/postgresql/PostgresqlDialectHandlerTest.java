@@ -685,7 +685,8 @@ public class PostgresqlDialectHandlerTest {
     }
 
     /**
-     * Creates a PostgresqlDialectHandler with explicit dependencies, auto-generating DbUnit columns from definitions.
+     * Creates a PostgresqlDialectHandler with explicit dependencies, auto-generating DbUnit columns
+     * from definitions.
      *
      * @param formatter date-time format utility
      * @param configFactory DbUnit configuration factory
@@ -880,22 +881,21 @@ public class PostgresqlDialectHandlerTest {
 
     @Test
     void convertCsvValueToDbType_正常ケース_DBUnit型がOTHERである_JDBCメタデータへフォールバックすること() throws Exception {
-        PostgresqlDialectHandler handler =
-                createHandlerWithMeta(mock(DateTimeFormatUtil.class),
-                        mock(DbUnitConfigFactory.class), "T1",
-                        new Column[] {colMock("C1", dataTypeMock(Types.OTHER, "json"))},
-                        new ColumnDef("C1", Types.INTEGER, "int4"));
+        PostgresqlDialectHandler handler = createHandlerWithMeta(mock(DateTimeFormatUtil.class),
+                mock(DbUnitConfigFactory.class), "T1",
+                new Column[] {colMock("C1", dataTypeMock(Types.OTHER, "json"))},
+                new ColumnDef("C1", Types.INTEGER, "int4"));
 
         assertEquals(123, handler.convertCsvValueToDbType("T1", "C1", "123"));
     }
 
     @Test
-    void convertCsvValueToDbType_正常ケース_DBUnit型名がUNKNOWNである_JDBCメタデータへフォールバックすること() throws Exception {
-        PostgresqlDialectHandler handler =
-                createHandlerWithMeta(mock(DateTimeFormatUtil.class),
-                        mock(DbUnitConfigFactory.class), "T1",
-                        new Column[] {colMock("C1", dataTypeMock(Types.INTEGER, "UNKNOWN"))},
-                        new ColumnDef("C1", Types.INTEGER, "int4"));
+    void convertCsvValueToDbType_正常ケース_DBUnit型名がUNKNOWNである_JDBCメタデータへフォールバックすること()
+            throws Exception {
+        PostgresqlDialectHandler handler = createHandlerWithMeta(mock(DateTimeFormatUtil.class),
+                mock(DbUnitConfigFactory.class), "T1",
+                new Column[] {colMock("C1", dataTypeMock(Types.INTEGER, "UNKNOWN"))},
+                new ColumnDef("C1", Types.INTEGER, "int4"));
 
         assertEquals(123, handler.convertCsvValueToDbType("T1", "C1", "123"));
     }
@@ -942,7 +942,8 @@ public class PostgresqlDialectHandlerTest {
     }
 
     @Test
-    void convertCsvValueToDbType_異常ケース_file参照先がディレクトリである_DataSetExceptionが送出されること() throws Exception {
+    void convertCsvValueToDbType_異常ケース_file参照先がディレクトリである_DataSetExceptionが送出されること()
+            throws Exception {
         PostgresqlDialectHandler handler =
                 createHandlerWithMeta("T1", new ColumnDef("BYTEA_COL", Types.BINARY, "bytea"));
         Path filesDir = tempDir.resolve("dump").resolve("files");
@@ -955,7 +956,8 @@ public class PostgresqlDialectHandlerTest {
     }
 
     @Test
-    void convertCsvValueToDbType_異常ケース_file参照で非LOB型を指定する_DataSetExceptionが送出されること() throws Exception {
+    void convertCsvValueToDbType_異常ケース_file参照で非LOB型を指定する_DataSetExceptionが送出されること()
+            throws Exception {
         PostgresqlDialectHandler handler =
                 createHandlerWithMeta("T1", new ColumnDef("INT_COL", Types.INTEGER, "int4"));
         Path filesDir = tempDir.resolve("dump").resolve("files");
@@ -974,8 +976,7 @@ public class PostgresqlDialectHandlerTest {
         Files.createDirectories(filesDir);
         Files.writeString(filesDir.resolve("clob.txt"), "hello", StandardCharsets.UTF_8);
 
-        assertEquals("hello",
-                handler.convertCsvValueToDbType("T1", "CLOB_COL", "file:clob.txt"));
+        assertEquals("hello", handler.convertCsvValueToDbType("T1", "CLOB_COL", "file:clob.txt"));
     }
 
     @Test
@@ -988,22 +989,20 @@ public class PostgresqlDialectHandlerTest {
 
     @Test
     void convertCsvValueToDbType_正常ケース_DATE型とTIME型を指定する_日時型へ変換されること() throws Exception {
-        PostgresqlDialectHandler handler = createHandlerWithMeta("T1",
-                new ColumnDef("DATE_COL", Types.DATE, "date"),
-                new ColumnDef("TIME_COL", Types.TIME, "time"));
+        PostgresqlDialectHandler handler =
+                createHandlerWithMeta("T1", new ColumnDef("DATE_COL", Types.DATE, "date"),
+                        new ColumnDef("TIME_COL", Types.TIME, "time"));
 
         assertInstanceOf(Date.class,
                 handler.convertCsvValueToDbType("T1", "DATE_COL", "2026-02-15"));
-        assertInstanceOf(Time.class,
-                handler.convertCsvValueToDbType("T1", "TIME_COL", "01:02:03"));
+        assertInstanceOf(Time.class, handler.convertCsvValueToDbType("T1", "TIME_COL", "01:02:03"));
     }
 
     @Test
     void parseDateTimeValue_正常ケース_4桁時刻を指定する_Timeが返ること() throws Exception {
         PostgresqlDialectHandler handler = createHandler();
 
-        assertEquals(Time.valueOf("01:02:00"),
-                handler.parseDateTimeValue("time_col", "0102"));
+        assertEquals(Time.valueOf("01:02:00"), handler.parseDateTimeValue("time_col", "0102"));
     }
 
     @Test
@@ -1015,7 +1014,8 @@ public class PostgresqlDialectHandlerTest {
     }
 
     @Test
-    void parseDateTimeValue_異常ケース_オフセット末尾が非数値である_IllegalArgumentExceptionが送出されること() throws Exception {
+    void parseDateTimeValue_異常ケース_オフセット末尾が非数値である_IllegalArgumentExceptionが送出されること()
+            throws Exception {
         PostgresqlDialectHandler handler = createHandler();
 
         assertThrows(IllegalArgumentException.class,

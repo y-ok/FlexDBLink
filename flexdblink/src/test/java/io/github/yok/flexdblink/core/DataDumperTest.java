@@ -279,6 +279,7 @@ class DataDumperTest {
             dumper.execute("scenario", List.of("db1"));
         }
 
+        verify(dialectHandler).prepareConnection(conn);
         verify(dialectHandler).createDbUnitConnection(conn, "APP");
         verify(dbConn).close();
     }

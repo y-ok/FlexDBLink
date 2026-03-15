@@ -1267,9 +1267,8 @@ class DataLoaderTest {
         try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
             factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                     .thenReturn(dataSetWrapper.dataSet);
-            assertThrows(IllegalStateException.class,
-                    () -> deployWithConnection(loader, dir.toFile(), "db1", entry,
-                            mock(Connection.class), dialect, "fatal"));
+            assertThrows(IllegalStateException.class, () -> deployWithConnection(loader,
+                    dir.toFile(), "db1", entry, mock(Connection.class), dialect, "fatal"));
         } finally {
             ErrorHandler.restoreExitForCurrentThread();
         }
@@ -1421,8 +1420,7 @@ class DataLoaderTest {
     }
 
     @Test
-    void execute_正常ケース_除外対象のデータセットファイルを含む_除外テーブルを除いてロードされること()
-            throws Exception {
+    void execute_正常ケース_除外対象のデータセットファイルを含む_除外テーブルを除いてロードされること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
 
@@ -1454,8 +1452,8 @@ class DataLoaderTest {
         when(dialect.getLobColumns(any(), eq("T1"))).thenReturn(new Column[0]);
         when(dialect.countRows(jdbc, "T1")).thenReturn(1);
 
-        DataLoader loader = new DataLoader(pathsConfig, connectionConfig, e -> dialect, dbUnitConfig,
-                dumpConfig);
+        DataLoader loader = new DataLoader(pathsConfig, connectionConfig, e -> dialect,
+                dbUnitConfig, dumpConfig);
 
         SimpleDataSetWrapper dataSetWrapper = buildSimpleDataSet("T1", 1, "ID", "1");
         DatabaseOperation clean = mock(DatabaseOperation.class);
@@ -1883,8 +1881,7 @@ class DataLoaderTest {
     }
 
     @Test
-    void deleteAllInReverseOrder_正常ケース_tablesがnullである_早期リターンしてdbConnを呼ばないこと()
-            throws Exception {
+    void deleteAllInReverseOrder_正常ケース_tablesがnullである_早期リターンしてdbConnを呼ばないこと() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));
@@ -1896,8 +1893,7 @@ class DataLoaderTest {
     }
 
     @Test
-    void deleteAllInReverseOrder_正常ケース_tablesが空である_早期リターンしてdbConnを呼ばないこと()
-            throws Exception {
+    void deleteAllInReverseOrder_正常ケース_tablesが空である_早期リターンしてdbConnを呼ばないこと() throws Exception {
         DataLoader loader = new DataLoader(mock(PathsConfig.class), mock(ConnectionConfig.class),
                 e -> mock(DbDialectHandler.class), mock(DbUnitConfig.class),
                 mock(DumpConfig.class));

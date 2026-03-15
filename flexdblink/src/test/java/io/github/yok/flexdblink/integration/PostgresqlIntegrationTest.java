@@ -21,9 +21,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.context.ContextConfiguration;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -171,8 +171,7 @@ public class PostgresqlIntegrationTest {
     }
 
     @Test
-    public void execute_正常ケース_FK制約あり_tableOrderingが毎回再生成されてロードが成功すること()
-            throws Exception {
+    public void execute_正常ケース_FK制約あり_tableOrderingが毎回再生成されてロードが成功すること() throws Exception {
         Path dataPath = tempDir.resolve("fk_load_no_ordering");
         IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
                 true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
@@ -194,8 +193,7 @@ public class PostgresqlIntegrationTest {
     }
 
     @Test
-    public void execute_正常ケース_FK制約あり_FK解決でアルファベット順が修正されてロードが成功すること()
-            throws Exception {
+    public void execute_正常ケース_FK制約あり_FK解決でアルファベット順が修正されてロードが成功すること() throws Exception {
         Path dataPath = tempDir.resolve("fk_load_reversed_ordering");
         IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
                 true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
@@ -225,10 +223,8 @@ public class PostgresqlIntegrationTest {
 
         Path dbDir = IntegrationTestSupport.executeDump(runtime, "fk_dump_case");
 
-        Path mainCsv =
-                IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
-        Path auxCsv =
-                IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
+        Path mainCsv = IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
         assertTrue(Files.exists(mainCsv));
         assertTrue(Files.exists(auxCsv));
 
@@ -260,10 +256,8 @@ public class PostgresqlIntegrationTest {
         IntegrationTestSupport.executeLoad(runtime, "pre");
         Path dbDir = IntegrationTestSupport.executeDump(runtime, "fk_roundtrip_case");
 
-        Path mainCsv =
-                IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
-        Path auxCsv =
-                IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
+        Path mainCsv = IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
         assertTrue(Files.exists(mainCsv));
         assertTrue(Files.exists(auxCsv));
 
@@ -274,8 +268,7 @@ public class PostgresqlIntegrationTest {
     }
 
     @Test
-    public void execute_正常ケース_FK制約なし_tableOrderingが毎回再生成されてロードが成功すること()
-            throws Exception {
+    public void execute_正常ケース_FK制約なし_tableOrderingが毎回再生成されてロードが成功すること() throws Exception {
         IntegrationTestSupport.prepareDatabaseWithoutFk(postgres, MIGRATION);
         Path dataPath = tempDir.resolve("nofk_load_no_ordering");
         IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
@@ -330,10 +323,8 @@ public class PostgresqlIntegrationTest {
 
         Path dbDir = IntegrationTestSupport.executeDump(runtime, "nofk_dump_case");
 
-        Path mainCsv =
-                IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
-        Path auxCsv =
-                IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
+        Path mainCsv = IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
         assertTrue(Files.exists(mainCsv));
         assertTrue(Files.exists(auxCsv));
 
@@ -366,10 +357,8 @@ public class PostgresqlIntegrationTest {
         IntegrationTestSupport.executeLoad(runtime, "pre");
         Path dbDir = IntegrationTestSupport.executeDump(runtime, "nofk_roundtrip_case");
 
-        Path mainCsv =
-                IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
-        Path auxCsv =
-                IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
+        Path mainCsv = IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_MAIN.csv");
+        Path auxCsv = IntegrationTestSupport.resolveFileIgnoreCase(dbDir, "IT_TYPED_AUX.csv");
         assertTrue(Files.exists(mainCsv));
         assertTrue(Files.exists(auxCsv));
 

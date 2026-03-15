@@ -57,10 +57,10 @@ class MainMultiDbIntegrationTest {
     private static final String MYSQL_ID = "my";
     private static final String SQLSERVER_ID = "ss";
 
-    private static final Map<String, String> DRIVER_CLASSES = Map.of("oracle",
-            "oracle.jdbc.OracleDriver", "postgresql", "org.postgresql.Driver", "mysql",
-            "com.mysql.cj.jdbc.Driver", "sqlserver",
-            "com.microsoft.sqlserver.jdbc.SQLServerDriver");
+    private static final Map<String, String> DRIVER_CLASSES =
+            Map.of("oracle", "oracle.jdbc.OracleDriver", "postgresql", "org.postgresql.Driver",
+                    "mysql", "com.mysql.cj.jdbc.Driver", "sqlserver",
+                    "com.microsoft.sqlserver.jdbc.SQLServerDriver");
 
     @Container
     static final OracleContainer ORACLE = new OracleContainer("gvenzl/oracle-free:slim-faststart");
