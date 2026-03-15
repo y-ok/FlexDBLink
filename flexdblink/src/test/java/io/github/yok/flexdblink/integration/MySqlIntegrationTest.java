@@ -41,6 +41,8 @@ import org.testcontainers.mysql.MySQLContainer;
 public class MySqlIntegrationTest {
 
     private static final String MIGRATION = "classpath:db/migration/mysql";
+    private static final String MIGRATION_NULL_EMPTY = "classpath:db/migration_extra/mysql";
+    private static final String MIGRATION_FK_HIERARCHY = "classpath:db/migration_extra_fk/mysql";
     private static final String DB_NAME = "mysql";
 
 
@@ -171,13 +173,65 @@ public class MySqlIntegrationTest {
     }
 
     @Test
+    public void execute_正常ケース_nullと空LOBを含むデータをダンプする_CSV表現とLOBファイル内容が期待どおりであること() throws Exception {
+        Path dataPath = tempDir.resolve("dump_null_empty_data");
+        IntegrationTestSupport.prepareDatabase(mysql, MIGRATION, MIGRATION_NULL_EMPTY);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                false, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
+
+        Path dbDir = IntegrationTestSupport.executeDump(runtime, "dump_null_empty_case");
+        Path filesDir = dbDir.resolve("files");
+
+        String mainCsv =
+                Files.readString(dbDir.resolve("IT_TYPED_MAIN.csv"), StandardCharsets.UTF_8);
+        String mainRow = mainCsv.lines().filter(line -> line.startsWith("99,")).findFirst()
+                .orElseThrow(() -> new IllegalStateException(
+                        "ID=99 row not found in IT_TYPED_MAIN.csv"));
+        assertTrue(mainRow.contains(
+                ",file:main_empty_99.txt,,file:main_tiny_empty_99.bin,file:main_medium_empty_99.bin,file:main_long_empty_99.bin,file:main_empty_99.bin,empty"));
+
+        Path emptyClobFile = filesDir.resolve("main_empty_99.txt");
+        Path emptyTinyBlobFile = filesDir.resolve("main_tiny_empty_99.bin");
+        Path emptyMediumBlobFile = filesDir.resolve("main_medium_empty_99.bin");
+        Path emptyLongBlobFile = filesDir.resolve("main_long_empty_99.bin");
+        Path emptyBlobFile = filesDir.resolve("main_empty_99.bin");
+        assertTrue(Files.exists(emptyClobFile));
+        assertTrue(Files.exists(emptyTinyBlobFile));
+        assertTrue(Files.exists(emptyMediumBlobFile));
+        assertTrue(Files.exists(emptyLongBlobFile));
+        assertTrue(Files.exists(emptyBlobFile));
+        assertEquals(0L, Files.size(emptyClobFile));
+        assertEquals(0L, Files.size(emptyTinyBlobFile));
+        assertEquals(0L, Files.size(emptyMediumBlobFile));
+        assertEquals(0L, Files.size(emptyLongBlobFile));
+        assertEquals(0L, Files.size(emptyBlobFile));
+        assertTrue(Files.notExists(filesDir.resolve("main_n_empty_99.txt")));
+
+        String auxCsv = Files.readString(dbDir.resolve("IT_TYPED_AUX.csv"), StandardCharsets.UTF_8);
+        String auxRow =
+                auxCsv.lines().filter(line -> line.startsWith("99,")).findFirst().orElseThrow(
+                        () -> new IllegalStateException("ID=99 row not found in IT_TYPED_AUX.csv"));
+        assertTrue(auxRow.contains("99,99,,,,file:aux_empty_99.txt,,empty"));
+
+        Path emptyAuxClobFile = filesDir.resolve("aux_empty_99.txt");
+        assertTrue(Files.exists(emptyAuxClobFile));
+        assertEquals(0L, Files.size(emptyAuxClobFile));
+        assertTrue(Files.notExists(filesDir.resolve("aux_empty_99.bin")));
+    }
+
+    @Test
     public void execute_正常ケース_FK制約あり_tableOrderingが毎回再生成されてロードが成功すること() throws Exception {
         Path dataPath = tempDir.resolve("fk_load_no_ordering");
         IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
                 true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
                 filePatternConfig, dialectFactory);
+        Path orderingPath = IntegrationTestSupport.resolveTableOrderingPath(dataPath, "pre", "db1");
+        Files.deleteIfExists(orderingPath);
+        assertTrue(Files.notExists(orderingPath));
 
         IntegrationTestSupport.executeLoad(runtime, "pre");
+        assertTrue(Files.notExists(orderingPath));
 
         try (Connection conn = IntegrationTestSupport.openConnection(mysql);
                 Statement st = conn.createStatement()) {
@@ -186,6 +240,16 @@ public class MySqlIntegrationTest {
                 assertEquals(6, rs.getInt(1));
             }
             try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX a "
+                    + "LEFT JOIN IT_TYPED_MAIN m ON m.ID = a.MAIN_ID WHERE m.ID IS NULL")) {
+                assertTrue(rs.next());
+                assertEquals(0, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX a "
+                    + "INNER JOIN IT_TYPED_MAIN m ON m.ID = a.MAIN_ID")) {
                 assertTrue(rs.next());
                 assertEquals(2, rs.getInt(1));
             }
@@ -210,6 +274,64 @@ public class MySqlIntegrationTest {
             try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
                 assertTrue(rs.next());
                 assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    public void execute_正常ケース_FK制約あり_4世代の親子テーブルをtableOrdering未配置でロードする_FK整合で全件登録されること()
+            throws Exception {
+        Path dataPath = tempDir.resolve("fk_hierarchy_load_no_ordering");
+        IntegrationTestSupport.prepareDatabase(mysql, MIGRATION, MIGRATION_FK_HIERARCHY);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                false, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
+        String fixtureScenario = "fk_hierarchy";
+        String loadScenario = "pre";
+        IntegrationTestSupport.copyLoadScenarioFixtures(dataPath, DB_NAME, fixtureScenario,
+                loadScenario);
+
+        Path orderingPath =
+                IntegrationTestSupport.resolveTableOrderingPath(dataPath, loadScenario, "db1");
+        Files.deleteIfExists(orderingPath);
+        assertTrue(Files.notExists(orderingPath));
+
+        IntegrationTestSupport.executeLoad(runtime, loadScenario);
+        assertTrue(Files.notExists(orderingPath));
+
+        try (Connection conn = IntegrationTestSupport.openConnection(mysql);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_ROOT")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_CHILD")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_GRANDCHILD")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_GREATGRANDCHILD")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_CHILD c "
+                    + "LEFT JOIN IT_FK_ROOT p ON p.ID = c.ROOT_ID WHERE p.ID IS NULL")) {
+                assertTrue(rs.next());
+                assertEquals(0, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_GRANDCHILD c "
+                    + "LEFT JOIN IT_FK_CHILD p ON p.ID = c.CHILD_ID WHERE p.ID IS NULL")) {
+                assertTrue(rs.next());
+                assertEquals(0, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_GREATGRANDCHILD c "
+                    + "LEFT JOIN IT_FK_GRANDCHILD p ON p.ID = c.GRANDCHILD_ID "
+                    + "WHERE p.ID IS NULL")) {
+                assertTrue(rs.next());
+                assertEquals(0, rs.getInt(1));
             }
         }
     }

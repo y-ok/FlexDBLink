@@ -44,6 +44,8 @@ import org.testcontainers.oracle.OracleContainer;
 class OracleIntegrationTest {
 
     private static final String MIGRATION = "classpath:db/migration/oracle";
+    private static final String MIGRATION_NULL_EMPTY = "classpath:db/migration_extra/oracle";
+    private static final String MIGRATION_FK_HIERARCHY = "classpath:db/migration_extra_fk/oracle";
     private static final String DB_NAME = "oracle";
 
     @Container
@@ -210,21 +212,12 @@ class OracleIntegrationTest {
     @Test
     void execute_正常ケース_nullと空LOBを含むデータをダンプする_CSV表現とLOBファイル内容が期待どおりであること() throws Exception {
         Path dataPath = tempDir.resolve("dump_null_empty_data");
+        IntegrationTestSupport.prepareDatabase(ORACLE, MIGRATION, MIGRATION_NULL_EMPTY);
         IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
                 false, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
                 filePatternConfig, dialectFactory);
 
-        try (Connection conn = IntegrationTestSupport.openConnection(ORACLE);
-                Statement st = conn.createStatement()) {
-            st.execute("INSERT INTO IT_TYPED_MAIN (ID, VC_COL, CHAR_COL, NVC_COL, NCHAR_COL, "
-                    + "CLOB_COL, NCLOB_COL, BLOB_COL, LOB_KIND) "
-                    + "VALUES (99, NULL, NULL, NULL, NULL, EMPTY_CLOB(), NULL, EMPTY_BLOB(), 'empty')");
-            st.execute(
-                    "INSERT INTO IT_TYPED_AUX (ID, MAIN_ID, LABEL, PAYLOAD_CLOB, PAYLOAD_BLOB, LOB_KIND) "
-                            + "VALUES (99, 99, NULL, NULL, NULL, 'nullcase')");
-        }
-
-        Path dbDir = IntegrationTestSupport.executeDump(runtime, "it_dump_null_empty_case");
+        Path dbDir = IntegrationTestSupport.executeDump(runtime, "dump_null_empty_case");
         Path filesDir = dbDir.resolve("files");
 
         Map<String, String> mainRow = IntegrationTestSupport
@@ -247,10 +240,13 @@ class OracleIntegrationTest {
         Map<String, String> auxRow = IntegrationTestSupport
                 .readCsvRowById(dbDir.resolve("IT_TYPED_AUX.csv"), "ID", "99");
         assertEquals("", auxRow.get("LABEL"));
-        assertEquals("", auxRow.get("PAYLOAD_CLOB"));
+        assertEquals("file:aux_empty_99.txt", auxRow.get("PAYLOAD_CLOB"));
         assertEquals("", auxRow.get("PAYLOAD_BLOB"));
-        assertTrue(Files.notExists(filesDir.resolve("aux_nullcase_99.txt")));
-        assertTrue(Files.notExists(filesDir.resolve("aux_nullcase_99.bin")));
+        assertEquals("empty", auxRow.get("LOB_KIND"));
+        Path emptyAuxClobFile = filesDir.resolve("aux_empty_99.txt");
+        assertTrue(Files.exists(emptyAuxClobFile));
+        assertEquals(0L, Files.size(emptyAuxClobFile));
+        assertTrue(Files.notExists(filesDir.resolve("aux_empty_99.bin")));
     }
 
     @Test
@@ -283,8 +279,12 @@ class OracleIntegrationTest {
         IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
                 true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
                 filePatternConfig, dialectFactory);
+        Path orderingPath = IntegrationTestSupport.resolveTableOrderingPath(dataPath, "pre", "db1");
+        Files.deleteIfExists(orderingPath);
+        assertTrue(Files.notExists(orderingPath));
 
         IntegrationTestSupport.executeLoad(runtime, "pre");
+        assertTrue(Files.notExists(orderingPath));
 
         try (Connection conn = IntegrationTestSupport.openConnection(ORACLE);
                 Statement st = conn.createStatement()) {
@@ -293,6 +293,16 @@ class OracleIntegrationTest {
                 assertEquals(6, rs.getInt(1));
             }
             try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX a "
+                    + "LEFT JOIN IT_TYPED_MAIN m ON m.ID = a.MAIN_ID WHERE m.ID IS NULL")) {
+                assertTrue(rs.next());
+                assertEquals(0, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX a "
+                    + "INNER JOIN IT_TYPED_MAIN m ON m.ID = a.MAIN_ID")) {
                 assertTrue(rs.next());
                 assertEquals(2, rs.getInt(1));
             }
@@ -317,6 +327,63 @@ class OracleIntegrationTest {
             try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_TYPED_AUX")) {
                 assertTrue(rs.next());
                 assertEquals(2, rs.getInt(1));
+            }
+        }
+    }
+
+    @Test
+    void execute_正常ケース_FK制約あり_4世代の親子テーブルをtableOrdering未配置でロードする_FK整合で全件登録されること() throws Exception {
+        Path dataPath = tempDir.resolve("fk_hierarchy_load_no_ordering");
+        IntegrationTestSupport.prepareDatabase(ORACLE, MIGRATION, MIGRATION_FK_HIERARCHY);
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                false, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
+        String fixtureScenario = "fk_hierarchy";
+        String loadScenario = "pre";
+        IntegrationTestSupport.copyLoadScenarioFixtures(dataPath, DB_NAME, fixtureScenario,
+                loadScenario);
+
+        Path orderingPath =
+                IntegrationTestSupport.resolveTableOrderingPath(dataPath, loadScenario, "db1");
+        Files.deleteIfExists(orderingPath);
+        assertTrue(Files.notExists(orderingPath));
+
+        IntegrationTestSupport.executeLoad(runtime, loadScenario);
+        assertTrue(Files.notExists(orderingPath));
+
+        try (Connection conn = IntegrationTestSupport.openConnection(ORACLE);
+                Statement st = conn.createStatement()) {
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_ROOT")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_CHILD")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_GRANDCHILD")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_GREATGRANDCHILD")) {
+                assertTrue(rs.next());
+                assertEquals(2, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_CHILD c "
+                    + "LEFT JOIN IT_FK_ROOT p ON p.ID = c.ROOT_ID WHERE p.ID IS NULL")) {
+                assertTrue(rs.next());
+                assertEquals(0, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_GRANDCHILD c "
+                    + "LEFT JOIN IT_FK_CHILD p ON p.ID = c.CHILD_ID WHERE p.ID IS NULL")) {
+                assertTrue(rs.next());
+                assertEquals(0, rs.getInt(1));
+            }
+            try (ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM IT_FK_GREATGRANDCHILD c "
+                    + "LEFT JOIN IT_FK_GRANDCHILD p ON p.ID = c.GRANDCHILD_ID "
+                    + "WHERE p.ID IS NULL")) {
+                assertTrue(rs.next());
+                assertEquals(0, rs.getInt(1));
             }
         }
     }

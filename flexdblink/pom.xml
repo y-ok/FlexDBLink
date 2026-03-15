@@ -516,6 +516,9 @@
 						<DOCKER_API_VERSION>1.53</DOCKER_API_VERSION>
 						<TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>/var/run/docker.sock</TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE>
 					</environmentVariables>
+					<systemPropertyVariables>
+						<java.util.logging.config.file>${project.basedir}/src/test/resources/logging-test.properties</java.util.logging.config.file>
+					</systemPropertyVariables>
 				</configuration>
 			</plugin>
 			<plugin>

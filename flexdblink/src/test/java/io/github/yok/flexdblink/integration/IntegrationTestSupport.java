@@ -15,6 +15,7 @@ import io.github.yok.flexdblink.core.DataLoader;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.util.CsvUtils;
+import io.github.yok.flexdblink.util.TableOrderingFile;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -62,24 +63,24 @@ final class IntegrationTestSupport {
      * Starts the container and initializes the test schema with Flyway (all migrations).
      *
      * @param container JDBC container
-     * @param migrationLocation Flyway migration location (e.g.
+     * @param migrationLocations one or more Flyway migration locations (e.g.
      *        {@code classpath:db/migration/mysql})
      */
-    static void prepareDatabase(JdbcDatabaseContainer<?> container, String migrationLocation) {
+    static void prepareDatabase(JdbcDatabaseContainer<?> container, String... migrationLocations) {
         ensureContainerRunning(container);
-        migrate(container, migrationLocation);
+        migrate(container, migrationLocations);
     }
 
     /**
      * Starts the container and initializes the schema without FK constraints (up to V2).
      *
      * @param container JDBC container
-     * @param migrationLocation Flyway migration location
+     * @param migrationLocations one or more Flyway migration locations
      */
     static void prepareDatabaseWithoutFk(JdbcDatabaseContainer<?> container,
-            String migrationLocation) {
+            String... migrationLocations) {
         ensureContainerRunning(container);
-        migrateWithoutFk(container, migrationLocation);
+        migrateWithoutFk(container, migrationLocations);
     }
 
     /**
@@ -350,13 +351,13 @@ final class IntegrationTestSupport {
      * Runs Flyway clean and migrate against the container.
      *
      * @param container JDBC container
-     * @param migrationLocation Flyway migration location
+     * @param migrationLocations one or more Flyway migration locations
      */
-    private static void migrate(JdbcDatabaseContainer<?> container, String migrationLocation) {
+    private static void migrate(JdbcDatabaseContainer<?> container, String... migrationLocations) {
         Flyway flyway = Flyway
                 .configure().cleanDisabled(false).dataSource(container.getJdbcUrl(),
                         container.getUsername(), container.getPassword())
-                .locations(migrationLocation).load();
+                .locations(migrationLocations).load();
         flyway.clean();
         flyway.migrate();
     }
@@ -365,14 +366,14 @@ final class IntegrationTestSupport {
      * Runs Flyway migration up to version 2 (without foreign keys).
      *
      * @param container JDBC container
-     * @param migrationLocation Flyway migration location
+     * @param migrationLocations one or more Flyway migration locations
      */
     private static void migrateWithoutFk(JdbcDatabaseContainer<?> container,
-            String migrationLocation) {
+            String... migrationLocations) {
         Flyway flyway = Flyway
                 .configure().cleanDisabled(false).dataSource(container.getJdbcUrl(),
                         container.getUsername(), container.getPassword())
-                .locations(migrationLocation).target("2").load();
+                .locations(migrationLocations).target("2").load();
         flyway.clean();
         flyway.migrate();
     }
@@ -389,8 +390,55 @@ final class IntegrationTestSupport {
         Path commonSrc = Path.of("src", "test", "resources", "integration", "common", "load");
         Path dst = dataPath.resolve("load");
         Files.createDirectories(dst);
-        copyTree(src, dst);
-        copyTree(commonSrc, dst);
+        copyTreeIfExists(src, dst);
+        copyTreeIfExists(commonSrc, dst);
+    }
+
+    /**
+     * Copies load fixtures for a single scenario into the data path.
+     *
+     * @param dataPath work directory for the test
+     * @param dbName database name (e.g. {@code mysql}, {@code oracle})
+     * @param scenario scenario directory name under {@code load}
+     * @throws IOException on copy failure
+     */
+    static void copyLoadScenarioFixtures(Path dataPath, String dbName, String scenario)
+            throws IOException {
+        copyLoadScenarioFixtures(dataPath, dbName, scenario, scenario);
+    }
+
+    /**
+     * Copies load fixtures from source scenario into target scenario directory.
+     *
+     * @param dataPath work directory for the test
+     * @param dbName database name (e.g. {@code mysql}, {@code oracle})
+     * @param sourceScenario source scenario directory name under {@code load}
+     * @param targetScenario target scenario directory name under {@code load}
+     * @throws IOException on copy failure
+     */
+    static void copyLoadScenarioFixtures(Path dataPath, String dbName, String sourceScenario,
+            String targetScenario) throws IOException {
+        Path src = Path.of("src", "test", "resources", "integration", dbName, "load",
+                sourceScenario);
+        Path commonSrc = Path.of("src", "test", "resources", "integration", "common", "load",
+                sourceScenario);
+        Path dst = dataPath.resolve("load").resolve(targetScenario);
+        Files.createDirectories(dst);
+        copyTreeIfExists(src, dst);
+        copyTreeIfExists(commonSrc, dst);
+    }
+
+    /**
+     * Resolves the path of table-ordering file under load fixtures.
+     *
+     * @param dataPath work directory for the test
+     * @param scenario load scenario directory name (e.g. {@code pre})
+     * @param dbId target DB ID (e.g. {@code db1})
+     * @return path to table-ordering file
+     */
+    static Path resolveTableOrderingPath(Path dataPath, String scenario, String dbId) {
+        return dataPath.resolve("load").resolve(scenario).resolve(dbId)
+                .resolve(TableOrderingFile.FILE_NAME);
     }
 
     /**
@@ -417,6 +465,20 @@ final class IntegrationTestSupport {
                 }
             });
         }
+    }
+
+    /**
+     * Copies the source tree when it exists; no-op otherwise.
+     *
+     * @param src source root
+     * @param dst destination root
+     * @throws IOException when file copy fails
+     */
+    private static void copyTreeIfExists(Path src, Path dst) throws IOException {
+        if (Files.notExists(src)) {
+            return;
+        }
+        copyTree(src, dst);
     }
 
     /**
