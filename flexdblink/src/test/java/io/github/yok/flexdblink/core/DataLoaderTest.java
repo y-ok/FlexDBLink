@@ -479,6 +479,7 @@ class DataLoaderTest {
             deployWithConnection(loader, dir.toFile(), "db1", entry, jdbc, dialectHandler, "err");
         }
 
+        verify(dialectHandler).prepareConnection(jdbc);
         verify(dialectHandler).createDbUnitConnection(jdbc, "APP");
         verify(dbConn).close();
     }
@@ -511,6 +512,7 @@ class DataLoaderTest {
             factory.verifyNoInteractions();
         }
 
+        verify(dialectHandler, never()).prepareConnection(any());
         verify(dialectHandler, never()).createDbUnitConnection(any(), any());
         verify(dbConn, never()).close();
     }
@@ -930,15 +932,17 @@ class DataLoaderTest {
                 mock(DbUnitConfig.class), new DumpConfig());
         ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
         entry.setId("db1");
+        Connection jdbc = mock(Connection.class);
         Path dir = tempDir.resolve("exec_with_conn_ok");
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
         try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
             factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                     .thenThrow(new RuntimeException("skip"));
-            loader.executeWithConnection(dir.toFile(), entry, mock(Connection.class));
+            loader.executeWithConnection(dir.toFile(), entry, jdbc);
         }
-        verify(dialect).createDbUnitConnection(any(), eq("APP"));
+        verify(dialect).prepareConnection(jdbc);
+        verify(dialect).createDbUnitConnection(jdbc, "APP");
         verify(dbConn).close();
     }
 
@@ -1472,6 +1476,78 @@ class DataLoaderTest {
                         .thenReturn(dataSetWrapper.dataSet);
                 resolver.when(() -> TableDependencyResolver.resolveLoadOrder(jdbc, null, "APP",
                         List.of("T1"))).thenReturn(List.of("T1"));
+
+                loader.execute(null, List.of("db1"));
+            }
+        });
+
+        verify(jdbc).commit();
+    }
+
+    @Test
+    void execute_正常ケース_テーブル名長が異なるCSVを含む_テーブル幅更新条件の真偽分岐を通過すること() throws Exception {
+        PathsConfig pathsConfig = new PathsConfig();
+        pathsConfig.setDataPath(tempDir.toString());
+
+        DbUnitConfig dbUnitConfig = new DbUnitConfig();
+        dbUnitConfig.setPreDirName("pre");
+
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setId("db1");
+        entry.setDriverClass("java.lang.String");
+        entry.setUrl("jdbc:table-width-branch");
+        entry.setUser("u");
+        entry.setPassword("p");
+
+        ConnectionConfig connectionConfig = new ConnectionConfig();
+        connectionConfig.setConnections(List.of(entry));
+
+        DumpConfig dumpConfig = new DumpConfig();
+        dumpConfig.setExcludeTables(List.of());
+
+        Path dir = tempDir.resolve("load").resolve("pre").resolve("db1");
+        Files.createDirectories(dir);
+        Files.writeString(dir.resolve("AA.csv"), "ID\n1\n", StandardCharsets.UTF_8);
+        Files.writeString(dir.resolve("LONG_TABLE.csv"), "ID\n1\n", StandardCharsets.UTF_8);
+        Files.writeString(dir.resolve("BB.csv"), "ID\n1\n", StandardCharsets.UTF_8);
+
+        Connection jdbc = mock(Connection.class);
+        DatabaseConnection dbConn = mock(DatabaseConnection.class);
+        DbDialectHandler dialect = mock(DbDialectHandler.class);
+        when(dialect.resolveSchema(any())).thenReturn("APP");
+        when(dialect.createDbUnitConnection(jdbc, "APP")).thenReturn(dbConn);
+        when(dialect.getLobColumns(any(), anyString())).thenReturn(new Column[0]);
+        when(dialect.countRows(any(), anyString())).thenReturn(1);
+
+        DataLoader loader = new DataLoader(pathsConfig, connectionConfig, e -> dialect,
+                dbUnitConfig, dumpConfig);
+
+        SimpleDataSetWrapper dsAA = buildSimpleDataSet("AA", 1, "ID", "1");
+        SimpleDataSetWrapper dsLong = buildSimpleDataSet("LONG_TABLE", 1, "ID", "1");
+        SimpleDataSetWrapper dsBB = buildSimpleDataSet("BB", 1, "ID", "1");
+        DatabaseOperation clean = mock(DatabaseOperation.class);
+        DatabaseOperation update = mock(DatabaseOperation.class);
+        DatabaseOperation insert = mock(DatabaseOperation.class);
+        DatabaseOperation deleteAll = mock(DatabaseOperation.class);
+
+        withMockedDatabaseOperations(loader, clean, update, insert, deleteAll, () -> {
+            try (MockedStatic<DriverManager> driverManager = mockStatic(DriverManager.class);
+                    MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class);
+                    MockedStatic<TableDependencyResolver> resolver =
+                            mockStatic(TableDependencyResolver.class)) {
+                driverManager
+                        .when(() -> DriverManager.getConnection("jdbc:table-width-branch", "u",
+                                "p"))
+                        .thenReturn(jdbc);
+                factory.when(() -> DataLoaderFactory.create(dir.toFile(), "AA"))
+                        .thenReturn(dsAA.dataSet);
+                factory.when(() -> DataLoaderFactory.create(dir.toFile(), "LONG_TABLE"))
+                        .thenReturn(dsLong.dataSet);
+                factory.when(() -> DataLoaderFactory.create(dir.toFile(), "BB"))
+                        .thenReturn(dsBB.dataSet);
+                resolver.when(() -> TableDependencyResolver.resolveLoadOrder(jdbc, null, "APP",
+                        List.of("AA", "LONG_TABLE", "BB")))
+                        .thenReturn(List.of("AA", "LONG_TABLE", "BB"));
 
                 loader.execute(null, List.of("db1"));
             }

@@ -6,11 +6,13 @@
     </encoder>
   </appender>
 
-  <root level="INFO">
+  <root level="ERROR">
     <appender-ref ref="STDOUT"/>
   </root>
   <!-- Testcontainers 本体 -->
-  <logger name="org.testcontainers" level="WARN"/>
+  <logger name="org.testcontainers" level="ERROR"/>
   <!-- Docker Java クライアント -->
-  <logger name="com.github.dockerjava" level="WARN"/>
+  <logger name="com.github.dockerjava" level="ERROR"/>
+  <!-- Flyway version support notice suppression for stable test logs -->
+  <logger name="org.flywaydb" level="ERROR"/>
 </configuration>

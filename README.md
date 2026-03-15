@@ -30,7 +30,7 @@ The JUnit 5 extension automates per-test data setup and rollback, enabling **Git
 | Difficulty handling LOB data | Reference external files with `file:filename` |
 | Manual DB cleanup before/after tests | Automatic load and rollback with `@LoadData` |
 | Non-reproducible DB state across environments | Version-control datasets in Git |
-| Load order management under FK constraints | Auto-generate and update `table-ordering.txt` |
+| Load order management under FK constraints | Resolve FK dependencies automatically (no manual `table-ordering.txt` required) |
 
 ---
 
@@ -39,7 +39,7 @@ The JUnit 5 extension automates per-test data setup and rollback, enabling **Git
 - **Load & Dump** — Bidirectional data transfer between CSV / JSON / YAML / XML and databases
 - **LOB External File References** — Manage BLOB/CLOB by simply writing `file:xxx` in a CSV cell
 - **Two-phase Load** — Initial data (`pre`) + scenario-specific incremental data
-- **Automatic Table Ordering** — Analyzes FK dependencies and auto-generates `table-ordering.txt`
+- **Automatic FK-based Load Ordering** — Resolves parent/child load order at runtime without manual ordering files
 - **JUnit 5 Extension** — Per-test data injection and automatic rollback via `@LoadData`
 - **Multi-DB Support** — Oracle / PostgreSQL / MySQL / SQL Server
 
@@ -314,7 +314,6 @@ INFO : === All DB dumps completed: Output [dump/COMMON] ===
       <DB_ID>/
         TABLE_A.csv
         TABLE_B.csv
-        table-ordering.txt    # Load order file for FK dependency resolution (auto-generated)
     <scenario>/
       <DB_ID>/
         TABLE_A.csv           # Incremental data (scenario-specific additions)
@@ -734,7 +733,7 @@ All combinations of date and time formats are tried, with `dbunit.csv.format.dat
 ## Best Practices
 
 **No need to maintain `table-ordering.txt` manually**
-FK dependencies are automatically analyzed to determine the load order, and the file is always kept up to date. You can commit it, but manual editing is not necessary.
+FlexDBLink resolves FK dependencies at runtime and loads parent tables before child tables automatically. `table-ordering.txt` is not required as an input file for load operations.
 
 **Configure tables to exclude**
 Add tables like `flyway_schema_history` to `dump.exclude-tables` so they are not loaded or dumped.
