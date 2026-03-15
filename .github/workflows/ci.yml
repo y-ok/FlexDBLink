@@ -59,9 +59,7 @@ jobs:
           set -euo pipefail
 
           auth_token=""
-          if [ -n "${CODECOV_TOKEN:-}" ]; then
-            auth_token="${CODECOV_TOKEN}"
-          elif [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+          if [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
             oidc_response="$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://codecov.io")"
             auth_token="$(echo "${oidc_response}" | jq -r '.value')"
           fi
@@ -86,8 +84,6 @@ jobs:
           if [ "${upload_exit_code}" -ne 0 ]; then
             echo "::warning::Codecov upload failed with exit code ${upload_exit_code}."
           fi
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
   maven-plugin-test:
     runs-on: ubuntu-latest
