@@ -67,13 +67,15 @@ jobs:
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Create GitHub Release and upload assets
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.context.outputs.tag_name }}
-          name: ${{ steps.context.outputs.tag_name }}
-          generate_release_notes: true
-          files: |
+      - name: Create or update GitHub Release and upload assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.context.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          assets=(
             flexdblink/target/FlexDBLink.jar
             flexdblink/target/FlexDBLink-exec.jar
             flexdblink/target/FlexDBLink-all.jar
@@ -81,3 +83,15 @@ jobs:
             flexdblink/target/flexdblink-*-all.jar
             flexdblink/target/FlexDBLink-sources.jar
             flexdblink/target/FlexDBLink-distribution.zip
+          )
+
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "::error::No release assets found."
+            exit 18
+          fi
+
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release upload "${TAG_NAME}" "${assets[@]}" --clobber
+          else
+            gh release create "${TAG_NAME}" "${assets[@]}" --title "${TAG_NAME}" --generate-notes
+          fi
