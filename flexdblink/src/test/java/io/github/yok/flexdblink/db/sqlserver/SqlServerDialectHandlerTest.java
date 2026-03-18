@@ -1124,6 +1124,30 @@ public class SqlServerDialectHandlerTest {
     }
 
     @Test
+    public void parseDateTimeValue_正常ケース_basicISO形式日付を指定する_Dateが返ること() throws Exception {
+        SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
+        Object actual = handler.parseDateTimeValue("COL", "20260225");
+        assertInstanceOf(Date.class, actual);
+        assertEquals(Date.valueOf("2026-02-25"), actual);
+    }
+
+    @Test
+    public void parseDateTimeValue_正常ケース_ドット区切り日付を指定する_Dateが返ること() throws Exception {
+        SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
+        Object actual = handler.parseDateTimeValue("COL", "2026.02.25");
+        assertInstanceOf(Date.class, actual);
+        assertEquals(Date.valueOf("2026-02-25"), actual);
+    }
+
+    @Test
+    public void parseDateTimeValue_正常ケース_コロン無し6桁時刻を指定する_Timeが返ること() throws Exception {
+        SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
+        Object actual = handler.parseDateTimeValue("COL", "010203");
+        assertInstanceOf(Time.class, actual);
+        assertEquals(Time.valueOf("01:02:03"), actual);
+    }
+
+    @Test
     public void convertCsvValueToDbType_正常ケース_boolean表現を網羅すること() throws Exception {
         Map<String, Column[]> dbUnitCols =
                 Map.of("TBOOL", new Column[] {colMock("B", dataTypeMock(Types.BIT, "bit"))});

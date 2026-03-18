@@ -29,6 +29,7 @@ import java.sql.Statement;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.stream.Stream;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
@@ -178,13 +179,13 @@ final class IntegrationTestSupport {
         assertEquals(inputRows.size(), outputRows.size(), table + " row count mismatch: input="
                 + inputRows.size() + " output=" + outputRows.size());
 
-        for (Map.Entry<String, Map<String, String>> entry : inputRows.entrySet()) {
+        for (Entry<String, Map<String, String>> entry : inputRows.entrySet()) {
             String id = entry.getKey();
             Map<String, String> inRow = entry.getValue();
             Map<String, String> outRow = outputRows.get(id);
             assertNotNull(outRow, table + " ID=" + id + " not found in output CSV");
 
-            for (Map.Entry<String, String> colEntry : inRow.entrySet()) {
+            for (Entry<String, String> colEntry : inRow.entrySet()) {
                 String column = colEntry.getKey();
                 String inVal = colEntry.getValue();
                 String outVal = outRow.get(column);
@@ -227,7 +228,7 @@ final class IntegrationTestSupport {
         Map<String, Map<String, String>> csvRows = readCsvById(csvPath, idColumn);
         dialectHandler.prepareConnection(conn);
 
-        for (Map.Entry<String, Map<String, String>> entry : csvRows.entrySet()) {
+        for (Entry<String, Map<String, String>> entry : csvRows.entrySet()) {
             String id = entry.getKey();
             Map<String, String> csvRow = entry.getValue();
 
@@ -236,7 +237,7 @@ final class IntegrationTestSupport {
             try (Statement st = conn.createStatement(); ResultSet rs = st.executeQuery(sql)) {
                 assertTrue(rs.next(), tableName + " ID=" + id + " not found in DB");
 
-                for (Map.Entry<String, String> col : csvRow.entrySet()) {
+                for (Entry<String, String> col : csvRow.entrySet()) {
                     String column = col.getKey();
                     String csvVal = col.getValue();
                     String msg = "Table=" + tableName + " ID=" + id + " Column=" + column;
@@ -418,14 +419,39 @@ final class IntegrationTestSupport {
      */
     static void copyLoadScenarioFixtures(Path dataPath, String dbName, String sourceScenario,
             String targetScenario) throws IOException {
-        Path src = Path.of("src", "test", "resources", "integration", dbName, "load",
-                sourceScenario);
+        Path src =
+                Path.of("src", "test", "resources", "integration", dbName, "load", sourceScenario);
         Path commonSrc = Path.of("src", "test", "resources", "integration", "common", "load",
                 sourceScenario);
         Path dst = dataPath.resolve("load").resolve(targetScenario);
         Files.createDirectories(dst);
         copyTreeIfExists(src, dst);
         copyTreeIfExists(commonSrc, dst);
+    }
+
+    /**
+     * Overlays one load scenario directory onto another in the test work directory.
+     *
+     * <p>
+     * Existing files in the target are replaced only when the same relative path exists in source.
+     * Files absent in source remain unchanged in target.
+     * </p>
+     *
+     * @param dataPath work directory for the test
+     * @param sourceScenario source scenario name (e.g. {@code pre_crlf})
+     * @param targetScenario target scenario name (e.g. {@code pre})
+     * @param dbId target DB ID (e.g. {@code db1})
+     * @throws IOException on file I/O failure
+     */
+    static void overlayLoadScenario(Path dataPath, String sourceScenario, String targetScenario,
+            String dbId) throws IOException {
+        Path source = dataPath.resolve("load").resolve(sourceScenario).resolve(dbId);
+        Path target = dataPath.resolve("load").resolve(targetScenario).resolve(dbId);
+        if (Files.notExists(source)) {
+            throw new IllegalStateException("Source scenario directory not found: " + source);
+        }
+        Files.createDirectories(target);
+        copyTree(source, target);
     }
 
     /**

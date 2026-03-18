@@ -1193,6 +1193,20 @@ public class MySqlDialectHandlerTest {
     }
 
     @Test
+    void parseDateTimeValue_正常ケース_basicISO形式日付を指定する_Dateが返ること() throws Exception {
+        MySqlDialectHandler handler = createHandler();
+        assertInstanceOf(Date.class, handler.parseDateTimeValue("date_col", "20260225"));
+        assertEquals(Date.valueOf("2026-02-25"), handler.parseDateTimeValue("date_col", "20260225"));
+    }
+
+    @Test
+    void parseDateTimeValue_正常ケース_ドット区切り日付を指定する_Dateが返ること() throws Exception {
+        MySqlDialectHandler handler = createHandler();
+        assertInstanceOf(Date.class, handler.parseDateTimeValue("date_col", "2026.02.25"));
+        assertEquals(Date.valueOf("2026-02-25"), handler.parseDateTimeValue("date_col", "2026.02.25"));
+    }
+
+    @Test
     void parseDateTimeValue_異常ケース_オフセット末尾が非数値である_IllegalArgumentExceptionが送出されること()
             throws Exception {
         MySqlDialectHandler handler = createHandler();

@@ -133,6 +133,8 @@ USER_ID,USER_NAME,STATUS
 2,Bob,INACTIVE
 ```
 
+Line endings for input CSV are accepted as either `LF` (`\n`) or `CRLF` (`\r\n`).
+
 ### 4. Run
 
 #### Setup (first time only)
@@ -727,6 +729,22 @@ If no match is found, the following formats are attempted in order (applies to a
 All combinations of date and time formats are tried, with `dbunit.csv.format.dateTime` / `dateTimeWithMillis` applied first.
 
 > DB-specific extended types (e.g., Oracle `TIMESTAMP WITH TIME ZONE`, SQL Server `DATETIMEOFFSET`) have additional formats in each DB's implementation. See the type coverage tables for details.
+
+---
+
+## CSV Line Ending Behavior (Load / Dump)
+
+| Operation | Behavior |
+| --------- | -------- |
+| `--load` | Input CSV line endings `LF` and `CRLF` are supported. |
+| `--dump` | Output CSV uses `System.lineSeparator()` of the JVM process environment. |
+
+`--dump` output therefore depends on where the process runs:
+
+- Windows runtime: `CRLF` (`\r\n`)
+- Linux/macOS runtime: `LF` (`\n`)
+
+If you run FlexDBLink in a Linux container (including on a Windows host), dumped CSV line endings are `LF` because the process environment is Linux.
 
 ---
 
