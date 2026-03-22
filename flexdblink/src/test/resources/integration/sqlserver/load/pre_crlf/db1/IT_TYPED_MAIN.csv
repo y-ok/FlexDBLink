@@ -1,0 +1,7 @@
+ID,VC_COL,CHAR_COL,NVC_COL,NCHAR_COL,NUM_COL,BF_COL,BD_COL,BOOL_COL,DATE_COL,TIME_COL,TS_COL,TSTZ_COL,RAW_COL,XML_COL,CLOB_COL,NCLOB_COL,BLOB_COL,LOB_KIND
+101,load-xml,na-xml,load-nvc,na-nchar,123.456000,1.25,10.125,true,2026-02-10,01:02:03,2026-02-10 01:02:03,2026-02-10 01:02:03+00:00,0A0B0C21,file:main_xmlcol_101.xml,file:main_xml_101.txt,file:main_n_xml_101.txt,file:main_xml_101.bin,xml
+102,load-zip,na-zip,load-nvc,na-nchar,999.000000,2.5,20.25,false,2026-02-11,02:03:04,2026-02-11 02:03:04,2026-02-11 02:03:04+00:00,0D0E0F10,file:main_xmlcol_102.xml,file:main_zip_102.txt,file:main_n_zip_102.txt,file:main_zip_102.bin,zip
+103,load-bin,na-bin,load-nvc,na-nchar,1.000000,3.75,30.375,true,2026-02-12,03:04:05,2026-02-12 03:04:05,2026-02-12 03:04:05+00:00,11121314,file:main_xmlcol_103.xml,file:main_bin_103.txt,file:main_n_bin_103.txt,file:main_bin_103.bin,bin
+104,load-null,,,,0.000000,0.0,0.0,false,2026-02-13,04:05:06,2026-02-13 04:05:06,,,,,"",file:main_empty_104.bin,empty
+105,load-text,loadchar,loadnvc,loadnchr,10.500000,4.0,40.0,true,2026-02-14,05:06:07,2026-02-14 05:06:07,2026-02-14 05:06:07+00:00,ABCD,file:main_xmlcol_105.xml,file:main_text_105.txt,file:main_n_text_105.txt,file:main_text_105.bin,text
+106,load-more,morechar,morenvc,morenchr,20.500000,5.0,50.0,true,2026-02-15,06:07:08,2026-02-15 06:07:08,2026-02-15 06:07:08+00:00,DCBA,file:main_xmlcol_106.xml,file:main_more_106.txt,file:main_n_more_106.txt,file:main_more_106.bin,more

@@ -230,6 +230,22 @@ public class OracleDialectHandlerTest {
     }
 
     @Test
+    void parseDateTimeValue_正常ケース_basicISO形式日付を指定する_Dateが返ること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        Object parsed = handler.parseDateTimeValue("COL", "20260225");
+        assertEquals(Date.class, parsed.getClass());
+        assertEquals(Date.valueOf("2026-02-25"), parsed);
+    }
+
+    @Test
+    void parseDateTimeValue_正常ケース_ドット区切り日付を指定する_Dateが返ること() throws Exception {
+        OracleDialectHandler handler = createHandler();
+        Object parsed = handler.parseDateTimeValue("COL", "2026.02.25");
+        assertEquals(Date.class, parsed.getClass());
+        assertEquals(Date.valueOf("2026-02-25"), parsed);
+    }
+
+    @Test
     public void parseDateTimeValue_異常ケース_全ての形式に一致しない_DateTimeParseExceptionが送出されること()
             throws Exception {
         OracleDialectHandler handler = createHandler();

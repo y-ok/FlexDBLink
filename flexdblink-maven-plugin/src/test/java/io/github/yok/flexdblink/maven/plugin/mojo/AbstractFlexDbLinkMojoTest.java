@@ -20,7 +20,7 @@ import org.apache.maven.settings.Settings;
 import org.apache.maven.settings.crypto.SettingsDecrypter;
 import org.apache.maven.settings.crypto.SettingsDecryptionRequest;
 import org.apache.maven.settings.crypto.SettingsDecryptionResult;
-import org.codehaus.plexus.util.xml.Xpp3Dom;
+import org.apache.maven.shared.utils.xml.Xpp3Dom;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

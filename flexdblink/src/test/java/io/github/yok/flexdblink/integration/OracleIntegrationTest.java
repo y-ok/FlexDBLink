@@ -110,6 +110,25 @@ class OracleIntegrationTest {
     }
 
     @Test
+    void execute_正常ケース_CRLF改行のCSVをロードする_全列値が登録されること() throws Exception {
+        Path dataPath = tempDir.resolve("load_data_crlf");
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,
+                true, DB_NAME, pathsConfig, connectionConfig, dbUnitConfig, dumpConfig,
+                filePatternConfig, dialectFactory);
+        IntegrationTestSupport.overlayLoadScenario(dataPath, "pre_crlf", "pre", "db1");
+
+        IntegrationTestSupport.executeLoad(runtime, "pre");
+
+        Path csvPath = dataPath.resolve("load/pre/db1/IT_TYPED_MAIN.csv");
+        Path filesDir = dataPath.resolve("load/pre/db1/files");
+
+        try (Connection conn = IntegrationTestSupport.openConnection(ORACLE)) {
+            IntegrationTestSupport.assertCsvMatchesDb(csvPath, "IT_TYPED_MAIN", "ID", conn,
+                    filesDir, runtime.newDialectHandler());
+        }
+    }
+
+    @Test
     void execute_異常ケース_interval形式が不正である_ロールバックされること() throws Exception {
         Path dataPath = tempDir.resolve("load_error_data");
         IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,

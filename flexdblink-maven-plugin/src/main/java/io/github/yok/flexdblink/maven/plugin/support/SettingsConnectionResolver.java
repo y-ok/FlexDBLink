@@ -11,7 +11,7 @@ import org.apache.maven.settings.crypto.DefaultSettingsDecryptionRequest;
 import org.apache.maven.settings.crypto.SettingsDecrypter;
 import org.apache.maven.settings.crypto.SettingsDecryptionRequest;
 import org.apache.maven.settings.crypto.SettingsDecryptionResult;
-import org.codehaus.plexus.util.xml.Xpp3Dom;
+import org.apache.maven.shared.utils.xml.Xpp3Dom;
 
 /**
  * Resolves FlexDBLink connection entries from Maven {@code settings.xml} server definitions.
