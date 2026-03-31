@@ -248,6 +248,122 @@ class TestResourceContextTest {
     }
 
     @Test
+    void loadAllApplicationProperties_正常ケース_システムプロパティプレースホルダを指定する_接続情報が展開されること()
+            throws Exception {
+        Path cp = tempDir.resolve("cp_placeholder");
+        Files.createDirectories(cp);
+        Files.writeString(cp.resolve("application.properties"),
+                "spring.datasource.operator.bbb.url=${DB_BBB_URL}\n"
+                        + "spring.datasource.operator.bbb.username=${DB_BBB_USER}\n",
+                StandardCharsets.UTF_8);
+        System.setProperty("DB_BBB_URL", "jdbc:oracle:thin:@localhost:11521/BBB");
+        System.setProperty("DB_BBB_USER", "BBB_USER");
+        try (URLClassLoader cl = new URLClassLoader(new URL[] {cp.toUri().toURL()}, null)) {
+            Properties merged = TestResourceContext.loadAllApplicationProperties(cl);
+            assertEquals("jdbc:oracle:thin:@localhost:11521/BBB",
+                    merged.getProperty("spring.datasource.operator.bbb.url"));
+            assertEquals("BBB_USER",
+                    merged.getProperty("spring.datasource.operator.bbb.username"));
+        } finally {
+            System.clearProperty("DB_BBB_URL");
+            System.clearProperty("DB_BBB_USER");
+        }
+    }
+
+    @Test
+    void resolvePlaceholders_正常ケース_システムプロパティ参照を指定する_値が展開されること() throws Exception {
+        Properties props = new Properties();
+        props.setProperty("spring.datasource.operator.bbb.url", "${DB_BBB_URL}");
+        props.setProperty("spring.datasource.operator.bbb.username", "${DB_BBB_USER}");
+        System.setProperty("DB_BBB_URL", "jdbc:oracle:thin:@localhost:11521/BBB");
+        System.setProperty("DB_BBB_USER", "BBB_USER");
+        try {
+            TestResourceContext.resolvePlaceholders(props);
+            assertEquals("jdbc:oracle:thin:@localhost:11521/BBB",
+                    props.getProperty("spring.datasource.operator.bbb.url"));
+            assertEquals("BBB_USER", props.getProperty("spring.datasource.operator.bbb.username"));
+        } finally {
+            System.clearProperty("DB_BBB_URL");
+            System.clearProperty("DB_BBB_USER");
+        }
+    }
+
+    @Test
+    void resolvePlaceholders_正常ケース_同一Properties参照を指定する_値が展開されること() throws Exception {
+        Properties props = new Properties();
+        props.setProperty("DB_BBB_URL", "jdbc:oracle:thin:@localhost:11521/BBB");
+        props.setProperty("spring.datasource.operator.bbb.url", "${DB_BBB_URL}");
+        TestResourceContext.resolvePlaceholders(props);
+        assertEquals("jdbc:oracle:thin:@localhost:11521/BBB",
+                props.getProperty("spring.datasource.operator.bbb.url"));
+    }
+
+    @Test
+    void resolvePlaceholders_正常ケース_未定義プレースホルダを指定する_プレースホルダ文字列が保持されること() throws Exception {
+        Properties props = new Properties();
+        props.setProperty("spring.datasource.operator.bbb.url", "${UNDEFINED_KEY}");
+        TestResourceContext.resolvePlaceholders(props);
+        assertEquals("${UNDEFINED_KEY}", props.getProperty("spring.datasource.operator.bbb.url"));
+    }
+
+    @Test
+    void resolvePlaceholders_正常ケース_環境変数参照を指定する_環境変数の値が展開されること() throws Exception {
+        String envName = "PATH";
+        String envValue = System.getenv(envName);
+        if (envValue == null) {
+            Map<String, String> env = System.getenv();
+            if (env.isEmpty()) {
+                return;
+            }
+            envName = env.keySet().iterator().next();
+            envValue = env.get(envName);
+        }
+
+        String systemValue = System.getProperty(envName);
+        System.clearProperty(envName);
+        try {
+            Properties props = new Properties();
+            props.setProperty("resolved.value", "${" + envName + "}");
+            TestResourceContext.resolvePlaceholders(props);
+            assertEquals(envValue, props.getProperty("resolved.value"));
+        } finally {
+            if (systemValue != null) {
+                System.setProperty(envName, systemValue);
+            }
+        }
+    }
+
+    @Test
+    void resolvePlaceholders_正常ケース_非文字列キーを指定する_例外なく処理が継続されること() throws Exception {
+        Properties props = new Properties();
+        props.put(100, "${DB_BBB_URL}");
+        props.setProperty("spring.datasource.operator.bbb.url", "${DB_BBB_URL}");
+        System.setProperty("DB_BBB_URL", "jdbc:oracle:thin:@localhost:11521/BBB");
+        try {
+            assertDoesNotThrow(() -> TestResourceContext.resolvePlaceholders(props));
+            assertEquals("jdbc:oracle:thin:@localhost:11521/BBB",
+                    props.getProperty("spring.datasource.operator.bbb.url"));
+            assertEquals("${DB_BBB_URL}", props.get(100));
+        } finally {
+            System.clearProperty("DB_BBB_URL");
+        }
+    }
+
+    @Test
+    void resolvePlaceholders_正常ケース_反復上限0を指定する_プレースホルダ文字列が保持されること() throws Exception {
+        Properties props = new Properties();
+        props.setProperty("spring.datasource.operator.bbb.url", "${DB_BBB_URL}");
+        System.setProperty("DB_BBB_URL", "jdbc:oracle:thin:@localhost:11521/BBB");
+        try {
+            TestResourceContext.resolvePlaceholders(props, 0);
+            assertEquals("${DB_BBB_URL}",
+                    props.getProperty("spring.datasource.operator.bbb.url"));
+        } finally {
+            System.clearProperty("DB_BBB_URL");
+        }
+    }
+
+    @Test
     void extractProfile_正常ケース_yaml拡張子を指定する_プロファイル名が返ること() throws Exception {
         String profile = TestResourceContext.extractProfile("application-dev.yaml");
         assertEquals("dev", profile);

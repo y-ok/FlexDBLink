@@ -37,6 +37,7 @@ import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.core.io.UrlResource;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.util.PropertyPlaceholderHelper;
 
 /**
  * Shared test resource context for JUnit 5 extensions.
@@ -81,6 +82,9 @@ class TestResourceContext {
 
     @Getter
     private final Properties appProps; // merged application*.properties (UTF-8)
+
+    private static final PropertyPlaceholderHelper PLACEHOLDER_HELPER =
+            new PropertyPlaceholderHelper("${", "}", ":", true);
 
     /**
      * Creates a context with the resolved class resource root and merged application properties.
@@ -393,6 +397,7 @@ class TestResourceContext {
             loadResourceToProps(result, u);
             log.info("Loaded properties: {}", u);
         }
+        resolvePlaceholders(result);
 
         // Discover all application-*.properties / application-*.yml/.yaml on the
         // classpath
@@ -450,7 +455,71 @@ class TestResourceContext {
                 log.info("Loaded properties (active profile={}): {}", ap, u);
             }
         }
+        resolvePlaceholders(result);
         return result;
+    }
+
+    /**
+     * Resolves ${...} placeholders in merged properties.
+     *
+     * <p>
+     * Resolution order for each placeholder key:
+     * </p>
+     * <ol>
+     * <li>JVM system property ({@link System#getProperty(String)})</li>
+     * <li>Environment variable ({@link System#getenv(String)})</li>
+     * <li>Already-loaded property value from the same {@link Properties}</li>
+     * </ol>
+     *
+     * <p>
+     * Unresolved placeholders are kept as-is so that existing behavior remains compatible.
+     * </p>
+     *
+     * @param props target properties
+     */
+    static void resolvePlaceholders(Properties props) {
+        resolvePlaceholders(props, 10);
+    }
+
+    /**
+     * Resolves ${...} placeholders in merged properties with the specified iteration limit.
+     *
+     * @param props target properties
+     * @param maxPass max iteration count
+     */
+    static void resolvePlaceholders(Properties props, int maxPass) {
+        boolean changed;
+        for (int pass = 0; pass < maxPass; pass++) {
+            changed = false;
+            for (Map.Entry<Object, Object> entry : props.entrySet()) {
+                if (!(entry.getKey() instanceof String)) {
+                    continue;
+                }
+                if (!(entry.getValue() instanceof String)) {
+                    continue;
+                }
+                String key = (String) entry.getKey();
+                String original = (String) entry.getValue();
+                String resolved = PLACEHOLDER_HELPER.replacePlaceholders(original, name -> {
+                    String sys = System.getProperty(name);
+                    if (sys != null) {
+                        return sys;
+                    }
+                    String env = System.getenv(name);
+                    if (env != null) {
+                        return env;
+                    }
+                    return props.getProperty(name);
+                });
+                if (!Objects.equals(original, resolved)) {
+                    props.setProperty(key, resolved);
+                    changed = true;
+                }
+            }
+            if (!changed) {
+                return;
+            }
+        }
     }
 
     /**
