@@ -76,13 +76,10 @@ jobs:
           shopt -s nullglob
 
           assets=(
-            flexdblink/target/FlexDBLink.jar
-            flexdblink/target/FlexDBLink-exec.jar
-            flexdblink/target/FlexDBLink-all.jar
-            flexdblink/target/FlexDBLink-*-all.jar
-            flexdblink/target/flexdblink-*-all.jar
-            flexdblink/target/FlexDBLink-sources.jar
-            flexdblink/target/FlexDBLink-distribution.zip
+            flexdblink/target/FlexDBLink*.jar
+            flexdblink/target/FlexDBLink*.zip
+            flexdblink/target/flexdblink-*.jar
+            flexdblink/target/flexdblink-*.zip
           )
 
           if [ "${#assets[@]}" -eq 0 ]; then
