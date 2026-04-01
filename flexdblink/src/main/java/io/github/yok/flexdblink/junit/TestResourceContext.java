@@ -2,7 +2,6 @@ package io.github.yok.flexdblink.junit;
 
 import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
-import com.google.common.reflect.ClassPath;
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -34,7 +33,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
+import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.util.PropertyPlaceholderHelper;
@@ -385,12 +386,8 @@ class TestResourceContext {
      * @throws Exception if resource discovery or reading fails
      */
     static Properties loadAllApplicationProperties(ClassLoader cl) throws Exception {
-        // Load all application.properties / application.yml / application.yaml (sorted
-        // by URL)
-        List<URL> baseUrls = new ArrayList<>();
-        baseUrls.addAll(enumToList(cl.getResources("application.properties")));
-        baseUrls.addAll(enumToList(cl.getResources("application.yml")));
-        baseUrls.addAll(enumToList(cl.getResources("application.yaml")));
+        // Load all application.properties / application.yml / application.yaml (sorted by URL)
+        List<URL> baseUrls = findAllBaseResources(cl);
         baseUrls.sort(Comparator.comparing(URL::toString));
         Properties result = new Properties();
         for (URL u : baseUrls) {
@@ -399,18 +396,11 @@ class TestResourceContext {
         }
         resolvePlaceholders(result);
 
-        // Discover all application-*.properties / application-*.yml/.yaml on the
-        // classpath
-        Set<ClassPath.ResourceInfo> all = ClassPath.from(cl).getResources();
+        // Discover all application-*.properties / application-*.yml/.yaml on the classpath
         Map<String, List<URL>> profileToUrls = new LinkedHashMap<>();
-        for (ClassPath.ResourceInfo ri : all) {
-            String name = ri.getResourceName();
-            if (!(name.endsWith(".properties") || name.endsWith(".yml")
-                    || name.endsWith(".yaml"))) {
-                continue;
-            }
-
-            String simple = name.contains("/") ? name.substring(name.lastIndexOf('/') + 1) : name;
+        List<URL> profileUrls = findAllProfileResources(cl);
+        for (URL u : profileUrls) {
+            String simple = toSimpleName(u);
             if (!simple.startsWith("application-")) {
                 continue;
             }
@@ -419,7 +409,7 @@ class TestResourceContext {
             if (StringUtils.isBlank(profile)) {
                 continue;
             } else {
-                profileToUrls.computeIfAbsent(profile, k -> new ArrayList<>()).add(ri.url());
+                profileToUrls.computeIfAbsent(profile, k -> new ArrayList<>()).add(u);
             }
         }
 
@@ -457,6 +447,77 @@ class TestResourceContext {
         }
         resolvePlaceholders(result);
         return result;
+    }
+
+    /**
+     * Finds all base Spring application configuration resources from the classpath.
+     *
+     * @param cl class loader used for classpath resolution
+     * @return deduplicated URLs of matched resources
+     * @throws IOException if classpath scanning fails
+     */
+    static List<URL> findAllBaseResources(ClassLoader cl) throws IOException {
+        String[] patterns = new String[] {"classpath*:**/application.properties",
+                "classpath*:**/application.yml", "classpath*:**/application.yaml"};
+        return findResourcesByPatterns(cl, patterns);
+    }
+
+    /**
+     * Finds all {@code application-*.properties} and {@code application-*.yml/.yaml} resources from
+     * the classpath.
+     *
+     * @param cl class loader used for classpath resolution
+     * @return deduplicated URLs of matched resources
+     * @throws IOException if classpath scanning fails
+     */
+    static List<URL> findAllProfileResources(ClassLoader cl) throws IOException {
+        String[] patterns = new String[] {"classpath*:**/application-*.properties",
+                "classpath*:**/application-*.yml", "classpath*:**/application-*.yaml"};
+        return findResourcesByPatterns(cl, patterns);
+    }
+
+    /**
+     * Finds and deduplicates resources matched by classpath search patterns.
+     *
+     * @param cl class loader used for classpath resolution
+     * @param patterns classpath search patterns
+     * @return deduplicated URLs in pattern iteration order
+     * @throws IOException if classpath scanning fails
+     */
+    private static List<URL> findResourcesByPatterns(ClassLoader cl, String[] patterns)
+            throws IOException {
+        PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver(cl);
+        List<URL> urls = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (String pattern : patterns) {
+            Resource[] resources = resolver.getResources(pattern);
+            for (Resource resource : resources) {
+                URL url = resource.getURL();
+                String key = url.toString();
+                if (seen.add(key)) {
+                    urls.add(url);
+                }
+            }
+        }
+        return urls;
+    }
+
+    /**
+     * Converts a resource URL to its simple file name.
+     *
+     * @param url resource URL
+     * @return simple file name part of the URL path
+     */
+    static String toSimpleName(URL url) {
+        String path = url.getPath();
+        if (path == null) {
+            return "";
+        }
+        int idx = path.lastIndexOf('/');
+        if (idx >= 0) {
+            return path.substring(idx + 1);
+        }
+        return path;
     }
 
     /**

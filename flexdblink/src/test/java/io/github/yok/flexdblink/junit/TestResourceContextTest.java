@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -28,6 +29,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
@@ -268,6 +271,150 @@ class TestResourceContextTest {
             System.clearProperty("DB_BBB_URL");
             System.clearProperty("DB_BBB_USER");
         }
+    }
+
+    @Test
+    void loadAllApplicationProperties_正常ケース_ベース設定3形式を指定する_全形式のキーが読み込まれること()
+            throws Exception {
+        Path cp = tempDir.resolve("cp_base_all_formats");
+        Files.createDirectories(cp);
+        Files.writeString(cp.resolve("application.properties"), "base.properties.key=prop\n",
+                StandardCharsets.UTF_8);
+        Files.writeString(cp.resolve("application.yml"), "base.yml.key: yml\n",
+                StandardCharsets.UTF_8);
+        Files.writeString(cp.resolve("application.yaml"), "base.yaml.key: yaml\n",
+                StandardCharsets.UTF_8);
+
+        try (URLClassLoader cl = new URLClassLoader(new URL[] {cp.toUri().toURL()}, null)) {
+            Properties merged = TestResourceContext.loadAllApplicationProperties(cl);
+            assertEquals("prop", merged.getProperty("base.properties.key"));
+            assertEquals("yml", merged.getProperty("base.yml.key"));
+            assertEquals("yaml", merged.getProperty("base.yaml.key"));
+        }
+    }
+
+    @Test
+    void loadAllApplicationProperties_正常ケース_プロファイル設定3形式を指定する_全形式のキーが読み込まれること()
+            throws Exception {
+        Path cp = tempDir.resolve("cp_profile_all_formats");
+        Files.createDirectories(cp);
+        Files.writeString(cp.resolve("application.properties"), "spring.profiles.active=dev\n",
+                StandardCharsets.UTF_8);
+        Files.writeString(cp.resolve("application-dev.properties"), "profile.properties.key=prop\n",
+                StandardCharsets.UTF_8);
+        Files.writeString(cp.resolve("application-dev.yml"), "profile.yml.key: yml\n",
+                StandardCharsets.UTF_8);
+        Files.writeString(cp.resolve("application-dev.yaml"), "profile.yaml.key: yaml\n",
+                StandardCharsets.UTF_8);
+
+        try (URLClassLoader cl = new URLClassLoader(new URL[] {cp.toUri().toURL()}, null)) {
+            Properties merged = TestResourceContext.loadAllApplicationProperties(cl);
+            assertEquals("prop", merged.getProperty("profile.properties.key"));
+            assertEquals("yml", merged.getProperty("profile.yml.key"));
+            assertEquals("yaml", merged.getProperty("profile.yaml.key"));
+        }
+    }
+
+    @Test
+    void loadAllApplicationProperties_正常ケース_srcMainResources配下プロファイルを指定する_アクティブ値が優先されること()
+            throws Exception {
+        Path cp = tempDir.resolve("cp_src_main_resources");
+        Path srcMainResources = cp.resolve("src").resolve("main").resolve("resources");
+        Files.createDirectories(srcMainResources);
+        Files.writeString(cp.resolve("application.properties"),
+                "spring.profiles.active=development\nmerge.order=base\n", StandardCharsets.UTF_8);
+        Files.writeString(srcMainResources.resolve("application-development.properties"),
+                "merge.order=development\n", StandardCharsets.UTF_8);
+
+        try (URLClassLoader cl = new URLClassLoader(new URL[] {cp.toUri().toURL()}, null)) {
+            Properties merged = TestResourceContext.loadAllApplicationProperties(cl);
+            assertEquals("development", merged.getProperty("merge.order"));
+        }
+    }
+
+    @Test
+    void loadAllApplicationProperties_正常ケース_srcMainResources配下ベース設定を指定する_ベース設定が読み込まれること()
+            throws Exception {
+        Path cp = tempDir.resolve("cp_src_main_resources_base");
+        Path srcMainResources = cp.resolve("src").resolve("main").resolve("resources");
+        Files.createDirectories(srcMainResources);
+        Files.writeString(srcMainResources.resolve("application.yml"),
+                "src.main.resources.base: enabled\n", StandardCharsets.UTF_8);
+
+        try (URLClassLoader cl = new URLClassLoader(new URL[] {cp.toUri().toURL()}, null)) {
+            Properties merged = TestResourceContext.loadAllApplicationProperties(cl);
+            assertEquals("enabled", merged.getProperty("src.main.resources.base"));
+        }
+    }
+
+    @Test
+    void loadAllApplicationProperties_正常ケース_非application接頭辞を含むプロファイルURLを指定する_非application接頭辞が無視されること()
+            throws Exception {
+        Path cp = tempDir.resolve("cp_ignore_non_application_profile");
+        Files.createDirectories(cp);
+        Files.writeString(cp.resolve("application.properties"),
+                "spring.profiles.active=dev\nmerge.order=base\n", StandardCharsets.UTF_8);
+        Files.writeString(cp.resolve("application-dev.properties"), "merge.order=dev\n",
+                StandardCharsets.UTF_8);
+        Files.writeString(cp.resolve("notapplication-dev.properties"), "merge.order=invalid\n",
+                StandardCharsets.UTF_8);
+
+        try (URLClassLoader cl = new URLClassLoader(new URL[] {cp.toUri().toURL()}, null);
+                MockedStatic<TestResourceContext> mocked =
+                        mockStatic(TestResourceContext.class, CALLS_REAL_METHODS)) {
+            URL baseUrl = cp.resolve("application.properties").toUri().toURL();
+            URL nonApplicationUrl = cp.resolve("notapplication-dev.properties").toUri().toURL();
+            URL applicationUrl = cp.resolve("application-dev.properties").toUri().toURL();
+            mocked.when(() -> TestResourceContext.findAllBaseResources(cl))
+                    .thenReturn(new ArrayList<>(List.of(baseUrl)));
+            mocked.when(() -> TestResourceContext.findAllProfileResources(cl))
+                    .thenReturn(new ArrayList<>(List.of(nonApplicationUrl, applicationUrl)));
+
+            Properties merged = TestResourceContext.loadAllApplicationProperties(cl);
+            assertEquals("dev", merged.getProperty("merge.order"));
+        }
+    }
+
+    @Test
+    void findAllProfileResources_正常ケース_重複URLを含む結果を指定する_重複を除外したURL一覧が返ること() throws Exception {
+        URL duplicated = new URL("file:/tmp/application-dev.properties");
+        URL yml = new URL("file:/tmp/application-dev.yml");
+        Resource prop1 = mock(Resource.class);
+        Resource prop2 = mock(Resource.class);
+        Resource ymlResource = mock(Resource.class);
+        when(prop1.getURL()).thenReturn(duplicated);
+        when(prop2.getURL()).thenReturn(duplicated);
+        when(ymlResource.getURL()).thenReturn(yml);
+
+        try (MockedConstruction<PathMatchingResourcePatternResolver> mockedConstruction =
+                mockConstruction(PathMatchingResourcePatternResolver.class,
+                        (resolver, context) -> {
+                            when(resolver.getResources("classpath*:**/application-*.properties"))
+                                    .thenReturn(new Resource[] {prop1, prop2});
+                            when(resolver.getResources("classpath*:**/application-*.yml"))
+                                    .thenReturn(new Resource[] {ymlResource});
+                            when(resolver.getResources("classpath*:**/application-*.yaml"))
+                                    .thenReturn(new Resource[0]);
+                        })) {
+            List<URL> urls =
+                    TestResourceContext.findAllProfileResources(
+                            Thread.currentThread().getContextClassLoader());
+            assertEquals(2, urls.size());
+            assertEquals(duplicated, urls.get(0));
+            assertEquals(yml, urls.get(1));
+            assertEquals(1, mockedConstruction.constructed().size());
+        }
+    }
+
+    @Test
+    void toSimpleName_正常ケース_pathNullとスラッシュなしを指定する_パスに応じた値が返ること() throws Exception {
+        URL nullPathUrl = mock(URL.class);
+        when(nullPathUrl.getPath()).thenReturn(null);
+        assertEquals("", TestResourceContext.toSimpleName(nullPathUrl));
+
+        URL noSlashPathUrl = mock(URL.class);
+        when(noSlashPathUrl.getPath()).thenReturn("application-dev.properties");
+        assertEquals("application-dev.properties", TestResourceContext.toSimpleName(noSlashPathUrl));
     }
 
     @Test
