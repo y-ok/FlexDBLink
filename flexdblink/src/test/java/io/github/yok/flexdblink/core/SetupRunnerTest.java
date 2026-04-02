@@ -437,6 +437,37 @@ class SetupRunnerTest {
     }
 
     @Test
+    void execute_正常ケース_テーブルは存在するがLOB列がない_file_patternsが更新されないこと() throws Exception {
+        Path configFile = tempDir.resolve("application.yml");
+        Files.writeString(configFile, "data-path: /tmp\n");
+        System.setProperty("spring.config.additional-location",
+                "file:" + tempDir.toAbsolutePath() + "/");
+
+        try (MockedStatic<DriverManager> dm = mockStatic(DriverManager.class)) {
+            dm.when(() -> DriverManager.getConnection(anyString(), anyString(), anyString()))
+                    .thenReturn(conn);
+
+            ResultSet tableRs = buildTableResultSet(new String[] {"TABLE_A"});
+            when(meta.getTables(isNull(), anyString(), anyString(), any(String[].class)))
+                    .thenReturn(tableRs);
+
+            when(dialectHandler.getPrimaryKeyColumns(conn, "SCHEMA", "TABLE_A"))
+                    .thenReturn(List.of("ID"));
+            ResultSet colRs = buildColumnResultSet(new String[] {"NAME"},
+                    new int[] {Types.VARCHAR}, new String[] {"varchar"});
+            when(meta.getColumns(isNull(), anyString(), anyString(), isNull())).thenReturn(colRs);
+
+            SetupRunner runner = newRunner();
+            runner.execute(List.of("DB1"));
+
+            String content = Files.readString(configFile);
+            assertFalse(content.contains("file-patterns"));
+        } finally {
+            System.clearProperty("spring.config.additional-location");
+        }
+    }
+
+    @Test
     void execute_正常ケース_LOB列ありのときfile_patternsが書き込まれること() throws Exception {
         Path configFile = tempDir.resolve("application.yml");
         Files.writeString(configFile, "data-path: /tmp\n");

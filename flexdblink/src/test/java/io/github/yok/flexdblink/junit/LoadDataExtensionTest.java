@@ -654,6 +654,14 @@ class LoadDataExtensionTest {
                 .thenReturn(new DataSourceTransactionManager(ds));
         assertThrows(Exception.class,
                 () -> target.resolveTxManagerByDataSource(multiple, "db1", ds));
+
+        ApplicationContext alias = mock(ApplicationContext.class);
+        when(alias.getBeanNamesForType(PlatformTransactionManager.class))
+                .thenReturn(new String[] {"tm1", "tmAlias"});
+        when(alias.getBean("tm1", PlatformTransactionManager.class)).thenReturn(tm);
+        when(alias.getBean("tmAlias", PlatformTransactionManager.class)).thenReturn(tm);
+        Object aliasResolved = target.resolveTxManagerByDataSource(alias, "db1", ds);
+        assertSame(tm, aliasResolved);
     }
 
     @Test
@@ -1642,7 +1650,7 @@ class LoadDataExtensionTest {
         DataSource ds = mock(DataSource.class);
         Connection conn = mock(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
-        when(ds.getConnection()).thenThrow(new RuntimeException("first fail")).thenReturn(conn);
+        when(ds.getConnection()).thenReturn(conn);
         when(conn.getMetaData()).thenReturn(meta);
         when(meta.getURL()).thenReturn("jdbc:h2:mem:single");
         when(meta.getUserName()).thenReturn("sa");
@@ -1684,8 +1692,8 @@ class LoadDataExtensionTest {
         when(bf.getBeanDefinition("ds2")).thenReturn(bd2);
         when(bd1.isPrimary()).thenReturn(true);
         when(bd2.isPrimary()).thenReturn(false);
-        when(ac.getBeanNamesForType(PlatformTransactionManager.class)).thenReturn(new String[0],
-                new String[] {"tm1"});
+        when(ac.getBeanNamesForType(PlatformTransactionManager.class))
+                .thenReturn(new String[] {"tm1"});
         when(ac.getBean("tm1", PlatformTransactionManager.class)).thenReturn(tm1);
         when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"ds1", "ds2"});
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds1);
@@ -1695,6 +1703,35 @@ class LoadDataExtensionTest {
 
         assertSame(ds1, components.dataSource);
         assertSame(tm1, components.txManager);
+
+    }
+
+    @Test
+    void resolveComponentsForDbId_正常ケース_dbId名一致でDataSourceを選択する_対応するDSとTMが返ること() throws Exception {
+        Properties props = new Properties();
+        props.setProperty("spring.datasource.db1.url", "jdbc:h2:mem:same");
+        props.setProperty("spring.datasource.db1.username", "sa");
+        setTrc(props);
+
+        DataSource dsDb1 = dataSourceWithMeta("jdbc:h2:mem:same", "sa");
+        DataSource dsOther = dataSourceWithMeta("jdbc:h2:mem:same", "sa");
+        DataSourceTransactionManager tmDb1 = new DataSourceTransactionManager(dsDb1);
+        DataSourceTransactionManager tmOther = new DataSourceTransactionManager(dsOther);
+
+        ApplicationContext ac = mock(ApplicationContext.class);
+        when(ac.getBeanNamesForType(DataSource.class))
+                .thenReturn(new String[] {"db1RoutingDataSource", "otherRoutingDataSource"});
+        when(ac.getBean("db1RoutingDataSource", DataSource.class)).thenReturn(dsDb1);
+        when(ac.getBean("otherRoutingDataSource", DataSource.class)).thenReturn(dsOther);
+        when(ac.getBeanNamesForType(PlatformTransactionManager.class))
+                .thenReturn(new String[] {"tmDb1", "tmOther"});
+        when(ac.getBean("tmDb1", PlatformTransactionManager.class)).thenReturn(tmDb1);
+        when(ac.getBean("tmOther", PlatformTransactionManager.class)).thenReturn(tmOther);
+
+        LoadDataExtension.Components components = target.resolveComponentsForDbId(ac, "db1");
+
+        assertSame(dsDb1, components.dataSource);
+        assertSame(tmDb1, components.txManager);
 
     }
 
@@ -1746,7 +1783,7 @@ class LoadDataExtensionTest {
         Connection c2 = mock(Connection.class);
         DatabaseMetaData m1 = mock(DatabaseMetaData.class);
         DatabaseMetaData m2 = mock(DatabaseMetaData.class);
-        when(ds1.getConnection()).thenThrow(new RuntimeException("tm probe fail")).thenReturn(c1);
+        when(ds1.getConnection()).thenReturn(c1);
         when(ds2.getConnection()).thenReturn(c2);
         when(c1.getMetaData()).thenReturn(m1);
         when(c2.getMetaData()).thenReturn(m2);
@@ -1812,6 +1849,52 @@ class LoadDataExtensionTest {
     }
 
     @Test
+    void pickSingleByDbIdName_正常異常ケース_dbId名一致と曖昧一致を判定する_単一一致のみ返ること() throws Exception {
+        DataSource ds1 = mock(DataSource.class);
+        DataSource ds2 = mock(DataSource.class);
+        LoadDataExtension.NamedDs n1 = new LoadDataExtension.NamedDs("db1RoutingDataSource", ds1);
+        LoadDataExtension.NamedDs n2 = new LoadDataExtension.NamedDs("otherDataSource", ds2);
+        LoadDataExtension.NamedDs picked = target.pickSingleByDbIdName(List.of(n1, n2), "db1");
+        assertSame(n1, picked);
+
+        assertEquals(null, target.pickSingleByDbIdName(List.of(n1, n2), " "));
+
+        LoadDataExtension.NamedDs n3 = new LoadDataExtension.NamedDs("db1AutoDataSource", ds2);
+        assertEquals(null, target.pickSingleByDbIdName(List.of(n1, n3), "db1"));
+    }
+
+    @Test
+    void normalizeForAffinityMatch_正常ケース_nullと記号文字を正規化する_英数字小文字だけが返ること() throws Exception {
+        assertEquals("", target.normalizeForAffinityMatch(null));
+        assertEquals("db1routingdatasource",
+                target.normalizeForAffinityMatch("DB-1_Routing.DataSource"));
+    }
+
+    @Test
+    void findTmByMetadata_正常ケース_DataSourceTransactionManager以外と不一致を除外する_一致件数が1件であること()
+            throws Exception {
+        DataSource dsMismatch = dataSourceWithMeta("jdbc:h2:mem:other", "sa");
+        DataSource dsMatch = dataSourceWithMeta("jdbc:h2:mem:tm2", "sa");
+        DataSourceTransactionManager tmMismatch = new DataSourceTransactionManager(dsMismatch);
+        DataSourceTransactionManager tmMatch = new DataSourceTransactionManager(dsMatch);
+        PlatformTransactionManager tmOtherType = mock(PlatformTransactionManager.class);
+
+        ApplicationContext ac = mock(ApplicationContext.class);
+        when(ac.getBeanNamesForType(PlatformTransactionManager.class))
+                .thenReturn(new String[] {"tmOtherType", "tmMismatch", "tmMatch"});
+        when(ac.getBean("tmOtherType", PlatformTransactionManager.class)).thenReturn(tmOtherType);
+        when(ac.getBean("tmMismatch", PlatformTransactionManager.class)).thenReturn(tmMismatch);
+        when(ac.getBean("tmMatch", PlatformTransactionManager.class)).thenReturn(tmMatch);
+        when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"dsMatch"});
+        when(ac.getBean("dsMatch", DataSource.class)).thenReturn(dsMatch);
+
+        List<LoadDataExtension.TmWithDs> list =
+                target.findTmByMetadata(ac, "jdbc:h2:mem:tm2", "sa");
+        assertEquals(1, list.size());
+        assertEquals("tmMatch", list.get(0).tmName);
+    }
+
+    @Test
     void helperBranches_正常ケース_URL比較とnull比較の残分岐を通す_期待値が返ること() throws Exception {
         assertEquals(true, target.urlRoughMatch("jdbc:h2:mem:a", "jdbc:h2:mem:a;MODE=Oracle"));
         assertEquals(true, target.urlRoughMatch("jdbc:h2:mem:abcdef", "jdbc:h2:mem:abc"));
@@ -1834,6 +1917,27 @@ class LoadDataExtensionTest {
         assertEquals(null, meta.url);
         assertEquals(null, meta.user);
 
+    }
+
+    @Test
+    void resolveTxManagerByDataSource_異常ケース_同一TM別名付きで複数実体一致する_例外メッセージにaliasesが含まれること()
+            throws Exception {
+        DataSource ds1 = mock(DataSource.class);
+        PlatformTransactionManager tmOtherType = mock(PlatformTransactionManager.class);
+        DataSourceTransactionManager tmA = new DataSourceTransactionManager(ds1);
+        DataSourceTransactionManager tmB = new DataSourceTransactionManager(ds1);
+
+        ApplicationContext ac = mock(ApplicationContext.class);
+        when(ac.getBeanNamesForType(PlatformTransactionManager.class))
+                .thenReturn(new String[] {"tmOtherType", "tmA", "tmAAlias", "tmB"});
+        when(ac.getBean("tmOtherType", PlatformTransactionManager.class)).thenReturn(tmOtherType);
+        when(ac.getBean("tmA", PlatformTransactionManager.class)).thenReturn(tmA);
+        when(ac.getBean("tmAAlias", PlatformTransactionManager.class)).thenReturn(tmA);
+        when(ac.getBean("tmB", PlatformTransactionManager.class)).thenReturn(tmB);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> target.resolveTxManagerByDataSource(ac, "db1", ds1));
+        assertTrue(ex.getMessage().contains("aliases="));
     }
 
     @Test

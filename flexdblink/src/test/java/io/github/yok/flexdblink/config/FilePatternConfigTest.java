@@ -98,5 +98,16 @@ class FilePatternConfigTest {
         Map<String, String> result = config.getPatternsForTable("tbl");
         assertEquals("x", result.get("C1"));
     }
-}
 
+    @Test
+    void getPatternsForTable_正常ケース_他テーブルのみ定義済みで対象不一致である_空Mapが返ること() {
+        FilePatternConfig config = new FilePatternConfig();
+        Map<String, String> cols = new HashMap<>();
+        cols.put("C1", "x");
+        Map<String, Map<String, String>> map = new HashMap<>();
+        map.put("TBL", cols);
+        config.setFilePatterns(map);
+
+        assertTrue(config.getPatternsForTable("OTHER").isEmpty());
+    }
+}

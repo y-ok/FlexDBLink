@@ -443,6 +443,15 @@ public class SqlServerDialectHandlerTest {
     }
 
     @Test
+    public void formatDbValueForCsv_正常ケース_BigDecimalを指定する_toPlainStringが返ること() throws Exception {
+        SqlServerDialectHandler handler = createHandlerDefault(mock(DbUnitConfigFactory.class),
+                mock(DateTimeFormatSupport.class), List.of(), Map.of(), Map.of());
+
+        assertEquals("12345.6700",
+                handler.formatDbValueForCsv("COL", new java.math.BigDecimal("12345.6700")));
+    }
+
+    @Test
     public void writeLobFile_正常ケース_byteBlobClobその他_全分岐でファイルが書けること() throws Exception {
         SqlServerDialectHandler handler = createHandlerDefault(List.of(), Map.of(), Map.of());
         Path outDir = tempDir.resolve("out");

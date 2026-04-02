@@ -543,6 +543,52 @@ class LobFileExporterTest {
     }
 
     @Test
+    void export_正常ケース_NCHAR型末尾スペースを指定する_末尾スペースのみ削除されること() throws Exception {
+        FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+        when(dialectHandler.quoteIdentifier(any()))
+                .thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
+        when(filePatternConfig.getPatternsForTable("TNCHAR_SPACE"))
+                .thenReturn(Collections.emptyMap());
+
+        Connection conn = mock(Connection.class);
+        when(conn.getCatalog()).thenReturn(null);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+        ResultSet pkRs = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("TNCHAR_SPACE"))).thenReturn(pkRs);
+        when(pkRs.next()).thenReturn(false);
+        Statement stmt = mock(Statement.class);
+        when(conn.createStatement()).thenReturn(stmt);
+        ResultSet rs = mock(ResultSet.class);
+        when(stmt.executeQuery("SELECT * FROM \"TNCHAR_SPACE\"")).thenReturn(rs);
+        ResultSetMetaData md = mock(ResultSetMetaData.class);
+        when(rs.getMetaData()).thenReturn(md);
+        when(md.getColumnCount()).thenReturn(1);
+        when(md.getColumnLabel(1)).thenReturn("NCHAR_COL");
+        when(md.getColumnType(1)).thenReturn(Types.NCHAR);
+        when(md.getColumnTypeName(1)).thenReturn("NCHAR");
+        when(rs.next()).thenReturn(true, false);
+        when(rs.getObject(1)).thenReturn("abc   ");
+
+        Path dbDirPath = Files.createDirectories(tempDir.resolve("db_nchar_space"));
+        Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
+        Path csvPath = dbDirPath.resolve("TNCHAR_SPACE.csv");
+        Files.writeString(csvPath, "NCHAR_COL\nx\n", StandardCharsets.UTF_8);
+
+        DumpResult result = new LobFileExporter(filePatternConfig).export(conn, "TNCHAR_SPACE",
+                dbDirPath.toFile(), filesDirPath.toFile(), "APP", dialectHandler);
+        assertEquals(1, result.getRowCount());
+
+        CSVFormat fmt =
+                CSVFormat.DEFAULT.builder().setHeader("NCHAR_COL").setSkipHeaderRecord(true).get();
+        try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
+            List<CSVRecord> records = parser.getRecords();
+            assertEquals("abc", records.get(0).get("NCHAR_COL"));
+        }
+    }
+
+    @Test
     void export_正常ケース_重複ヘッダを含むCSVを指定する_先勝ちインデックスで処理されること() throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DbDialectHandler dialectHandler = createDialectHandlerMock();
