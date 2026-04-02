@@ -20,6 +20,7 @@ import java.sql.Connection;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -57,8 +58,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * <li><b>Single-DB mode:</b> when {@code dbNames} is not specified. Uses {@code input/} directly
  * and conventional beans {@code transactionManager}/{@code dataSource}.</li>
  * <li><b>Multi-DB mode:</b> when {@code dbNames} is specified. Uses {@code input/{dbId}/}. DS is
- * identified by actual connection (URL/USER), and TM is a {@link DataSourceTransactionManager} that
- * holds the DS.</li>
+ * identified by bean-name affinity and connection metadata (URL/USER), and TM is a
+ * {@link DataSourceTransactionManager} that holds the DS.</li>
  * <li><b>Directory validation:</b> missing dbId folders cause errors; extra ones are warned.</li>
  * <li>For Spring-managed connections, {@code close()} is disabled to prevent accidental
  * closing.</li>
@@ -606,23 +607,6 @@ public class LoadDataExtension
         String expectedUrl = entry.getUrl();
         String expectedUser = entry.getUser();
 
-        // Try TM side first
-        List<TmWithDs> tmMatches = findTmByMetadata(ac, expectedUrl, expectedUser);
-        if (tmMatches.size() == 1) {
-            TmWithDs m = tmMatches.get(0);
-            log.info("Uniquely identified by TM. dbId={}, tm={}, ds={}", dbId, m.tmName, m.dsName);
-            return new Components(m.ds, m.tm);
-        }
-        if (tmMatches.size() > 1) {
-            List<String> names = new ArrayList<>();
-            for (TmWithDs m : tmMatches) {
-                names.add(m.tmName);
-            }
-            throw new IllegalStateException(
-                    "Multiple matching TransactionManagers were found for dbId=" + dbId
-                            + ". candidates=" + names);
-        }
-
         // Decide from DS side
         List<NamedDs> dsMatches = findDataSourceByMetadata(ac, expectedUrl, expectedUser);
         if (dsMatches.isEmpty()) {
@@ -631,28 +615,54 @@ public class LoadDataExtension
                     + ". expectedUrl=" + expectedUrl + ", expectedUser=" + expectedUser
                     + " candidates=" + Arrays.toString(all));
         }
+        NamedDs selectedDs = selectDataSourceForDbId(ac, dbId, dsMatches);
+        PlatformTransactionManager tm = resolveTxManagerByDataSource(ac, dbId, selectedDs.ds);
+        return new Components(selectedDs.ds, tm);
+    }
+
+    /**
+     * Select a single DataSource candidate for a logical DB id.
+     *
+     * <p>
+     * Selection order:
+     * </p>
+     * <ol>
+     * <li>Single metadata match.</li>
+     * <li>Single bean name containing normalized dbId.</li>
+     * <li>Single {@code @Primary} bean among candidates.</li>
+     * <li>Single candidate referenced by any {@link DataSourceTransactionManager}.</li>
+     * </ol>
+     *
+     * @param ac application context.
+     * @param dbId DB identifier.
+     * @param dsMatches metadata-matched DataSource candidates.
+     * @return selected DataSource.
+     */
+    NamedDs selectDataSourceForDbId(ApplicationContext ac, String dbId, List<NamedDs> dsMatches) {
         if (dsMatches.size() == 1) {
-            NamedDs only = dsMatches.get(0);
-            PlatformTransactionManager tm = resolveTxManagerByDataSource(ac, dbId, only.ds);
-            return new Components(only.ds, tm);
+            return dsMatches.get(0);
+        }
+
+        // Prefer bean-name affinity to dbId
+        NamedDs byName = pickSingleByDbIdName(dsMatches, dbId);
+        if (byName != null) {
+            log.info("Adopted dbId-affinity DataSource. dbId={}, ds={}", dbId, byName.name);
+            return byName;
         }
 
         // Prefer single @Primary DS
         NamedDs primary = pickPrimary(ac, dsMatches);
         if (primary != null) {
-            PlatformTransactionManager tm = resolveTxManagerByDataSource(ac, dbId, primary.ds);
             log.info("Adopted @Primary DataSource. dbId={}, ds={}", dbId, primary.name);
-            return new Components(primary.ds, tm);
+            return primary;
         }
 
         // If exactly one DS is referenced by TMs, adopt it
         NamedDs referencedSingle = pickSingleReferencedByTm(ac, dsMatches);
         if (referencedSingle != null) {
-            PlatformTransactionManager tm =
-                    resolveTxManagerByDataSource(ac, dbId, referencedSingle.ds);
             log.info("Adopted the only DS referenced by a TM. dbId={}, ds={}", dbId,
                     referencedSingle.name);
-            return new Components(referencedSingle.ds, tm);
+            return referencedSingle;
         }
 
         // Still ambiguous
@@ -662,6 +672,53 @@ public class LoadDataExtension
         }
         throw new IllegalStateException("Multiple matching DataSources were found for dbId=" + dbId
                 + ". candidates=" + names);
+    }
+
+    /**
+     * Return the only DataSource whose bean name includes the logical DB identifier.
+     *
+     * @param candidates DataSource candidates.
+     * @param dbId logical DB identifier.
+     * @return matched candidate or {@code null} when none or multiple match.
+     */
+    NamedDs pickSingleByDbIdName(List<NamedDs> candidates, String dbId) {
+        String normalizedDbId = normalizeForAffinityMatch(dbId);
+        if (StringUtils.isBlank(normalizedDbId)) {
+            return null;
+        }
+
+        NamedDs found = null;
+        for (NamedDs candidate : candidates) {
+            String normalizedBeanName = normalizeForAffinityMatch(candidate.name);
+            if (normalizedBeanName.contains(normalizedDbId)) {
+                if (found != null) {
+                    return null;
+                }
+                found = candidate;
+            }
+        }
+        return found;
+    }
+
+    /**
+     * Normalize names for affinity matching.
+     *
+     * @param value raw value.
+     * @return lowercase alphanumeric token.
+     */
+    String normalizeForAffinityMatch(String value) {
+        if (value == null) {
+            return "";
+        }
+        String lower = value.toLowerCase(Locale.ROOT);
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < lower.length(); i++) {
+            char ch = lower.charAt(i);
+            if (Character.isLetterOrDigit(ch)) {
+                sb.append(ch);
+            }
+        }
+        return sb.toString();
     }
 
     /**
@@ -798,27 +855,47 @@ public class LoadDataExtension
     PlatformTransactionManager resolveTxManagerByDataSource(ApplicationContext ac, String dbId,
             DataSource ds) {
         String[] tmNames = ac.getBeanNamesForType(PlatformTransactionManager.class);
-        List<String> hits = new ArrayList<>();
-        PlatformTransactionManager matched = null;
+        List<PlatformTransactionManager> uniqueMatches = new ArrayList<>();
+        Map<PlatformTransactionManager, List<String>> aliasesByManager = new IdentityHashMap<>();
 
         for (String name : tmNames) {
             PlatformTransactionManager tm = ac.getBean(name, PlatformTransactionManager.class);
             if (tm instanceof DataSourceTransactionManager) {
                 DataSource tmDs = ((DataSourceTransactionManager) tm).getDataSource();
                 if (tmDs == ds) {
-                    hits.add(name);
-                    matched = tm;
+                    List<String> aliases = aliasesByManager.get(tm);
+                    if (aliases == null) {
+                        aliases = new ArrayList<>();
+                        aliasesByManager.put(tm, aliases);
+                        uniqueMatches.add(tm);
+                    }
+                    aliases.add(name);
                 }
             }
         }
 
-        if (hits.isEmpty()) {
+        if (uniqueMatches.isEmpty()) {
             throw new IllegalStateException("No TransactionManager for DataSource. dbId=" + dbId
                     + ", candidates=" + Arrays.toString(tmNames));
         }
-        if (hits.size() > 1) {
+        if (uniqueMatches.size() > 1) {
+            List<String> hits = new ArrayList<>();
+            for (PlatformTransactionManager manager : uniqueMatches) {
+                List<String> aliases = aliasesByManager.get(manager);
+                if (aliases.size() == 1) {
+                    hits.add(aliases.get(0));
+                } else {
+                    hits.add(aliases.get(0) + "(aliases=" + aliases + ")");
+                }
+            }
             throw new IllegalStateException("Multiple TransactionManagers for DataSource. dbId="
                     + dbId + ", candidates=" + hits);
+        }
+
+        PlatformTransactionManager matched = uniqueMatches.get(0);
+        List<String> aliases = aliasesByManager.get(matched);
+        if (aliases.size() > 1) {
+            log.info("Resolved TransactionManager with aliases. dbId={}, aliases={}", dbId, aliases);
         }
         return matched;
     }

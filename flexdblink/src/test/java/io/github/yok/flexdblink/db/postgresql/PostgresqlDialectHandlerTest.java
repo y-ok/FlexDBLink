@@ -107,6 +107,13 @@ public class PostgresqlDialectHandlerTest {
     }
 
     @Test
+    void formatDbValueForCsv_正常ケース_BigDecimalを指定する_toPlainStringが返ること() throws Exception {
+        PostgresqlDialectHandler handler = createHandler();
+        assertEquals("12345.6700",
+                handler.formatDbValueForCsv("NUM_COL", new java.math.BigDecimal("12345.6700")));
+    }
+
+    @Test
     void formatDateTimeColumn_正常ケース_ミリ秒ゼロを含む日時文字列を指定する_末尾の000が除去された値が返ること() throws Exception {
         DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         when(formatter.formatJdbcDateTime(eq("TS_COL"), any(), eq(null)))
@@ -256,6 +263,18 @@ public class PostgresqlDialectHandlerTest {
         Path p4 = tempDir.resolve("a").resolve("b4.txt");
         handler.writeLobFile("public", "t1", clob, p4);
         assertEquals("clob", Files.readString(p4, StandardCharsets.UTF_8));
+    }
+
+    @Test
+    void writeLobFile_正常ケース_SQLXMLを指定する_UTF8文字列として書き込まれること() throws Exception {
+        PostgresqlDialectHandler handler = createHandler();
+        SQLXML sqlxml = mock(SQLXML.class);
+        when(sqlxml.getString()).thenReturn("<root><v>1</v></root>");
+        Path p = tempDir.resolve("xml").resolve("v.xml");
+
+        handler.writeLobFile("public", "t1", sqlxml, p);
+
+        assertEquals("<root><v>1</v></root>", Files.readString(p, StandardCharsets.UTF_8));
     }
 
     @Test

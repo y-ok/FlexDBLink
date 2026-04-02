@@ -126,6 +126,13 @@ public class MySqlDialectHandlerTest {
     }
 
     @Test
+    void formatDbValueForCsv_正常ケース_BigDecimalを指定する_toPlainStringが返ること() throws Exception {
+        MySqlDialectHandler handler = createHandler();
+        assertEquals("12345.6700",
+                handler.formatDbValueForCsv("NUM_COL", new java.math.BigDecimal("12345.6700")));
+    }
+
+    @Test
     void formatDateTimeColumn_正常ケース_ミリ秒ゼロを含む日時文字列を指定する_末尾の000が除去された値が返ること() throws Exception {
         DateTimeFormatUtil formatter = mock(DateTimeFormatUtil.class);
         when(formatter.formatJdbcDateTime(eq("TS_COL"), any(), eq(null)))
@@ -672,6 +679,13 @@ public class MySqlDialectHandlerTest {
         assertEquals("d", handler.formatDbValueForCsv("D_COL", Date.valueOf("2026-02-15")));
         assertEquals("odt", handler.formatDbValueForCsv("ODT_COL",
                 OffsetDateTime.parse("2026-02-15T01:02:03+09:00")));
+    }
+
+    @Test
+    void isDateTimeTypeForDump_正常ケース_year型と通常日時型を指定する_yearのみfalseが返ること() throws Exception {
+        MySqlDialectHandler handler = createHandler();
+        assertFalse(handler.isDateTimeTypeForDump(Types.DATE, "year"));
+        assertTrue(handler.isDateTimeTypeForDump(Types.TIMESTAMP, "timestamp"));
     }
 
     @Test

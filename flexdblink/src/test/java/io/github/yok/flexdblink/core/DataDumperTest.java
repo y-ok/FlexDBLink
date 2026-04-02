@@ -850,6 +850,135 @@ class DataDumperTest {
     }
 
     @Test
+    void execute_正常ケース_同一DBで長短2テーブルを指定する_複数件表示と幅計算が実行されること() throws Exception {
+        Path dataRoot = Files.createDirectories(tempDir.resolve("data_exec_two_tables"));
+        Files.createDirectories(dataRoot.resolve("dump"));
+
+        PathsConfig pathsConfig = new PathsConfig();
+        pathsConfig.setDataPath(dataRoot.toString());
+
+        ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
+        entry.setId("db1");
+        entry.setDriverClass("java.lang.String");
+        entry.setUrl("jdbc:two");
+        entry.setUser("u");
+        entry.setPassword("p");
+        ConnectionConfig config = new ConnectionConfig();
+        config.setConnections(List.of(entry));
+
+        DumpConfig dumpConfig = new DumpConfig();
+        dumpConfig.setExcludeTables(List.of());
+
+        FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
+        when(filePatternConfig.getPatternsForTable("LONG_TABLE_NAME"))
+                .thenReturn(Collections.emptyMap());
+        when(filePatternConfig.getPatternsForTable("S")).thenReturn(Collections.emptyMap());
+
+        Connection conn = mock(Connection.class);
+        when(conn.getSchema()).thenReturn("APP");
+        when(conn.getCatalog()).thenReturn(null);
+        DatabaseMetaData meta = mock(DatabaseMetaData.class);
+        when(conn.getMetaData()).thenReturn(meta);
+
+        ResultSet tableRs = mock(ResultSet.class);
+        when(meta.getTables(null, "APP", "%", new String[] {"TABLE"})).thenReturn(tableRs);
+        when(tableRs.next()).thenReturn(true, true, false);
+        when(tableRs.getString("TABLE_NAME")).thenReturn("LONG_TABLE_NAME", "S");
+
+        ResultSet pkLongExport = mock(ResultSet.class);
+        ResultSet pkLongDump = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("LONG_TABLE_NAME"))).thenReturn(pkLongExport,
+                pkLongDump);
+        when(pkLongExport.next()).thenReturn(false);
+        when(pkLongDump.next()).thenReturn(false);
+
+        ResultSet pkShortExport = mock(ResultSet.class);
+        ResultSet pkShortDump = mock(ResultSet.class);
+        when(meta.getPrimaryKeys(any(), eq("APP"), eq("S"))).thenReturn(pkShortExport,
+                pkShortDump);
+        when(pkShortExport.next()).thenReturn(false);
+        when(pkShortDump.next()).thenReturn(false);
+
+        Statement stmtLongExport = mock(Statement.class);
+        Statement stmtLongDump = mock(Statement.class);
+        Statement stmtShortExport = mock(Statement.class);
+        Statement stmtShortDump = mock(Statement.class);
+        when(conn.createStatement())
+                .thenReturn(stmtLongExport, stmtLongDump, stmtShortExport, stmtShortDump);
+
+        ResultSet rsLongExport = mock(ResultSet.class);
+        ResultSetMetaData mdLongExport = mock(ResultSetMetaData.class);
+        when(stmtLongExport.executeQuery("SELECT * FROM \"LONG_TABLE_NAME\"")).thenReturn(
+                rsLongExport);
+        when(rsLongExport.getMetaData()).thenReturn(mdLongExport);
+        when(mdLongExport.getColumnCount()).thenReturn(1);
+        when(mdLongExport.getColumnLabel(1)).thenReturn("ID");
+        when(mdLongExport.getColumnType(1)).thenReturn(Types.VARCHAR);
+        when(mdLongExport.getColumnTypeName(1)).thenReturn("VARCHAR");
+        when(rsLongExport.next()).thenReturn(true, false);
+        when(rsLongExport.getObject(1)).thenReturn("1");
+
+        ResultSet rsLongDump = mock(ResultSet.class);
+        ResultSetMetaData mdLongDump = mock(ResultSetMetaData.class);
+        when(stmtLongDump.executeQuery("SELECT * FROM \"LONG_TABLE_NAME\"")).thenReturn(rsLongDump);
+        when(rsLongDump.getMetaData()).thenReturn(mdLongDump);
+        when(mdLongDump.getColumnCount()).thenReturn(1);
+        when(mdLongDump.getColumnLabel(1)).thenReturn("ID");
+        when(mdLongDump.getColumnType(1)).thenReturn(Types.VARCHAR);
+        when(mdLongDump.getColumnTypeName(1)).thenReturn("VARCHAR");
+        when(rsLongDump.next()).thenReturn(true, false);
+        when(rsLongDump.getObject(1)).thenReturn("1");
+        when(rsLongDump.getString(1)).thenReturn("1");
+
+        ResultSet rsShortExport = mock(ResultSet.class);
+        ResultSetMetaData mdShortExport = mock(ResultSetMetaData.class);
+        when(stmtShortExport.executeQuery("SELECT * FROM \"S\"")).thenReturn(rsShortExport);
+        when(rsShortExport.getMetaData()).thenReturn(mdShortExport);
+        when(mdShortExport.getColumnCount()).thenReturn(1);
+        when(mdShortExport.getColumnLabel(1)).thenReturn("ID");
+        when(mdShortExport.getColumnType(1)).thenReturn(Types.VARCHAR);
+        when(mdShortExport.getColumnTypeName(1)).thenReturn("VARCHAR");
+        when(rsShortExport.next()).thenReturn(true, false);
+        when(rsShortExport.getObject(1)).thenReturn("1");
+
+        ResultSet rsShortDump = mock(ResultSet.class);
+        ResultSetMetaData mdShortDump = mock(ResultSetMetaData.class);
+        when(stmtShortDump.executeQuery("SELECT * FROM \"S\"")).thenReturn(rsShortDump);
+        when(rsShortDump.getMetaData()).thenReturn(mdShortDump);
+        when(mdShortDump.getColumnCount()).thenReturn(1);
+        when(mdShortDump.getColumnLabel(1)).thenReturn("ID");
+        when(mdShortDump.getColumnType(1)).thenReturn(Types.VARCHAR);
+        when(mdShortDump.getColumnTypeName(1)).thenReturn("VARCHAR");
+        when(rsShortDump.next()).thenReturn(true, false);
+        when(rsShortDump.getObject(1)).thenReturn("1");
+        when(rsShortDump.getString(1)).thenReturn("1");
+
+        DbDialectHandler dialect = createDialectHandlerMock();
+        when(dialect.quoteIdentifier(any())).thenAnswer(inv -> "\"" + inv.getArgument(0) + "\"");
+        when(dialect.createDbUnitConnection(eq(conn), eq("APP")))
+                .thenReturn(mock(DatabaseConnection.class));
+
+        DataDumper dumper =
+                new DataDumper(pathsConfig, config, filePatternConfig, dumpConfig, e -> dialect);
+
+        try (MockedStatic<DriverManager> driverManager = Mockito.mockStatic(DriverManager.class);
+                MockedStatic<TableDependencyResolver> resolver =
+                        Mockito.mockStatic(TableDependencyResolver.class)) {
+            driverManager.when(() -> DriverManager.getConnection("jdbc:two", "u", "p"))
+                    .thenReturn(conn);
+            resolver.when(() -> TableDependencyResolver.resolveLoadOrder(eq(conn), isNull(),
+                    eq("APP"), eq(List.of("LONG_TABLE_NAME", "S"))))
+                    .thenReturn(List.of("LONG_TABLE_NAME", "S"));
+            dumper.execute("scn_two_tables", List.of("db1"));
+        }
+
+        assertTrue(Files.exists(dataRoot.resolve("dump").resolve("scn_two_tables").resolve("db1")
+                .resolve("LONG_TABLE_NAME.csv")));
+        assertTrue(Files.exists(
+                dataRoot.resolve("dump").resolve("scn_two_tables").resolve("db1").resolve("S.csv")));
+    }
+
+    @Test
     void logSummary_正常ケース_複数テーブル件数を指定する_例外なく完了すること() throws Exception {
         DataDumper dumper = createDumper();
         Map<String, Map<String, Integer>> summary = dumper.getDumpSummary();

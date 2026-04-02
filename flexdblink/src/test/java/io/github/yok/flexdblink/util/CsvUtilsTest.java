@@ -380,4 +380,129 @@ class CsvUtilsTest {
 
         assertEquals("abc\t", result);
     }
+
+    @Test
+    void formatColumnValue_正常ケース_バイナリ型でbytesが非null_16進大文字が返ること() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        ResultSetMetaData meta = mock(ResultSetMetaData.class);
+        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+
+        when(rs.findColumn("BIN_COL")).thenReturn(1);
+        when(rs.getMetaData()).thenReturn(meta);
+        when(meta.getColumnType(1)).thenReturn(Types.BINARY);
+        when(meta.getColumnTypeName(1)).thenReturn("RAW");
+        when(rs.getObject(1)).thenReturn(new byte[] {(byte) 0x0F, (byte) 0xA0});
+        when(dialectHandler.isBinaryTypeForDump(Types.BINARY, "RAW")).thenReturn(true);
+        when(rs.getBytes(1)).thenReturn(new byte[] {(byte) 0x0F, (byte) 0xA0});
+
+        String result = CsvUtils.formatColumnValue(rs, "BIN_COL", dialectHandler, null);
+
+        assertEquals("0FA0", result);
+    }
+
+    @Test
+    void formatColumnValue_正常ケース_バイナリ型でbytesがnull_空文字が返ること() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        ResultSetMetaData meta = mock(ResultSetMetaData.class);
+        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+
+        when(rs.findColumn("BIN_COL")).thenReturn(1);
+        when(rs.getMetaData()).thenReturn(meta);
+        when(meta.getColumnType(1)).thenReturn(Types.BINARY);
+        when(meta.getColumnTypeName(1)).thenReturn("RAW");
+        when(rs.getObject(1)).thenReturn(null);
+        when(dialectHandler.isBinaryTypeForDump(Types.BINARY, "RAW")).thenReturn(true);
+        when(rs.getBytes(1)).thenReturn(null);
+
+        String result = CsvUtils.formatColumnValue(rs, "BIN_COL", dialectHandler, null);
+
+        assertEquals("", result);
+    }
+
+    @Test
+    void formatColumnValue_正常ケース_日時型でtyped値が非null_日時フォーマッタ結果が返ること() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        ResultSetMetaData meta = mock(ResultSetMetaData.class);
+        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        Connection conn = mock(Connection.class);
+        java.sql.Timestamp typed = java.sql.Timestamp.valueOf("2026-03-01 01:02:03");
+
+        when(rs.findColumn("TS_COL")).thenReturn(1);
+        when(rs.getMetaData()).thenReturn(meta);
+        when(meta.getColumnType(1)).thenReturn(Types.TIMESTAMP);
+        when(meta.getColumnTypeName(1)).thenReturn("TIMESTAMP");
+        when(rs.getObject(1)).thenReturn("raw");
+        when(dialectHandler.isDateTimeTypeForDump(Types.TIMESTAMP, "TIMESTAMP")).thenReturn(true);
+        when(rs.getTimestamp(1)).thenReturn(typed);
+        when(dialectHandler.formatDateTimeColumn("TS_COL", typed, conn)).thenReturn("FMT");
+
+        String result = CsvUtils.formatColumnValue(rs, "TS_COL", dialectHandler, conn);
+
+        assertEquals("FMT", result);
+    }
+
+    @Test
+    void formatColumnValue_正常ケース_日時型でtyped値がnull_空文字が返ること() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        ResultSetMetaData meta = mock(ResultSetMetaData.class);
+        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+
+        when(rs.findColumn("TS_COL")).thenReturn(1);
+        when(rs.getMetaData()).thenReturn(meta);
+        when(meta.getColumnType(1)).thenReturn(Types.TIMESTAMP);
+        when(meta.getColumnTypeName(1)).thenReturn("TIMESTAMP");
+        when(rs.getObject(1)).thenReturn(null);
+        when(dialectHandler.isDateTimeTypeForDump(Types.TIMESTAMP, "TIMESTAMP")).thenReturn(true);
+        when(rs.getTimestamp(1)).thenReturn(null);
+
+        String result = CsvUtils.formatColumnValue(rs, "TS_COL", dialectHandler, null);
+
+        assertEquals("", result);
+    }
+
+    @Test
+    void formatColumnValue_正常ケース_NCHAR型と通常型を指定する_分岐ごとの整形結果が返ること() throws Exception {
+        ResultSet rsNchar = mock(ResultSet.class);
+        ResultSetMetaData metaNchar = mock(ResultSetMetaData.class);
+        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+        when(rsNchar.findColumn("NCHAR_COL")).thenReturn(1);
+        when(rsNchar.getMetaData()).thenReturn(metaNchar);
+        when(metaNchar.getColumnType(1)).thenReturn(Types.NCHAR);
+        when(metaNchar.getColumnTypeName(1)).thenReturn("NCHAR");
+        when(rsNchar.getObject(1)).thenReturn("xy  ");
+        when(dialectHandler.formatDbValueForCsv("NCHAR_COL", "xy  ")).thenReturn("xy  ");
+
+        String nchar = CsvUtils.formatColumnValue(rsNchar, "NCHAR_COL", dialectHandler, null);
+
+        ResultSet rsOther = mock(ResultSet.class);
+        ResultSetMetaData metaOther = mock(ResultSetMetaData.class);
+        when(rsOther.findColumn("NUM_COL")).thenReturn(1);
+        when(rsOther.getMetaData()).thenReturn(metaOther);
+        when(metaOther.getColumnType(1)).thenReturn(Types.INTEGER);
+        when(metaOther.getColumnTypeName(1)).thenReturn("INTEGER");
+        when(rsOther.getObject(1)).thenReturn(123);
+        when(dialectHandler.formatDbValueForCsv("NUM_COL", 123)).thenReturn("123");
+
+        String other = CsvUtils.formatColumnValue(rsOther, "NUM_COL", dialectHandler, null);
+
+        assertEquals("xy", nchar);
+        assertEquals("123", other);
+    }
+
+    @Test
+    void formatColumnValue_正常ケース_通常型で値がnull_空文字が返ること() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        ResultSetMetaData meta = mock(ResultSetMetaData.class);
+        DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
+
+        when(rs.findColumn("VAL_COL")).thenReturn(1);
+        when(rs.getMetaData()).thenReturn(meta);
+        when(meta.getColumnType(1)).thenReturn(Types.VARCHAR);
+        when(meta.getColumnTypeName(1)).thenReturn("VARCHAR");
+        when(rs.getObject(1)).thenReturn(null);
+
+        String result = CsvUtils.formatColumnValue(rs, "VAL_COL", dialectHandler, null);
+
+        assertEquals("", result);
+    }
 }
