@@ -613,14 +613,14 @@ A **Spring Test execution context** is required (`@SpringBootTest`, `@MybatisTes
 @MybatisTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import(MyDataSourceConfig.class)
-@LoadData(scenario = "NORMAL", dbNames = "BBB")   // ← applied to the entire class
+@LoadData(scenario = {"NORMAL"}, dbNames = {"BBB"})   // ← applied to the entire class
 class UserMapperTest {
 
     @Autowired
     private UserMapper mapper;
 
     @Test
-    @LoadData(scenario = "ADMIN", dbNames = "BBB") // ← applied to a single method (overrides class-level)
+    @LoadData(scenario = {"ADMIN"}, dbNames = {"BBB"}) // ← applied to a single method (overrides class-level)
     void findById_returnsExpectedRecord() {
         User user = mapper.findById(1L);
         assertNotNull(user);
@@ -632,13 +632,9 @@ class UserMapperTest {
 ### Test Resource Layout Convention
 
 ```bash
-# Multi-DB tests
+# Per-db tests (single or multiple dbNames)
 src/test/resources/<package>/<TestClassName>/<scenario>/input/<dbName>/*.csv
 src/test/resources/<package>/<TestClassName>/<scenario>/input/<dbName>/files/*  # LOB content
-
-# Single-DB tests
-src/test/resources/<package>/<TestClassName>/<scenario>/input/*.csv
-src/test/resources/<package>/<TestClassName>/<scenario>/input/files/*           # LOB content
 ```
 
 > **Paths outside this convention will cause an error.**
@@ -647,8 +643,8 @@ src/test/resources/<package>/<TestClassName>/<scenario>/input/files/*           
 
 | Parameter | Description |
 | ----------- | ------------- |
-| `scenario` | Scenario name (directory name). E.g., `"NORMAL"`, `"ERROR_CASE"` |
-| `dbNames` | Target DB name (subdirectory name). When omitted, uses single-DB mode under `input/` |
+| `scenario` | Required. Scenario directory names. E.g., `{"NORMAL"}`, `{"ERROR_CASE"}` |
+| `dbNames` | Required. Target DB directory names. E.g., `{"AAA"}`, `{"AAA","BBB"}` |
 
 ### DataSource Mapping (`flexdblink.properties`)
 
@@ -675,22 +671,20 @@ flexdblink.load.datasource.bbb=bbbRoutingDataSource
 
 | Test mode | Is `flexdblink.properties` required? | Resolution behavior |
 | -------- | -------- | -------- |
-| Single DB (`@LoadData` without `dbNames`) | No | Auto-resolves by `dataSource` bean name, or single `DataSource`, or single `@Primary` `DataSource` |
-| Single DB (`@LoadData(dbNames = "AAA")`) | Yes | Treated as explicit dbId mode; `aaa` mapping must exist |
-| Multi DB (`@LoadData(dbNames = {"AAA","BBB"})`) | Yes | Each dbId must be mapped |
+| Any `@LoadData` usage (`dbNames` specified) | Yes | Every dbId in `dbNames` must be mapped to a DataSource bean |
 
 #### Recommended Examples
 
-Single DB (no mapping required):
+Single DB:
 
 ```java
-@LoadData(scenario = "NORMAL")
+@LoadData(scenario = {"NORMAL"}, dbNames = {"AAA"})
 ```
 
-Multi DB (mapping required):
+Multi DB:
 
 ```java
-@LoadData(scenario = "NORMAL", dbNames = {"AAA", "BBB"})
+@LoadData(scenario = {"NORMAL"}, dbNames = {"AAA", "BBB"})
 ```
 
 ```properties
@@ -704,6 +698,8 @@ flexdblink.load.datasource.bbb=bbbRoutingDataSource
   - Add `flexdblink.load.datasource.<dbId>=<beanName>` to `flexdblink.properties`
 - `Configured DataSource bean was not found...`
   - Verify the mapped bean name exists in the Spring test context
+- `@LoadData dbNames must be specified...`
+  - Add `dbNames = {...}` to every `@LoadData`
 
 ---
 
