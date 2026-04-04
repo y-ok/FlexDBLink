@@ -251,7 +251,8 @@ class TestResourceContextTest {
     }
 
     @Test
-    void loadAllApplicationProperties_正常ケース_システムプロパティプレースホルダを指定する_接続情報が展開されること() throws Exception {
+    void loadAllApplicationProperties_正常ケース_システムプロパティプレースホルダを指定する_接続情報が展開されること()
+            throws Exception {
         Path cp = tempDir.resolve("cp_placeholder");
         Files.createDirectories(cp);
         Files.writeString(cp.resolve("application.properties"),
@@ -264,7 +265,8 @@ class TestResourceContextTest {
             Properties merged = TestResourceContext.loadAllApplicationProperties(cl);
             assertEquals("jdbc:oracle:thin:@localhost:11521/BBB",
                     merged.getProperty("spring.datasource.operator.bbb.url"));
-            assertEquals("BBB_USER", merged.getProperty("spring.datasource.operator.bbb.username"));
+            assertEquals("BBB_USER",
+                    merged.getProperty("spring.datasource.operator.bbb.username"));
         } finally {
             System.clearProperty("DB_BBB_URL");
             System.clearProperty("DB_BBB_USER");
@@ -272,7 +274,8 @@ class TestResourceContextTest {
     }
 
     @Test
-    void loadAllApplicationProperties_正常ケース_ベース設定3形式を指定する_全形式のキーが読み込まれること() throws Exception {
+    void loadAllApplicationProperties_正常ケース_ベース設定3形式を指定する_全形式のキーが読み込まれること()
+            throws Exception {
         Path cp = tempDir.resolve("cp_base_all_formats");
         Files.createDirectories(cp);
         Files.writeString(cp.resolve("application.properties"), "base.properties.key=prop\n",
@@ -291,7 +294,8 @@ class TestResourceContextTest {
     }
 
     @Test
-    void loadAllApplicationProperties_正常ケース_プロファイル設定3形式を指定する_全形式のキーが読み込まれること() throws Exception {
+    void loadAllApplicationProperties_正常ケース_プロファイル設定3形式を指定する_全形式のキーが読み込まれること()
+            throws Exception {
         Path cp = tempDir.resolve("cp_profile_all_formats");
         Files.createDirectories(cp);
         Files.writeString(cp.resolve("application.properties"), "spring.profiles.active=dev\n",
@@ -383,16 +387,18 @@ class TestResourceContextTest {
         when(ymlResource.getURL()).thenReturn(yml);
 
         try (MockedConstruction<PathMatchingResourcePatternResolver> mockedConstruction =
-                mockConstruction(PathMatchingResourcePatternResolver.class, (resolver, context) -> {
-                    when(resolver.getResources("classpath*:**/application-*.properties"))
-                            .thenReturn(new Resource[] {prop1, prop2});
-                    when(resolver.getResources("classpath*:**/application-*.yml"))
-                            .thenReturn(new Resource[] {ymlResource});
-                    when(resolver.getResources("classpath*:**/application-*.yaml"))
-                            .thenReturn(new Resource[0]);
-                })) {
-            List<URL> urls = TestResourceContext
-                    .findAllProfileResources(Thread.currentThread().getContextClassLoader());
+                mockConstruction(PathMatchingResourcePatternResolver.class,
+                        (resolver, context) -> {
+                            when(resolver.getResources("classpath*:**/application-*.properties"))
+                                    .thenReturn(new Resource[] {prop1, prop2});
+                            when(resolver.getResources("classpath*:**/application-*.yml"))
+                                    .thenReturn(new Resource[] {ymlResource});
+                            when(resolver.getResources("classpath*:**/application-*.yaml"))
+                                    .thenReturn(new Resource[0]);
+                        })) {
+            List<URL> urls =
+                    TestResourceContext.findAllProfileResources(
+                            Thread.currentThread().getContextClassLoader());
             assertEquals(2, urls.size());
             assertEquals(duplicated, urls.get(0));
             assertEquals(yml, urls.get(1));
@@ -408,8 +414,7 @@ class TestResourceContextTest {
 
         URL noSlashPathUrl = mock(URL.class);
         when(noSlashPathUrl.getPath()).thenReturn("application-dev.properties");
-        assertEquals("application-dev.properties",
-                TestResourceContext.toSimpleName(noSlashPathUrl));
+        assertEquals("application-dev.properties", TestResourceContext.toSimpleName(noSlashPathUrl));
     }
 
     @Test
@@ -498,7 +503,8 @@ class TestResourceContextTest {
         System.setProperty("DB_BBB_URL", "jdbc:oracle:thin:@localhost:11521/BBB");
         try {
             TestResourceContext.resolvePlaceholders(props, 0);
-            assertEquals("${DB_BBB_URL}", props.getProperty("spring.datasource.operator.bbb.url"));
+            assertEquals("${DB_BBB_URL}",
+                    props.getProperty("spring.datasource.operator.bbb.url"));
         } finally {
             System.clearProperty("DB_BBB_URL");
         }
