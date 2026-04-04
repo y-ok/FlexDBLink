@@ -75,16 +75,16 @@ class LoadCsvDataExtensionTest {
     }
 
     static class DummyClass_MethodAnn_ScenarioExists_NoDbDir {
-        @LoadData(scenario = {"m_ok"})
+        @LoadData(scenario = {"m_ok"}, dbNames = {"db1"})
         void dummy() {}
     }
 
-    @LoadData(scenario = {"missing"})
+    @LoadData(scenario = {"missing"}, dbNames = {"db1"})
     static class DummyClass_ClassAnn_Missing {
     }
 
     static class DummyClass_MethodAnn_Missing {
-        @LoadData(scenario = {"m1"})
+        @LoadData(scenario = {"m1"}, dbNames = {"db1"})
         void dummy() {}
     }
 
@@ -98,11 +98,11 @@ class LoadCsvDataExtensionTest {
     }
 
     static class DummyClass_MethodAnn_ScenarioNotFound {
-        @LoadData(scenario = {"noDir"})
+        @LoadData(scenario = {"noDir"}, dbNames = {"db1"})
         void dummy() {}
     }
 
-    @LoadData(scenario = {"c1"})
+    @LoadData(scenario = {"c1"}, dbNames = {"db1"})
     static class DummyClass_ClassAnn_Exists {
     }
 
@@ -419,7 +419,7 @@ class LoadCsvDataExtensionTest {
     }
 
     @Test
-    void beforeTestExecution_正常ケース_メソッドシナリオ存在DB未指定_ロード実行経路を通って正常終了すること(@TempDir Path tmp)
+    void beforeTestExecution_正常ケース_メソッドシナリオ存在DB指定_ロード実行経路を通って正常終了すること(@TempDir Path tmp)
             throws Exception {
         // Arrange: TCCL 直下にメソッド用シナリオディレクトリを用意
         Path base = tmp;
@@ -438,7 +438,7 @@ class LoadCsvDataExtensionTest {
         Thread.currentThread().setContextClassLoader(cl);
         tcclOverridden = true;
 
-        // 対象メソッドを取得（@LoadData(scenario={"m_ok"}) が付与されている想定）
+        // 対象メソッドを取得（@LoadData(scenario={"m_ok"}, dbNames={"db1"})）
         Method m = testClass.getDeclaredMethod("dummy");
 
         // ExtensionContext をモック
@@ -600,12 +600,12 @@ class LoadCsvDataExtensionTest {
     }
 
     static class DummyClass_ProfileLoad_Success {
-        @LoadData(scenario = {"s"})
+        @LoadData(scenario = {"s"}, dbNames = {"db1"})
         void dummy() {}
     }
 
     static class DummyClass_ProfileLoad_Missing {
-        @LoadData(scenario = {"s"})
+        @LoadData(scenario = {"s"}, dbNames = {"db1"})
         void dummy() {}
     }
 
