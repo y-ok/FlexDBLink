@@ -613,14 +613,14 @@ A **Spring Test execution context** is required (`@SpringBootTest`, `@MybatisTes
 @MybatisTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import(MyDataSourceConfig.class)
-@LoadData(scenario = {"NORMAL"}, dbNames = {"BBB"})   // ← applied to the entire class
+@LoadData(scenario = "NORMAL", dbNames = "BBB")   // ← applied to the entire class
 class UserMapperTest {
 
     @Autowired
     private UserMapper mapper;
 
     @Test
-    @LoadData(scenario = {"ADMIN"}, dbNames = {"BBB"}) // ← applied to a single method (overrides class-level)
+    @LoadData(scenario = "ADMIN", dbNames = "BBB") // ← applied to a single method (overrides class-level)
     void findById_returnsExpectedRecord() {
         User user = mapper.findById(1L);
         assertNotNull(user);
@@ -643,8 +643,8 @@ src/test/resources/<package>/<TestClassName>/<scenario>/input/<dbName>/files/*  
 
 | Parameter | Description |
 | ----------- | ------------- |
-| `scenario` | Required. Scenario directory names. E.g., `{"NORMAL"}`, `{"ERROR_CASE"}` |
-| `dbNames` | Required. Target DB directory names. E.g., `{"AAA"}`, `{"AAA","BBB"}` |
+| `scenario` | Required. Scenario directory names. Single value shorthand is allowed. E.g., `"NORMAL"`, `{"NORMAL","ERROR_CASE"}` |
+| `dbNames` | Required. Target DB directory names. Single value shorthand is allowed. E.g., `"AAA"`, `{"AAA","BBB"}` |
 
 ### DataSource Mapping (`flexdblink.properties`)
 
@@ -678,13 +678,13 @@ flexdblink.load.datasource.bbb=bbbRoutingDataSource
 Single DB:
 
 ```java
-@LoadData(scenario = {"NORMAL"}, dbNames = {"AAA"})
+@LoadData(scenario = "NORMAL", dbNames = "AAA")
 ```
 
 Multi DB:
 
 ```java
-@LoadData(scenario = {"NORMAL"}, dbNames = {"AAA", "BBB"})
+@LoadData(scenario = "NORMAL", dbNames = {"AAA", "BBB"})
 ```
 
 ```properties
