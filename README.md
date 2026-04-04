@@ -650,6 +650,61 @@ src/test/resources/<package>/<TestClassName>/<scenario>/input/files/*           
 | `scenario` | Scenario name (directory name). E.g., `"NORMAL"`, `"ERROR_CASE"` |
 | `dbNames` | Target DB name (subdirectory name). When omitted, uses single-DB mode under `input/` |
 
+### DataSource Mapping (`flexdblink.properties`)
+
+`@LoadData` resolves the target database by **DataSource bean name**.
+
+Config file path:
+
+```properties
+src/test/resources/flexdblink.properties
+```
+
+Config format:
+
+```properties
+flexdblink.load.datasource.aaa=aaaRoutingDataSource
+flexdblink.load.datasource.bbb=bbbRoutingDataSource
+```
+
+- Key format: `flexdblink.load.datasource.<dbId>`
+- `<dbId>` is matched case-insensitively (`input/BBB` matches key `bbb`)
+- TransactionManager bean-name mapping is not required
+
+#### When Is Mapping Required?
+
+| Test mode | Is `flexdblink.properties` required? | Resolution behavior |
+| -------- | -------- | -------- |
+| Single DB (`@LoadData` without `dbNames`) | No | Auto-resolves by `dataSource` bean name, or single `DataSource`, or single `@Primary` `DataSource` |
+| Single DB (`@LoadData(dbNames = "AAA")`) | Yes | Treated as explicit dbId mode; `aaa` mapping must exist |
+| Multi DB (`@LoadData(dbNames = {"AAA","BBB"})`) | Yes | Each dbId must be mapped |
+
+#### Recommended Examples
+
+Single DB (no mapping required):
+
+```java
+@LoadData(scenario = "NORMAL")
+```
+
+Multi DB (mapping required):
+
+```java
+@LoadData(scenario = "NORMAL", dbNames = {"AAA", "BBB"})
+```
+
+```properties
+flexdblink.load.datasource.aaa=aaaRoutingDataSource
+flexdblink.load.datasource.bbb=bbbRoutingDataSource
+```
+
+#### Typical Errors
+
+- `DataSource mapping was not found for dbId=...`
+  - Add `flexdblink.load.datasource.<dbId>=<beanName>` to `flexdblink.properties`
+- `Configured DataSource bean was not found...`
+  - Verify the mapped bean name exists in the Spring test context
+
 ---
 
 ## Supported Databases and Type Coverage
