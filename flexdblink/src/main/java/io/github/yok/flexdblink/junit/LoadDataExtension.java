@@ -12,7 +12,10 @@ import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.util.DateTimeFormatUtil;
 import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.LogPathUtil;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.lang.reflect.Proxy;
+import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -26,6 +29,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 import javax.sql.DataSource;
 import lombok.extern.slf4j.Slf4j;
@@ -56,10 +60,10 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * <li><b>TX policy:</b> Join an existing test transaction if present; otherwise start one and
  * always roll it back after the test.</li>
  * <li><b>Single-DB mode:</b> when {@code dbNames} is not specified. Uses {@code input/} directly
- * and conventional beans {@code transactionManager}/{@code dataSource}.</li>
- * <li><b>Multi-DB mode:</b> when {@code dbNames} is specified. Uses {@code input/{dbId}/}. DS is
- * identified by bean-name affinity and connection metadata (URL/USER), and TM is a
- * {@link DataSourceTransactionManager} that holds the DS.</li>
+ * and resolves DataSource from configuration or Spring beans.</li>
+ * <li><b>Multi-DB mode:</b> when {@code dbNames} is specified. Uses {@code input/{dbId}/} and
+ * resolves each DataSource from {@code flexdblink.properties}
+ * ({@code flexdblink.load.datasource.<dbId>=<beanName>}).</li>
  * <li><b>Directory validation:</b> missing dbId folders cause errors; extra ones are warned.</li>
  * <li>For Spring-managed connections, {@code close()} is disabled to prevent accidental
  * closing.</li>
@@ -85,6 +89,8 @@ public class LoadDataExtension
     private static final Namespace NS = Namespace.create(LoadDataExtension.class.getName(), "TX");
     private static final String STORE_KEY_TX = "TX_RECORDS";
     private static final String STORE_KEY_TXI_DEFAULT = "TXI_DEFAULT_SWITCH";
+    private static final String FLEXDBLINK_PROPERTIES = "flexdblink.properties";
+    private static final String LOAD_DS_PREFIX = "flexdblink.load.datasource.";
 
     /**
      * Replaces the test resource context used by this extension.
@@ -273,19 +279,17 @@ public class LoadDataExtension
         // Mode detection
         boolean multi = dbNamesAttr != null && dbNamesAttr.length > 0;
         ApplicationContext ac = getApplicationContext(context);
+        ClassLoader cl = resolveClassLoader(context);
+        Properties flexProps = loadFlexDbLinkProperties(cl);
+        Map<String, String> dsBeanNamesByDbId = readConfiguredDataSourceBeanNames(flexProps);
 
         // ===== Single-DB mode =====
         if (!multi) {
-            PlatformTransactionManager tm = resolveTxManagerSingle(ac);
-            DataSource ds = resolveDataSourceSingle(ac);
-
-            setTxInterceptorDefaultManager(context, ac, tm, "SINGLE");
-
-            // Start a test TX if none exists (always rolled back after the test)
-            if (!isTxActive()) {
-                beginTestTx("SINGLE", tm, context);
-            } else if (!TransactionSynchronizationManager.hasResource(ds)) {
-                log.warn("Single-DB: DS not bound to TX; changes may persist.");
+            DataSource ds = resolveDataSourceSingle(ac, dsBeanNamesByDbId);
+            if (isTxActive() && TransactionSynchronizationManager.hasResource(ds)) {
+                log.info("Single-DB: Existing TX found and DS is bound; participating in it.");
+            } else {
+                beginTestTxWithDataSource("SINGLE", ds, context);
             }
 
             // Dataset: input/
@@ -314,58 +318,53 @@ public class LoadDataExtension
         Set<String> expected = new LinkedHashSet<>(Arrays.asList(dbNamesAttr));
         Path baseInput = trc.baseInputDir(scenarioName);
         Set<String> found = listDbIdsFromFolder(baseInput);
+        Map<String, String> foundByNormalized = indexDbIdsByNormalized(found);
+        List<String> dbIds = new ArrayList<>();
+        Set<String> missing = new LinkedHashSet<>();
+        Set<String> requestedNormalized = new LinkedHashSet<>();
+        for (String requestedDbId : expected) {
+            String normalized = normalizeDbIdKey(requestedDbId);
+            requestedNormalized.add(normalized);
+            String actualDbId = foundByNormalized.get(normalized);
+            if (actualDbId == null) {
+                missing.add(requestedDbId);
+                continue;
+            }
+            dbIds.add(actualDbId);
+        }
 
         // Missing = error; Extras = warn
-        Set<String> missing = new LinkedHashSet<>(expected);
-        missing.removeAll(found);
-        Set<String> extras = new LinkedHashSet<>(found);
-        extras.removeAll(expected);
         if (!missing.isEmpty()) {
             throw new IllegalStateException(
                     "Missing dbNames folders: missing=" + missing + ", base=" + baseInput);
+        }
+        Set<String> extras = new LinkedHashSet<>();
+        for (Map.Entry<String, String> e : foundByNormalized.entrySet()) {
+            if (!requestedNormalized.contains(e.getKey())) {
+                extras.add(e.getValue());
+            }
         }
         if (!extras.isEmpty()) {
             log.warn("Unspecified folders under input (ignored): extras={}", extras);
         }
 
-        // Pre-resolve TM/DS set for each dbId
-        List<String> dbIds = new ArrayList<>(expected);
+        // Pre-resolve DS set for each dbId
         List<DataSource> dss = new ArrayList<>(dbIds.size());
-        List<PlatformTransactionManager> tms = new ArrayList<>(dbIds.size());
-
         for (String dbId : dbIds) {
-            Components comp = resolveComponentsForDbId(ac, dbId);
-            dss.add(comp.dataSource);
-            tms.add(comp.txManager);
+            DataSource ds = resolveDataSourceByDbId(ac, dbId, dsBeanNamesByDbId);
+            dss.add(ds);
         }
 
-        if (dbIds.size() == 1) {
-            // Only one: switch AOP default TM explicitly
-            setTxInterceptorDefaultManager(context, ac, tms.get(0), "MULTI:" + dbIds.get(0));
-        } else {
-            // 2 or more: do not switch; require explicit @Transactional if needed
-            log.warn("Multi-DB mode detected (dbIds={}). Skipping AOP default TM switching."
-                    + "Specify @Transactional(transactionManager=\"...\") explicitly if necessary.",
-                    dbIds);
-        }
-
-        // Check existing TX
+        // Check existing TX and begin local TX only when needed
         boolean active = isTxActive();
-        if (active) {
-            // With an existing TX, require all DS to be bound
-            for (int i = 0; i < dss.size(); i++) {
-                DataSource ds = dss.get(i);
-                String dbId = dbIds.get(i);
-                if (!TransactionSynchronizationManager.hasResource(ds)) {
-                    throw new IllegalStateException("DS not bound to existing TX. dbId=" + dbId);
-                }
+        for (int i = 0; i < dbIds.size(); i++) {
+            DataSource ds = dss.get(i);
+            String dbId = dbIds.get(i);
+            if (active && TransactionSynchronizationManager.hasResource(ds)) {
+                log.info("Multi-DB: dbId={} is bound to existing TX; participating in it.", dbId);
+                continue;
             }
-            log.info("All DBs are participating in the existing transaction. Running within it.");
-        } else {
-            // No existing TX: start per dbId (rolled back afterwards)
-            for (int i = 0; i < dbIds.size(); i++) {
-                beginTestTx(dbIds.get(i), tms.get(i), context);
-            }
+            beginTestTxWithDataSource(dbId, ds, context);
         }
 
         // Execute per dbId
@@ -520,6 +519,29 @@ public class LoadDataExtension
     }
 
     /**
+     * Resolve a class loader for reading classpath resources.
+     *
+     * @param context execution context.
+     * @return class loader.
+     */
+    ClassLoader resolveClassLoader(ExtensionContext context) {
+        try {
+            Class<?> testClass = context.getRequiredTestClass();
+            if (testClass != null) {
+                return testClass.getClassLoader();
+            }
+        } catch (Exception e) {
+            log.debug("Failed to resolve test class loader from ExtensionContext.", e);
+        }
+
+        ClassLoader threadLoader = Thread.currentThread().getContextClassLoader();
+        if (threadLoader != null) {
+            return threadLoader;
+        }
+        return LoadDataExtension.class.getClassLoader();
+    }
+
+    /**
      * Whether a Spring-managed transaction is active on the current thread.
      *
      * @return {@code true} if active.
@@ -541,6 +563,19 @@ public class LoadDataExtension
         List<TxRecord> records = getOrCreateTxRecords(context);
         records.add(new TxRecord(key, tm, status));
         log.info("Started a test transaction. key={}", key);
+    }
+
+    /**
+     * Begin a local transaction using a temporary {@link DataSourceTransactionManager} bound to the
+     * target {@link DataSource}.
+     *
+     * @param key identifier for logging (dbId, etc.).
+     * @param ds target data source.
+     * @param context execution context.
+     */
+    void beginTestTxWithDataSource(String key, DataSource ds, ExtensionContext context) {
+        DataSourceTransactionManager tm = new DataSourceTransactionManager(ds);
+        beginTestTx(key, tm, context);
     }
 
     /**
@@ -593,6 +628,197 @@ public class LoadDataExtension
             throw new IllegalStateException(
                     "DataSource 'dataSource' not found. It is required in single-DB mode.", e);
         }
+    }
+
+    /**
+     * Resolve DataSource for single-DB mode without requiring {@code flexdblink.properties}.
+     *
+     * <p>
+     * Selection order:
+     * </p>
+     * <ol>
+     * <li>Configured mapping in {@code flexdblink.properties} (default or single entry).</li>
+     * <li>Bean name {@code dataSource}.</li>
+     * <li>The only {@link DataSource} bean.</li>
+     * <li>Single {@code @Primary} {@link DataSource} bean.</li>
+     * </ol>
+     *
+     * @param ac application context.
+     * @param dsBeanNamesByDbId configured mapping.
+     * @return selected DataSource.
+     */
+    DataSource resolveDataSourceSingle(ApplicationContext ac, Map<String, String> dsBeanNamesByDbId) {
+        String configuredDefault = dsBeanNamesByDbId.get("default");
+        if (!StringUtils.isBlank(configuredDefault)) {
+            return resolveDataSourceByBeanName(ac, "default", configuredDefault);
+        }
+        if (dsBeanNamesByDbId.size() == 1) {
+            String onlyBeanName = dsBeanNamesByDbId.values().iterator().next();
+            return resolveDataSourceByBeanName(ac, "default", onlyBeanName);
+        }
+
+        try {
+            return ac.getBean("dataSource", DataSource.class);
+        } catch (Exception e) {
+            log.debug("DataSource bean named 'dataSource' was not found in single-DB mode.", e);
+        }
+
+        String[] dsNames = ac.getBeanNamesForType(DataSource.class);
+        if (dsNames.length == 1) {
+            return ac.getBean(dsNames[0], DataSource.class);
+        }
+
+        NamedDs primary = pickPrimaryFromAll(ac);
+        if (primary != null) {
+            return primary.ds;
+        }
+
+        throw new IllegalStateException("DataSource could not be resolved in single-DB mode."
+                + " candidates=" + Arrays.toString(dsNames)
+                + ", configure " + LOAD_DS_PREFIX + "<dbId>=<beanName> in "
+                + FLEXDBLINK_PROPERTIES + " if needed.");
+    }
+
+    /**
+     * Resolve DataSource for multi-DB mode from configured dbId-to-bean mapping.
+     *
+     * @param ac application context.
+     * @param dbId dbId from test input folder.
+     * @param dsBeanNamesByDbId configured mapping.
+     * @return selected DataSource.
+     */
+    DataSource resolveDataSourceByDbId(ApplicationContext ac, String dbId,
+            Map<String, String> dsBeanNamesByDbId) {
+        String normalizedDbId = normalizeDbIdKey(dbId);
+        String beanName = dsBeanNamesByDbId.get(normalizedDbId);
+        if (StringUtils.isBlank(beanName)) {
+            throw new IllegalStateException("DataSource mapping was not found for dbId=" + dbId
+                    + ". Define " + LOAD_DS_PREFIX + dbId.toLowerCase(Locale.ROOT)
+                    + "=<beanName> in " + FLEXDBLINK_PROPERTIES + ".");
+        }
+        return resolveDataSourceByBeanName(ac, dbId, beanName);
+    }
+
+    /**
+     * Resolve DataSource bean by explicit bean name.
+     *
+     * @param ac application context.
+     * @param dbId dbId for error context.
+     * @param beanName data source bean name.
+     * @return resolved DataSource.
+     */
+    DataSource resolveDataSourceByBeanName(ApplicationContext ac, String dbId, String beanName) {
+        try {
+            return ac.getBean(beanName, DataSource.class);
+        } catch (Exception e) {
+            throw new IllegalStateException("Configured DataSource bean was not found. dbId=" + dbId
+                    + ", beanName=" + beanName, e);
+        }
+    }
+
+    /**
+     * Load {@code flexdblink.properties} files from classpath and merge them (last-write-wins).
+     *
+     * @param cl class loader.
+     * @return merged properties.
+     * @throws Exception on load failure.
+     */
+    Properties loadFlexDbLinkProperties(ClassLoader cl) throws Exception {
+        Properties props = new Properties();
+        List<URL> urls = new ArrayList<>();
+        var resources = cl.getResources(FLEXDBLINK_PROPERTIES);
+        while (resources.hasMoreElements()) {
+            urls.add(resources.nextElement());
+        }
+        urls.sort((a, b) -> a.toString().compareTo(b.toString()));
+        for (URL url : urls) {
+            try (InputStream in = url.openStream();
+                    InputStreamReader reader = new InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8)) {
+                props.load(reader);
+                log.info("Loaded {}: {}", FLEXDBLINK_PROPERTIES, url);
+            }
+        }
+        return props;
+    }
+
+    /**
+     * Parse dbId-to-DataSource mapping from {@code flexdblink.properties}.
+     *
+     * @param props loaded properties.
+     * @return normalized dbId to bean name mapping.
+     */
+    Map<String, String> readConfiguredDataSourceBeanNames(Properties props) {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String key : props.stringPropertyNames()) {
+            if (!key.startsWith(LOAD_DS_PREFIX)) {
+                continue;
+            }
+            String rawDbId = key.substring(LOAD_DS_PREFIX.length());
+            String normalizedDbId = normalizeDbIdKey(rawDbId);
+            if (StringUtils.isBlank(normalizedDbId)) {
+                throw new IllegalStateException("Invalid DataSource mapping key: " + key);
+            }
+            String beanName = props.getProperty(key);
+            if (StringUtils.isBlank(beanName)) {
+                throw new IllegalStateException(
+                        "DataSource bean name must not be blank. key=" + key);
+            }
+            String existing = result.get(normalizedDbId);
+            if (existing != null && !existing.equals(beanName.trim())) {
+                throw new IllegalStateException("Conflicting DataSource mappings for dbId="
+                        + rawDbId + ": " + existing + " vs " + beanName);
+            }
+            result.put(normalizedDbId, beanName.trim());
+        }
+        return result;
+    }
+
+    /**
+     * Index dbIds by lowercase normalized key and detect case-insensitive duplicates.
+     *
+     * @param dbIds raw dbIds.
+     * @return normalized key to original dbId.
+     */
+    Map<String, String> indexDbIdsByNormalized(Set<String> dbIds) {
+        Map<String, String> indexed = new LinkedHashMap<>();
+        for (String dbId : dbIds) {
+            String normalized = normalizeDbIdKey(dbId);
+            if (indexed.containsKey(normalized)) {
+                throw new IllegalStateException("Duplicate dbId folders ignoring case: "
+                        + indexed.get(normalized) + ", " + dbId);
+            }
+            indexed.put(normalized, dbId);
+        }
+        return indexed;
+    }
+
+    /**
+     * Normalize dbId key for case-insensitive matching.
+     *
+     * @param dbId raw dbId.
+     * @return normalized dbId.
+     */
+    String normalizeDbIdKey(String dbId) {
+        if (dbId == null) {
+            return "";
+        }
+        return dbId.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /**
+     * Pick a single primary DataSource from all DataSource beans.
+     *
+     * @param ac application context.
+     * @return primary DataSource wrapper or {@code null}.
+     */
+    NamedDs pickPrimaryFromAll(ApplicationContext ac) {
+        String[] dsNames = ac.getBeanNamesForType(DataSource.class);
+        List<NamedDs> all = new ArrayList<>();
+        for (String dsName : dsNames) {
+            DataSource ds = ac.getBean(dsName, DataSource.class);
+            all.add(new NamedDs(dsName, ds));
+        }
+        return pickPrimary(ac, all);
     }
 
     /**

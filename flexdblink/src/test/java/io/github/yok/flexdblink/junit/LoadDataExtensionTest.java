@@ -628,6 +628,225 @@ class LoadDataExtensionTest {
     }
 
     @Test
+    void resolveTxAndDsSingle_正常ケース_必須Beanが存在する場合に解決する_設定済みBeanが返ること() throws Exception {
+        ApplicationContext ac = mock(ApplicationContext.class);
+        PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
+        DataSource ds = mock(DataSource.class);
+        when(ac.getBean("transactionManager", PlatformTransactionManager.class)).thenReturn(tm);
+        when(ac.getBean("dataSource", DataSource.class)).thenReturn(ds);
+
+        assertSame(tm, target.resolveTxManagerSingle(ac));
+        assertSame(ds, target.resolveDataSourceSingle(ac));
+    }
+
+    @Test
+    void setTxInterceptorDefaultManager_正常ケース_interceptorが空の場合は切替不要として終了する_ストアへ記録されないこと()
+            throws Exception {
+        ExtensionContext context = mock(ExtensionContext.class);
+        Map<Object, Object> storeMap = new HashMap<>();
+        mockStore(context, storeMap);
+
+        ApplicationContext ac = mock(ApplicationContext.class);
+        PlatformTransactionManager picked = mock(PlatformTransactionManager.class);
+        when(ac.getBeanNamesForType(PlatformTransactionManager.class))
+                .thenReturn(new String[] {"tm1"});
+        when(ac.getBean("tm1", PlatformTransactionManager.class)).thenReturn(picked);
+        when(ac.getBeansOfType(TransactionInterceptor.class)).thenReturn(Collections.emptyMap());
+
+        target.setTxInterceptorDefaultManager(context, ac, picked, "K_EMPTY");
+
+        assertEquals(null, storeMap.get("TXI_DEFAULT_SWITCH"));
+    }
+
+    @Test
+    void resolveClassLoader_正常ケース_requiredTestClassがnullの場合はスレッドコンテキストを採用する_設定ローダーが返ること()
+            throws Exception {
+        ExtensionContext context = mock(ExtensionContext.class);
+        doReturn(null).when(context).getRequiredTestClass();
+
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        ClassLoader custom = new ClassLoader(original) {
+        };
+        try {
+            Thread.currentThread().setContextClassLoader(custom);
+            ClassLoader resolved = target.resolveClassLoader(context);
+            assertSame(custom, resolved);
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
+    }
+
+    @Test
+    void resolveClassLoader_異常ケース_requiredTestClass取得で例外かつスレッドローダーなしの場合_拡張クラスローダーが返ること()
+            throws Exception {
+        ExtensionContext context = mock(ExtensionContext.class);
+        when(context.getRequiredTestClass()).thenThrow(new RuntimeException("required class error"));
+
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(null);
+            ClassLoader resolved = target.resolveClassLoader(context);
+            assertSame(LoadDataExtension.class.getClassLoader(), resolved);
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
+    }
+
+    @Test
+    void resolveDataSourceSingle_正常ケース_default指定を優先する_指定DataSourceが返ること() throws Exception {
+        ApplicationContext ac = mock(ApplicationContext.class);
+        DataSource ds = mock(DataSource.class);
+        when(ac.getBean("defaultDs", DataSource.class)).thenReturn(ds);
+
+        Map<String, String> mapping = new HashMap<>();
+        mapping.put("default", "defaultDs");
+        mapping.put("db1", "ignoredDs");
+
+        DataSource resolved = target.resolveDataSourceSingle(ac, mapping);
+        assertSame(ds, resolved);
+    }
+
+    @Test
+    void resolveDataSourceSingle_正常ケース_mappingが1件のみの場合はそのDataSourceを採用する_指定DataSourceが返ること()
+            throws Exception {
+        ApplicationContext ac = mock(ApplicationContext.class);
+        DataSource ds = mock(DataSource.class);
+        when(ac.getBean("singleDs", DataSource.class)).thenReturn(ds);
+
+        Map<String, String> mapping = new HashMap<>();
+        mapping.put("db1", "singleDs");
+
+        DataSource resolved = target.resolveDataSourceSingle(ac, mapping);
+        assertSame(ds, resolved);
+    }
+
+    @Test
+    void resolveDataSourceSingle_正常ケース_dataSource名がなくても単一候補なら採用する_単一DataSourceが返ること()
+            throws Exception {
+        ApplicationContext ac = mock(ApplicationContext.class);
+        DataSource ds = mock(DataSource.class);
+        when(ac.getBean("dataSource", DataSource.class)).thenThrow(new RuntimeException("not found"));
+        when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"aaaRoutingDataSource"});
+        when(ac.getBean("aaaRoutingDataSource", DataSource.class)).thenReturn(ds);
+
+        DataSource resolved = target.resolveDataSourceSingle(ac, Collections.emptyMap());
+        assertSame(ds, resolved);
+    }
+
+    @Test
+    void resolveDataSourceSingle_正常ケース_primary候補が一意の場合に採用する_primaryDataSourceが返ること() throws Exception {
+        ConfigurableApplicationContext ac = mock(ConfigurableApplicationContext.class);
+        ConfigurableListableBeanFactory bf = mock(ConfigurableListableBeanFactory.class);
+        BeanDefinition bd1 = mock(BeanDefinition.class);
+        BeanDefinition bd2 = mock(BeanDefinition.class);
+        DataSource ds1 = mock(DataSource.class);
+        DataSource ds2 = mock(DataSource.class);
+
+        when(ac.getBean("dataSource", DataSource.class)).thenThrow(new RuntimeException("not found"));
+        when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"ds1", "ds2"});
+        when(ac.getBean("ds1", DataSource.class)).thenReturn(ds1);
+        when(ac.getBean("ds2", DataSource.class)).thenReturn(ds2);
+        when(ac.getBeanFactory()).thenReturn(bf);
+        when(bf.containsBeanDefinition("ds1")).thenReturn(true);
+        when(bf.containsBeanDefinition("ds2")).thenReturn(true);
+        when(bf.getBeanDefinition("ds1")).thenReturn(bd1);
+        when(bf.getBeanDefinition("ds2")).thenReturn(bd2);
+        when(bd1.isPrimary()).thenReturn(true);
+        when(bd2.isPrimary()).thenReturn(false);
+
+        DataSource resolved = target.resolveDataSourceSingle(ac, Collections.emptyMap());
+        assertSame(ds1, resolved);
+    }
+
+    @Test
+    void resolveDataSourceSingle_異常ケース_primaryも特定できない場合は失敗する_IllegalStateExceptionが送出されること()
+            throws Exception {
+        ApplicationContext ac = mock(ApplicationContext.class);
+        when(ac.getBean("dataSource", DataSource.class)).thenThrow(new RuntimeException("not found"));
+        when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"ds1", "ds2"});
+        when(ac.getBean("ds1", DataSource.class)).thenReturn(mock(DataSource.class));
+        when(ac.getBean("ds2", DataSource.class)).thenReturn(mock(DataSource.class));
+
+        assertThrows(IllegalStateException.class,
+                () -> target.resolveDataSourceSingle(ac, Collections.emptyMap()));
+    }
+
+    @Test
+    void resolveDataSourceByDbId_異常ケース_dbId対応の設定がない場合は失敗する_IllegalStateExceptionが送出されること()
+            throws Exception {
+        ApplicationContext ac = mock(ApplicationContext.class);
+        assertThrows(IllegalStateException.class,
+                () -> target.resolveDataSourceByDbId(ac, "db1", Collections.emptyMap()));
+    }
+
+    @Test
+    void resolveDataSourceByBeanName_異常ケース_指定Beanが存在しない場合は失敗する_IllegalStateExceptionが送出されること()
+            throws Exception {
+        ApplicationContext ac = mock(ApplicationContext.class);
+        when(ac.getBean("missingDs", DataSource.class)).thenThrow(new RuntimeException("not found"));
+
+        assertThrows(IllegalStateException.class,
+                () -> target.resolveDataSourceByBeanName(ac, "db1", "missingDs"));
+    }
+
+    @Test
+    void readConfiguredDataSourceBeanNames_異常ケース_dbId部分が空文字の場合は失敗する_IllegalStateExceptionが送出されること()
+            throws Exception {
+        Properties props = new Properties();
+        props.setProperty("flexdblink.load.datasource.   ", "ds1");
+
+        assertThrows(IllegalStateException.class,
+                () -> target.readConfiguredDataSourceBeanNames(props));
+    }
+
+    @Test
+    void readConfiguredDataSourceBeanNames_異常ケース_bean名が空文字の場合は失敗する_IllegalStateExceptionが送出されること()
+            throws Exception {
+        Properties props = new Properties();
+        props.setProperty("flexdblink.load.datasource.db1", "  ");
+
+        assertThrows(IllegalStateException.class,
+                () -> target.readConfiguredDataSourceBeanNames(props));
+    }
+
+    @Test
+    void readConfiguredDataSourceBeanNames_異常ケース_同一dbIdで別bean名が競合する場合は失敗する_IllegalStateExceptionが送出されること()
+            throws Exception {
+        Properties props = new Properties();
+        props.setProperty("flexdblink.load.datasource.db1", "dsA");
+        props.setProperty("flexdblink.load.datasource.DB1", "dsB");
+
+        assertThrows(IllegalStateException.class,
+                () -> target.readConfiguredDataSourceBeanNames(props));
+    }
+
+    @Test
+    void readConfiguredDataSourceBeanNames_正常ケース_プレフィックス外を無視し同一値重複を許容する_正規化済みマップが返ること()
+            throws Exception {
+        Properties props = new Properties();
+        props.setProperty("some.other.key", "ignored");
+        props.setProperty("flexdblink.load.datasource.db1", "dsA");
+        props.setProperty("flexdblink.load.datasource.DB1", " dsA ");
+
+        Map<String, String> mapping = target.readConfiguredDataSourceBeanNames(props);
+
+        assertEquals(1, mapping.size());
+        assertEquals("dsA", mapping.get("db1"));
+    }
+
+    @Test
+    void indexDbIdsByNormalized_異常ケース_大文字小文字のみ異なる重複がある場合は失敗する_IllegalStateExceptionが送出されること()
+            throws Exception {
+        Set<String> dbIds = Set.of("DB1", "db1");
+        assertThrows(IllegalStateException.class, () -> target.indexDbIdsByNormalized(dbIds));
+    }
+
+    @Test
+    void normalizeDbIdKey_正常ケース_null入力の場合_空文字が返ること() throws Exception {
+        assertEquals("", target.normalizeDbIdKey(null));
+    }
+
+    @Test
     void resolveTxManagerByDataSource_正常異常ケース_TM候補数を判定する_単一は返却し複数ゼロは例外であること() throws Exception {
         DataSource ds = mock(DataSource.class);
         ApplicationContext single = mock(ApplicationContext.class);
@@ -839,18 +1058,10 @@ class LoadDataExtensionTest {
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
         DataSource ds = mock(DataSource.class);
-        PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
-        TransactionStatus status = mock(TransactionStatus.class);
         Connection conn = mock(Connection.class);
+        when(ds.getConnection()).thenReturn(conn);
 
-        when(applicationContext.getBean("transactionManager", PlatformTransactionManager.class))
-                .thenReturn(tm);
         when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
-        when(applicationContext.getBeanNamesForType(PlatformTransactionManager.class))
-                .thenReturn(new String[] {"transactionManager"});
-        when(applicationContext.getBeansOfType(TransactionInterceptor.class))
-                .thenReturn(Collections.emptyMap());
-        when(tm.getTransaction(Mockito.any())).thenReturn(status);
 
         // Act / Assert
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
@@ -895,7 +1106,7 @@ class LoadDataExtensionTest {
     }
 
     @Test
-    void loadScenarioParticipating_異常ケース_multiDBで既存TXにDS未バインドの場合_IllegalStateExceptionが送出されること()
+    void loadScenarioParticipating_正常ケース_multiDBで既存TXにDS未バインドの場合_ローカルTXで継続すること()
             throws Exception {
         Path baseInput = dummyClassResourcesDir.resolve("S_MULTI_ACTIVE").resolve("input");
         Files.createDirectories(baseInput.resolve("db1"));
@@ -924,17 +1135,23 @@ class LoadDataExtensionTest {
         when(ac.getBeansOfType(TransactionInterceptor.class)).thenReturn(Collections.emptyMap());
 
         ExtensionContext context = mock(ExtensionContext.class);
-        when(context.getStore(Mockito.any(Namespace.class))).thenReturn(mock(Store.class));
+        mockStore(context, new HashMap<>());
 
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
                 MockedStatic<TransactionSynchronizationManager> txSync =
-                        Mockito.mockStatic(TransactionSynchronizationManager.class)) {
+                        Mockito.mockStatic(TransactionSynchronizationManager.class);
+                MockedConstruction<DataLoader> loaders = Mockito.mockConstruction(DataLoader.class,
+                        (loader, context2) -> doNothing().when(loader).executeWithConnection(
+                                Mockito.any(), Mockito.any(), Mockito.any()))) {
             spring.when(() -> SpringExtension.getApplicationContext(context)).thenReturn(ac);
             txSync.when(TransactionSynchronizationManager::isActualTransactionActive)
                     .thenReturn(true);
             txSync.when(() -> TransactionSynchronizationManager.hasResource(ds)).thenReturn(false);
-            assertThrows(Exception.class, () -> target.loadScenarioParticipating(context,
-                    "S_MULTI_ACTIVE", new String[] {"db1"}));
+            assertDoesNotThrow(() -> target.loadScenarioParticipating(context, "S_MULTI_ACTIVE",
+                    new String[] {"db1"}));
+            verify(loaders.constructed().get(0)).executeWithConnection(Mockito.any(), Mockito.any(),
+                    Mockito.any());
+            assertEquals(1, target.getTxRecords(context).size());
         }
     }
 
@@ -1078,8 +1295,7 @@ class LoadDataExtensionTest {
             DataLoader loader = loaders.constructed().get(0);
             verify(loader, times(2)).executeWithConnection(Mockito.any(), Mockito.any(),
                     Mockito.any());
-            verify(tm1).getTransaction(Mockito.any());
-            verify(tm2).getTransaction(Mockito.any());
+            assertEquals(2, target.getTxRecords(context).size());
         }
     }
 
@@ -1199,18 +1415,9 @@ class LoadDataExtensionTest {
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
         DataSource ds = mock(DataSource.class);
-        PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
-        TransactionStatus status = mock(TransactionStatus.class);
         Connection conn = mock(Connection.class);
-
-        when(applicationContext.getBean("transactionManager", PlatformTransactionManager.class))
-                .thenReturn(tm);
+        when(ds.getConnection()).thenReturn(conn);
         when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
-        when(applicationContext.getBeanNamesForType(PlatformTransactionManager.class))
-                .thenReturn(new String[] {"transactionManager"});
-        when(applicationContext.getBeansOfType(TransactionInterceptor.class))
-                .thenReturn(Collections.emptyMap());
-        when(tm.getTransaction(Mockito.any())).thenReturn(status);
 
         // Act / Assert
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
@@ -1258,16 +1465,9 @@ class LoadDataExtensionTest {
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
         DataSource ds = mock(DataSource.class);
-        PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
         Connection conn = mock(Connection.class);
-
-        when(applicationContext.getBean("transactionManager", PlatformTransactionManager.class))
-                .thenReturn(tm);
+        when(ds.getConnection()).thenReturn(conn);
         when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
-        when(applicationContext.getBeanNamesForType(PlatformTransactionManager.class))
-                .thenReturn(new String[] {"transactionManager"});
-        when(applicationContext.getBeansOfType(TransactionInterceptor.class))
-                .thenReturn(Collections.emptyMap());
 
         // Act / Assert
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
@@ -1289,7 +1489,7 @@ class LoadDataExtensionTest {
 
             DataLoader loader = loaders.constructed().get(0);
             verify(loader).executeWithConnection(Mockito.any(), Mockito.any(), Mockito.any());
-            verify(tm, never()).getTransaction(Mockito.any());
+            assertEquals(1, target.getTxRecords(context).size());
         }
     }
 
@@ -1308,16 +1508,11 @@ class LoadDataExtensionTest {
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
         DataSource ds = mock(DataSource.class);
-        PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
-        TransactionStatus status = mock(TransactionStatus.class);
+        Connection conn = mock(Connection.class);
+        when(ds.getConnection()).thenReturn(conn);
         when(applicationContext.getBean("transactionManager", PlatformTransactionManager.class))
-                .thenReturn(tm);
+                .thenReturn(mock(PlatformTransactionManager.class));
         when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
-        when(applicationContext.getBeanNamesForType(PlatformTransactionManager.class))
-                .thenReturn(new String[] {"transactionManager"});
-        when(applicationContext.getBeansOfType(TransactionInterceptor.class))
-                .thenReturn(Collections.emptyMap());
-        when(tm.getTransaction(Mockito.any())).thenReturn(status);
 
         // Act / Assert
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class)) {
@@ -2002,17 +2197,9 @@ class LoadDataExtensionTest {
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
         DataSource ds = mock(DataSource.class);
-        PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
-        TransactionStatus status = mock(TransactionStatus.class);
         Connection conn = mock(Connection.class);
-        when(applicationContext.getBean("transactionManager", PlatformTransactionManager.class))
-                .thenReturn(tm);
+        when(ds.getConnection()).thenReturn(conn);
         when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
-        when(applicationContext.getBeanNamesForType(PlatformTransactionManager.class))
-                .thenReturn(new String[] {"transactionManager"});
-        when(applicationContext.getBeansOfType(TransactionInterceptor.class))
-                .thenReturn(Collections.emptyMap());
-        when(tm.getTransaction(Mockito.any())).thenReturn(status);
 
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
                 MockedStatic<DataSourceUtils> dsUtils = Mockito.mockStatic(DataSourceUtils.class);
@@ -2051,17 +2238,9 @@ class LoadDataExtensionTest {
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
         DataSource ds = mock(DataSource.class);
-        PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
-        TransactionStatus status = mock(TransactionStatus.class);
         Connection conn = mock(Connection.class);
-        when(applicationContext.getBean("transactionManager", PlatformTransactionManager.class))
-                .thenReturn(tm);
+        when(ds.getConnection()).thenReturn(conn);
         when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
-        when(applicationContext.getBeanNamesForType(PlatformTransactionManager.class))
-                .thenReturn(new String[] {"transactionManager"});
-        when(applicationContext.getBeansOfType(TransactionInterceptor.class))
-                .thenReturn(Collections.emptyMap());
-        when(tm.getTransaction(Mockito.any())).thenReturn(status);
 
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
                 MockedStatic<DataSourceUtils> dsUtils = Mockito.mockStatic(DataSourceUtils.class);
@@ -2096,17 +2275,9 @@ class LoadDataExtensionTest {
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
         DataSource ds = mock(DataSource.class);
-        PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
-        TransactionStatus status = mock(TransactionStatus.class);
         Connection conn = mock(Connection.class);
-        when(applicationContext.getBean("transactionManager", PlatformTransactionManager.class))
-                .thenReturn(tm);
+        when(ds.getConnection()).thenReturn(conn);
         when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
-        when(applicationContext.getBeanNamesForType(PlatformTransactionManager.class))
-                .thenReturn(new String[] {"transactionManager"});
-        when(applicationContext.getBeansOfType(TransactionInterceptor.class))
-                .thenReturn(Collections.emptyMap());
-        when(tm.getTransaction(Mockito.any())).thenReturn(status);
 
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
                 MockedStatic<DataSourceUtils> dsUtils = Mockito.mockStatic(DataSourceUtils.class);
