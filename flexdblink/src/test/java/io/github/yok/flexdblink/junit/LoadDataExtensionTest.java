@@ -18,6 +18,7 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.core.DataLoader;
 import java.io.IOException;
+import java.lang.annotation.Annotation;
 import java.lang.reflect.Method;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -73,16 +74,16 @@ class LoadDataExtensionTest {
         @LoadData(scenario = {"METHOD_ONLY"}, dbNames = {"bbb"})
         void methodHasScenario() {}
 
-        @LoadData // scenario 未指定（空配列） -> 自動検出分岐を通す
+        @LoadData(scenario = {"AUTO"}, dbNames = {"bbb"})
         void methodScenarioAutoDetect() {}
     }
 
-    @LoadData(scenario = {""})
+    @LoadData(scenario = {""}, dbNames = {"bbb"})
     static class BlankScenarioClass {
     }
 
     static class BlankScenarioMethodClass {
-        @LoadData(scenario = {""})
+        @LoadData(scenario = {""}, dbNames = {"bbb"})
         void blankScenarioMethod() {}
     }
 
@@ -186,7 +187,7 @@ class LoadDataExtensionTest {
         DataSource ds = dummyDataSource();
         TransactionSynchronizationManager.bindResource(ds, new Object());
 
-        // 対象メソッド（@LoadData(scenario={"METHOD_ONLY"})）
+        // 対象メソッド（@LoadData(scenario={"METHOD_ONLY"}, dbNames={"bbb"})）
         Method dummyMethod = DummyTargetTest.class.getDeclaredMethod("methodHasScenario");
 
         // ExtensionContext をモックし、ジェネリクス問題を避けるため doReturn(..).when(..) を使用
@@ -665,8 +666,7 @@ class LoadDataExtensionTest {
         doReturn(null).when(context).getRequiredTestClass();
 
         ClassLoader original = Thread.currentThread().getContextClassLoader();
-        ClassLoader custom = new ClassLoader(original) {
-        };
+        ClassLoader custom = new ClassLoader(original) {};
         try {
             Thread.currentThread().setContextClassLoader(custom);
             ClassLoader resolved = target.resolveClassLoader(context);
@@ -680,7 +680,8 @@ class LoadDataExtensionTest {
     void resolveClassLoader_異常ケース_requiredTestClass取得で例外かつスレッドローダーなしの場合_拡張クラスローダーが返ること()
             throws Exception {
         ExtensionContext context = mock(ExtensionContext.class);
-        when(context.getRequiredTestClass()).thenThrow(new RuntimeException("required class error"));
+        when(context.getRequiredTestClass())
+                .thenThrow(new RuntimeException("required class error"));
 
         ClassLoader original = Thread.currentThread().getContextClassLoader();
         try {
@@ -725,8 +726,10 @@ class LoadDataExtensionTest {
             throws Exception {
         ApplicationContext ac = mock(ApplicationContext.class);
         DataSource ds = mock(DataSource.class);
-        when(ac.getBean("dataSource", DataSource.class)).thenThrow(new RuntimeException("not found"));
-        when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"aaaRoutingDataSource"});
+        when(ac.getBean("dataSource", DataSource.class))
+                .thenThrow(new RuntimeException("not found"));
+        when(ac.getBeanNamesForType(DataSource.class))
+                .thenReturn(new String[] {"aaaRoutingDataSource"});
         when(ac.getBean("aaaRoutingDataSource", DataSource.class)).thenReturn(ds);
 
         DataSource resolved = target.resolveDataSourceSingle(ac, Collections.emptyMap());
@@ -734,7 +737,8 @@ class LoadDataExtensionTest {
     }
 
     @Test
-    void resolveDataSourceSingle_正常ケース_primary候補が一意の場合に採用する_primaryDataSourceが返ること() throws Exception {
+    void resolveDataSourceSingle_正常ケース_primary候補が一意の場合に採用する_primaryDataSourceが返ること()
+            throws Exception {
         ConfigurableApplicationContext ac = mock(ConfigurableApplicationContext.class);
         ConfigurableListableBeanFactory bf = mock(ConfigurableListableBeanFactory.class);
         BeanDefinition bd1 = mock(BeanDefinition.class);
@@ -742,7 +746,8 @@ class LoadDataExtensionTest {
         DataSource ds1 = mock(DataSource.class);
         DataSource ds2 = mock(DataSource.class);
 
-        when(ac.getBean("dataSource", DataSource.class)).thenThrow(new RuntimeException("not found"));
+        when(ac.getBean("dataSource", DataSource.class))
+                .thenThrow(new RuntimeException("not found"));
         when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"ds1", "ds2"});
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds1);
         when(ac.getBean("ds2", DataSource.class)).thenReturn(ds2);
@@ -762,7 +767,8 @@ class LoadDataExtensionTest {
     void resolveDataSourceSingle_異常ケース_primaryも特定できない場合は失敗する_IllegalStateExceptionが送出されること()
             throws Exception {
         ApplicationContext ac = mock(ApplicationContext.class);
-        when(ac.getBean("dataSource", DataSource.class)).thenThrow(new RuntimeException("not found"));
+        when(ac.getBean("dataSource", DataSource.class))
+                .thenThrow(new RuntimeException("not found"));
         when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"ds1", "ds2"});
         when(ac.getBean("ds1", DataSource.class)).thenReturn(mock(DataSource.class));
         when(ac.getBean("ds2", DataSource.class)).thenReturn(mock(DataSource.class));
@@ -783,7 +789,8 @@ class LoadDataExtensionTest {
     void resolveDataSourceByBeanName_異常ケース_指定Beanが存在しない場合は失敗する_IllegalStateExceptionが送出されること()
             throws Exception {
         ApplicationContext ac = mock(ApplicationContext.class);
-        when(ac.getBean("missingDs", DataSource.class)).thenThrow(new RuntimeException("not found"));
+        when(ac.getBean("missingDs", DataSource.class))
+                .thenThrow(new RuntimeException("not found"));
 
         assertThrows(IllegalStateException.class,
                 () -> target.resolveDataSourceByBeanName(ac, "db1", "missingDs"));
@@ -832,6 +839,73 @@ class LoadDataExtensionTest {
 
         assertEquals(1, mapping.size());
         assertEquals("dsA", mapping.get("db1"));
+    }
+
+    @Test
+    void loadFlexDbLinkProperties_正常ケース_テストリソースのみを読み込む_テストリソースのBean名が保持されること()
+            throws Exception {
+        Path testPropsPath = tempDir.resolve("target").resolve("test-classes")
+                .resolve("flexdblink.properties");
+        Path classesPropsPath = tempDir.resolve("target").resolve("classes")
+                .resolve("flexdblink.properties");
+        Path jarLikePropsPath = tempDir.resolve("m2").resolve("repository").resolve("lib")
+                .resolve("flexdblink.properties");
+        Files.createDirectories(testPropsPath.getParent());
+        Files.createDirectories(classesPropsPath.getParent());
+        Files.createDirectories(jarLikePropsPath.getParent());
+        writeToFile(testPropsPath, "flexdblink.load.datasource.bbb=bbbRoutingDataSource\n");
+        writeToFile(classesPropsPath, "flexdblink.load.datasource.bbb=dataSource\n");
+        writeToFile(jarLikePropsPath, "flexdblink.load.datasource.bbb=jarDefaultDataSource\n");
+
+        ClassLoader classLoader = new ClassLoader(getClass().getClassLoader()) {
+            @Override
+            public Enumeration<URL> getResources(String name) throws IOException {
+                if (!"flexdblink.properties".equals(name)) {
+                    return super.getResources(name);
+                }
+                List<URL> urls = new ArrayList<>();
+                urls.add(testPropsPath.toUri().toURL());
+                urls.add(classesPropsPath.toUri().toURL());
+                urls.add(jarLikePropsPath.toUri().toURL());
+                return Collections.enumeration(urls);
+            }
+        };
+
+        Properties loaded = target.loadFlexDbLinkProperties(classLoader);
+        Map<String, String> mapping = target.readConfiguredDataSourceBeanNames(loaded);
+        assertEquals("bbbRoutingDataSource", mapping.get("bbb"));
+        assertEquals(1, mapping.size());
+    }
+
+    @Test
+    void loadFlexDbLinkProperties_正常ケース_同一キーが複数リソースに存在する_先勝ちで保持されること()
+            throws Exception {
+        Path firstPropsPath = tempDir.resolve("target").resolve("test-classes")
+                .resolve("first").resolve("flexdblink.properties");
+        Path secondPropsPath = tempDir.resolve("target").resolve("test-classes")
+                .resolve("second").resolve("flexdblink.properties");
+        Files.createDirectories(firstPropsPath.getParent());
+        Files.createDirectories(secondPropsPath.getParent());
+        writeToFile(firstPropsPath, "flexdblink.load.datasource.bbb=bbbRoutingDataSource\n");
+        writeToFile(secondPropsPath, "flexdblink.load.datasource.bbb=anotherDataSource\n");
+
+        ClassLoader classLoader = new ClassLoader(getClass().getClassLoader()) {
+            @Override
+            public Enumeration<URL> getResources(String name) throws IOException {
+                if (!"flexdblink.properties".equals(name)) {
+                    return super.getResources(name);
+                }
+                List<URL> urls = new ArrayList<>();
+                urls.add(firstPropsPath.toUri().toURL());
+                urls.add(secondPropsPath.toUri().toURL());
+                return Collections.enumeration(urls);
+            }
+        };
+
+        Properties loaded = target.loadFlexDbLinkProperties(classLoader);
+        Map<String, String> mapping = target.readConfiguredDataSourceBeanNames(loaded);
+        assertEquals("bbbRoutingDataSource", mapping.get("bbb"));
+        assertEquals(1, mapping.size());
     }
 
     @Test
@@ -1106,8 +1180,7 @@ class LoadDataExtensionTest {
     }
 
     @Test
-    void loadScenarioParticipating_正常ケース_multiDBで既存TXにDS未バインドの場合_ローカルTXで継続すること()
-            throws Exception {
+    void loadScenarioParticipating_正常ケース_multiDBで既存TXにDS未バインドの場合_ローカルTXで継続すること() throws Exception {
         Path baseInput = dummyClassResourcesDir.resolve("S_MULTI_ACTIVE").resolve("input");
         Files.createDirectories(baseInput.resolve("db1"));
 
@@ -1153,6 +1226,71 @@ class LoadDataExtensionTest {
                     Mockito.any());
             assertEquals(1, target.getTxRecords(context).size());
         }
+    }
+
+    @Test
+    void loadScenarioParticipating_正常ケース_multiDBで既存TXに参加する場合_TransactionInterceptor既定TMが対象DB向けに設定されること()
+            throws Exception {
+        Path baseInput = dummyClassResourcesDir.resolve("S_MULTI_BOUND_SWITCH").resolve("input");
+        Files.createDirectories(baseInput.resolve("db1"));
+
+        Properties props = new Properties();
+        props.setProperty("spring.datasource.db1.url", "jdbc:h2:mem:db1");
+        props.setProperty("spring.datasource.db1.username", "sa");
+        setTrc(props);
+
+        DataSource dsDb1 = mock(DataSource.class);
+        DataSource dsAaa = mock(DataSource.class);
+        DataSource dsCcc = mock(DataSource.class);
+        Connection conn = mock(Connection.class);
+        when(dsDb1.getConnection()).thenReturn(conn);
+        when(conn.getMetaData()).thenReturn(mock(DatabaseMetaData.class));
+        when(dsAaa.getConnection()).thenReturn(mock(Connection.class));
+        when(dsCcc.getConnection()).thenReturn(mock(Connection.class));
+
+        DataSourceTransactionManager tmAaa = new DataSourceTransactionManager(dsAaa);
+        DataSourceTransactionManager tmBbb = new DataSourceTransactionManager(dsDb1);
+        DataSourceTransactionManager tmCcc = new DataSourceTransactionManager(dsCcc);
+
+        ApplicationContext ac = mock(ApplicationContext.class);
+        when(ac.getBean("ds1", DataSource.class)).thenReturn(dsDb1);
+        when(ac.getBeanNamesForType(PlatformTransactionManager.class))
+                .thenReturn(new String[] {"txManagerAaa", "txManagerBbb", "txManagerCcc"});
+        when(ac.getBean("txManagerAaa", PlatformTransactionManager.class)).thenReturn(tmAaa);
+        when(ac.getBean("txManagerBbb", PlatformTransactionManager.class)).thenReturn(tmBbb);
+        when(ac.getBean("txManagerCcc", PlatformTransactionManager.class)).thenReturn(tmCcc);
+        when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"ds1"});
+        when(ac.getBean("ds1", DataSource.class)).thenReturn(dsDb1);
+
+        InspectableTransactionInterceptor interceptor = new InspectableTransactionInterceptor();
+        Map<String, TransactionInterceptor> interceptors = new HashMap<>();
+        interceptors.put("txInterceptor", interceptor);
+        when(ac.getBeansOfType(TransactionInterceptor.class)).thenReturn(interceptors);
+
+        ExtensionContext context = mock(ExtensionContext.class);
+        mockStore(context, new HashMap<>());
+
+        try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
+                MockedStatic<DataSourceUtils> dsUtils = Mockito.mockStatic(DataSourceUtils.class);
+                MockedStatic<TransactionSynchronizationManager> txSync =
+                        Mockito.mockStatic(TransactionSynchronizationManager.class);
+                MockedConstruction<DataLoader> loaders = Mockito.mockConstruction(DataLoader.class,
+                        (loader, context2) -> doNothing().when(loader).executeWithConnection(
+                                Mockito.any(), Mockito.any(), Mockito.any()))) {
+            spring.when(() -> SpringExtension.getApplicationContext(context)).thenReturn(ac);
+            dsUtils.when(() -> DataSourceUtils.getConnection(dsDb1)).thenReturn(conn);
+            txSync.when(TransactionSynchronizationManager::isActualTransactionActive)
+                    .thenReturn(true);
+            txSync.when(() -> TransactionSynchronizationManager.hasResource(dsDb1))
+                    .thenReturn(true);
+
+            assertDoesNotThrow(() -> target.loadScenarioParticipating(context,
+                    "S_MULTI_BOUND_SWITCH", new String[] {"db1"}));
+            verify(loaders.constructed().get(0)).executeWithConnection(Mockito.any(), Mockito.any(),
+                    Mockito.any());
+        }
+
+        assertEquals("txManagerBbb", readTxManagerBeanName(interceptor));
     }
 
     @Test
@@ -1576,23 +1714,33 @@ class LoadDataExtensionTest {
     }
 
     @Test
-    void resolveScenarios_正常ケース_アノテーション未指定時にディレクトリ一覧を返す_シナリオ一覧が返ること() throws Exception {
+    void resolveScenarios_異常ケース_アノテーションscenario未指定時_IllegalStateExceptionが送出されること()
+            throws Exception {
         // Arrange
-        Files.createDirectories(dummyClassResourcesDir.resolve("AUTO_A"));
-        Files.createDirectories(dummyClassResourcesDir.resolve("AUTO_B"));
         Properties props = new Properties();
         TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
+        LoadData ann = new LoadData() {
+            @Override
+            public Class<? extends Annotation> annotationType() {
+                return LoadData.class;
+            }
 
-        LoadData ann = DummyTargetTest.class.getDeclaredMethod("methodScenarioAutoDetect")
-                .getAnnotation(LoadData.class);
+            @Override
+            public String[] scenario() {
+                return new String[0];
+            }
 
-        // Act
-        List<String> scenarios = target.resolveScenarios(ann);
+            @Override
+            public String[] dbNames() {
+                return new String[] {"bbb"};
+            }
+        };
 
-        // Assert
-        assertTrue(scenarios.contains("AUTO_A"));
-        assertTrue(scenarios.contains("AUTO_B"));
+        // Act / Assert
+        IllegalStateException ex =
+                assertThrows(IllegalStateException.class, () -> target.resolveScenarios(ann));
+        assertTrue(ex.getMessage().contains("scenario"));
     }
 
     @Test
@@ -1646,6 +1794,23 @@ class LoadDataExtensionTest {
 
         // Assert
         assertNotNull(storeMap.get("TXI_DEFAULT_SWITCH"));
+    }
+
+    @Test
+    void switchTxInterceptorDefaultManagerForBoundDataSource_異常ケース_default以外でTM解決不可の場合は失敗する_IllegalStateExceptionが再スローされること()
+            throws Exception {
+        ExtensionContext context = mock(ExtensionContext.class);
+        ApplicationContext ac = mock(ApplicationContext.class);
+        DataSource targetDs = mock(DataSource.class);
+        DataSource otherDs = mock(DataSource.class);
+        DataSourceTransactionManager otherTm = new DataSourceTransactionManager(otherDs);
+        when(ac.getBeanNamesForType(PlatformTransactionManager.class))
+                .thenReturn(new String[] {"tm1"});
+        when(ac.getBean("tm1", PlatformTransactionManager.class)).thenReturn(otherTm);
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> target
+                .switchTxInterceptorDefaultManagerForBoundDataSource(context, ac, "db1", targetDs));
+        assertTrue(ex.getMessage().contains("No TransactionManager for DataSource. dbId=db1"));
     }
 
     @Test
@@ -2222,13 +2387,9 @@ class LoadDataExtensionTest {
     }
 
     @Test
-    void beforeTestExecution_正常ケース_クラスアノテーションblankScenarioを解決する_シナリオロードが実行されること() throws Exception {
-        Files.createDirectories(dummyClassClassPathDir.resolve("input"));
-
-        Properties props = new Properties();
-        props.setProperty("spring.datasource.url", "jdbc:h2:mem:blank_class");
-        props.setProperty("spring.datasource.username", "sa");
-        TestResourceContext trc = new TestResourceContext(dummyClassClassPathDir, props);
+    void beforeTestExecution_異常ケース_クラスアノテーションscenario空文字指定時_IllegalStateExceptionが送出されること()
+            throws Exception {
+        TestResourceContext trc = new TestResourceContext(dummyClassClassPathDir, new Properties());
         target.setTestResourceContext(trc);
 
         ExtensionContext context = mock(ExtensionContext.class);
@@ -2236,35 +2397,15 @@ class LoadDataExtensionTest {
         doReturn(Optional.empty()).when(context).getTestMethod();
         mockStore(context, new HashMap<>());
 
-        ApplicationContext applicationContext = mock(ApplicationContext.class);
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
-        when(ds.getConnection()).thenReturn(conn);
-        when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
-
-        try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
-                MockedStatic<DataSourceUtils> dsUtils = Mockito.mockStatic(DataSourceUtils.class);
-                MockedConstruction<DataLoader> loaders = Mockito.mockConstruction(DataLoader.class,
-                        (loader, context2) -> doNothing().when(loader).executeWithConnection(
-                                Mockito.any(), Mockito.any(), Mockito.any()))) {
-            spring.when(() -> SpringExtension.getApplicationContext(context))
-                    .thenReturn(applicationContext);
-            dsUtils.when(() -> DataSourceUtils.getConnection(ds)).thenReturn(conn);
-            assertDoesNotThrow(() -> target.beforeTestExecution(context));
-            verify(loaders.constructed().get(0)).executeWithConnection(Mockito.any(), Mockito.any(),
-                    Mockito.any());
-        }
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> target.beforeTestExecution(context));
+        assertTrue(ex.getMessage().contains("scenario"));
     }
 
     @Test
-    void beforeTestExecution_正常ケース_メソッドアノテーションblankScenarioを解決する_シナリオロードが実行されること()
+    void beforeTestExecution_異常ケース_メソッドアノテーションscenario空文字指定時_IllegalStateExceptionが送出されること()
             throws Exception {
-        Files.createDirectories(dummyClassClassPathDir.resolve("input"));
-
-        Properties props = new Properties();
-        props.setProperty("spring.datasource.url", "jdbc:h2:mem:blank_method");
-        props.setProperty("spring.datasource.username", "sa");
-        TestResourceContext trc = new TestResourceContext(dummyClassClassPathDir, props);
+        TestResourceContext trc = new TestResourceContext(dummyClassClassPathDir, new Properties());
         target.setTestResourceContext(trc);
 
         Method method = BlankScenarioMethodClass.class.getDeclaredMethod("blankScenarioMethod");
@@ -2273,24 +2414,32 @@ class LoadDataExtensionTest {
         doReturn(Optional.of(method)).when(context).getTestMethod();
         mockStore(context, new HashMap<>());
 
-        ApplicationContext applicationContext = mock(ApplicationContext.class);
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
-        when(ds.getConnection()).thenReturn(conn);
-        when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> target.beforeTestExecution(context));
+        assertTrue(ex.getMessage().contains("scenario"));
+    }
 
-        try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
-                MockedStatic<DataSourceUtils> dsUtils = Mockito.mockStatic(DataSourceUtils.class);
-                MockedConstruction<DataLoader> loaders = Mockito.mockConstruction(DataLoader.class,
-                        (loader, context2) -> doNothing().when(loader).executeWithConnection(
-                                Mockito.any(), Mockito.any(), Mockito.any()))) {
-            spring.when(() -> SpringExtension.getApplicationContext(context))
-                    .thenReturn(applicationContext);
-            dsUtils.when(() -> DataSourceUtils.getConnection(ds)).thenReturn(conn);
-            assertDoesNotThrow(() -> target.beforeTestExecution(context));
-            verify(loaders.constructed().get(0)).executeWithConnection(Mockito.any(), Mockito.any(),
-                    Mockito.any());
-        }
+    @Test
+    void validateLoadDataAnnotation_異常ケース_dbNames空配列指定時_IllegalStateExceptionが送出されること() {
+        LoadData ann = new LoadData() {
+            @Override
+            public Class<? extends Annotation> annotationType() {
+                return LoadData.class;
+            }
+
+            @Override
+            public String[] scenario() {
+                return new String[] {"CSV"};
+            }
+
+            @Override
+            public String[] dbNames() {
+                return new String[0];
+            }
+        };
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> target.validateLoadDataAnnotation(ann, "test-location"));
+        assertTrue(ex.getMessage().contains("dbNames"));
     }
 
     @Test

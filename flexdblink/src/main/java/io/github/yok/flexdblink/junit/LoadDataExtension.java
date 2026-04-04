@@ -152,9 +152,9 @@ public class LoadDataExtension
             // Class-level @LoadData
             LoadData classAnn = testClass.getAnnotation(LoadData.class);
             if (classAnn != null) {
+                validateLoadDataAnnotation(classAnn, "class " + testClass.getName());
                 for (String scenario : resolveScenarios(classAnn)) {
-                    Path base = StringUtils.isBlank(scenario) ? trc.getClassRoot()
-                            : trc.getClassRoot().resolve(scenario);
+                    Path base = trc.getClassRoot().resolve(scenario);
                     if (Files.isDirectory(base)) {
                         log.info("Found class-level @LoadData. scenario={}, dir={}", scenario,
                                 base);
@@ -172,10 +172,11 @@ public class LoadDataExtension
                 if (methodAnn == null) {
                     return;
                 }
+                validateLoadDataAnnotation(methodAnn,
+                        "method " + testClass.getName() + "#" + m.getName());
                 try {
                     for (String scenario : resolveScenarios(methodAnn)) {
-                        Path base = StringUtils.isBlank(scenario) ? trc.getClassRoot()
-                                : trc.getClassRoot().resolve(scenario);
+                        Path base = trc.getClassRoot().resolve(scenario);
                         if (Files.isDirectory(base)) {
                             log.info("Found method-level @LoadData. method={}, scenario={}, dir={}",
                                     m.getName(), scenario,
@@ -195,6 +196,37 @@ public class LoadDataExtension
             });
         } finally {
             ErrorHandler.restoreExitForCurrentThread();
+        }
+    }
+
+    /**
+     * Validate required attributes of {@link LoadData}.
+     *
+     * @param ann annotation to validate.
+     * @param location location label for error message.
+     */
+    void validateLoadDataAnnotation(LoadData ann, String location) {
+        validateAnnotationArrayAttribute("scenario", ann.scenario(), location);
+        validateAnnotationArrayAttribute("dbNames", ann.dbNames(), location);
+    }
+
+    /**
+     * Validate that an annotation array attribute is explicitly specified with non-blank values.
+     *
+     * @param attrName annotation attribute name.
+     * @param values attribute values.
+     * @param location location label for error message.
+     */
+    void validateAnnotationArrayAttribute(String attrName, String[] values, String location) {
+        if (values.length == 0) {
+            throw new IllegalStateException(
+                    "@LoadData " + attrName + " must be specified. location=" + location);
+        }
+        for (String value : values) {
+            if (StringUtils.isBlank(value)) {
+                throw new IllegalStateException(
+                        "@LoadData " + attrName + " contains blank value. location=" + location);
+            }
         }
     }
 
@@ -288,6 +320,7 @@ public class LoadDataExtension
             DataSource ds = resolveDataSourceSingle(ac, dsBeanNamesByDbId);
             if (isTxActive() && TransactionSynchronizationManager.hasResource(ds)) {
                 log.info("Single-DB: Existing TX found and DS is bound; participating in it.");
+                switchTxInterceptorDefaultManagerForBoundDataSource(context, ac, "default", ds);
             } else {
                 beginTestTxWithDataSource("SINGLE", ds, context);
             }
@@ -362,6 +395,7 @@ public class LoadDataExtension
             String dbId = dbIds.get(i);
             if (active && TransactionSynchronizationManager.hasResource(ds)) {
                 log.info("Multi-DB: dbId={} is bound to existing TX; participating in it.", dbId);
+                switchTxInterceptorDefaultManagerForBoundDataSource(context, ac, dbId, ds);
                 continue;
             }
             beginTestTxWithDataSource(dbId, ds, context);
@@ -444,6 +478,32 @@ public class LoadDataExtension
     }
 
     /**
+     * Resolve the TransactionManager that manages the given bound DataSource and apply it as the
+     * default TransactionManager for every TransactionInterceptor.
+     *
+     * @param context JUnit extension context
+     * @param ac Spring application context
+     * @param key logical key used for logs and error context
+     * @param ds bound data source
+     */
+    void switchTxInterceptorDefaultManagerForBoundDataSource(ExtensionContext context,
+            ApplicationContext ac, String key, DataSource ds) {
+        PlatformTransactionManager tm = null;
+        try {
+            tm = resolveTxManagerByDataSource(ac, key, ds);
+        } catch (IllegalStateException ex) {
+            if ("default".equalsIgnoreCase(normalizeDbIdKey(key))) {
+                tm = resolveTxManagerSingle(ac);
+                log.info("AOP coordination: fallback to conventional transactionManager."
+                        + " key={}, reason={}", key, ex.getMessage());
+            } else {
+                throw ex;
+            }
+        }
+        setTxInterceptorDefaultManager(context, ac, tm, key);
+    }
+
+    /**
      * Restore the default TransactionManager settings for {@link TransactionInterceptor}s that were
      * modified by {@link #setTxInterceptorDefaultManager}.
      *
@@ -479,17 +539,15 @@ public class LoadDataExtension
     }
 
     /**
-     * Resolve {@link LoadData#scenario()}; if not specified, list directories under the class root.
+     * Resolve {@link LoadData#scenario()}.
      *
      * @param ann annotation.
      * @return scenario names.
      * @throws Exception on failure.
      */
     List<String> resolveScenarios(LoadData ann) throws Exception {
-        if (ann.scenario().length > 0) {
-            return Arrays.asList(ann.scenario());
-        }
-        return trc.listDirectories(trc.getClassRoot());
+        validateAnnotationArrayAttribute("scenario", ann.scenario(), "resolveScenarios");
+        return Arrays.asList(ann.scenario());
     }
 
     /**
@@ -647,7 +705,8 @@ public class LoadDataExtension
      * @param dsBeanNamesByDbId configured mapping.
      * @return selected DataSource.
      */
-    DataSource resolveDataSourceSingle(ApplicationContext ac, Map<String, String> dsBeanNamesByDbId) {
+    DataSource resolveDataSourceSingle(ApplicationContext ac,
+            Map<String, String> dsBeanNamesByDbId) {
         String configuredDefault = dsBeanNamesByDbId.get("default");
         if (!StringUtils.isBlank(configuredDefault)) {
             return resolveDataSourceByBeanName(ac, "default", configuredDefault);
@@ -674,9 +733,8 @@ public class LoadDataExtension
         }
 
         throw new IllegalStateException("DataSource could not be resolved in single-DB mode."
-                + " candidates=" + Arrays.toString(dsNames)
-                + ", configure " + LOAD_DS_PREFIX + "<dbId>=<beanName> in "
-                + FLEXDBLINK_PROPERTIES + " if needed.");
+                + " candidates=" + Arrays.toString(dsNames) + ", configure " + LOAD_DS_PREFIX
+                + "<dbId>=<beanName> in " + FLEXDBLINK_PROPERTIES + " if needed.");
     }
 
     /**
@@ -717,28 +775,46 @@ public class LoadDataExtension
     }
 
     /**
-     * Load {@code flexdblink.properties} files from classpath and merge them (last-write-wins).
+     * Load {@code flexdblink.properties} from test resources only.
      *
      * @param cl class loader.
-     * @return merged properties.
+     * @return loaded properties.
      * @throws Exception on load failure.
      */
     Properties loadFlexDbLinkProperties(ClassLoader cl) throws Exception {
         Properties props = new Properties();
-        List<URL> urls = new ArrayList<>();
         var resources = cl.getResources(FLEXDBLINK_PROPERTIES);
         while (resources.hasMoreElements()) {
-            urls.add(resources.nextElement());
-        }
-        urls.sort((a, b) -> a.toString().compareTo(b.toString()));
-        for (URL url : urls) {
+            URL url = resources.nextElement();
+            if (!isTestResourceUrl(url)) {
+                log.debug("Skipped non-test {}: {}", FLEXDBLINK_PROPERTIES, url);
+                continue;
+            }
+            Properties current = new Properties();
             try (InputStream in = url.openStream();
-                    InputStreamReader reader = new InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8)) {
-                props.load(reader);
+                    InputStreamReader reader =
+                            new InputStreamReader(in, java.nio.charset.StandardCharsets.UTF_8)) {
+                current.load(reader);
                 log.info("Loaded {}: {}", FLEXDBLINK_PROPERTIES, url);
+            }
+            for (String key : current.stringPropertyNames()) {
+                if (!props.containsKey(key)) {
+                    props.setProperty(key, current.getProperty(key));
+                }
             }
         }
         return props;
+    }
+
+    /**
+     * Check whether a classpath URL points to test resources.
+     *
+     * @param url resource URL.
+     * @return true when the URL belongs to test resources.
+     */
+    boolean isTestResourceUrl(URL url) {
+        String value = url.toString();
+        return value.contains("/test-classes/");
     }
 
     /**
@@ -1121,7 +1197,8 @@ public class LoadDataExtension
         PlatformTransactionManager matched = uniqueMatches.get(0);
         List<String> aliases = aliasesByManager.get(matched);
         if (aliases.size() > 1) {
-            log.info("Resolved TransactionManager with aliases. dbId={}, aliases={}", dbId, aliases);
+            log.info("Resolved TransactionManager with aliases. dbId={}, aliases={}", dbId,
+                    aliases);
         }
         return matched;
     }
