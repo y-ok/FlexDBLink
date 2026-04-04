@@ -40,18 +40,18 @@ import org.junit.jupiter.api.extension.ExtendWith;
 public @interface LoadData {
 
     /**
-     * Array of target scenario names (directory names). If omitted, all immediate sub-directories
-     * under the test class resource root are targeted.
+     * Array of target scenario names (directory names). This attribute must be explicitly
+     * specified.
      *
      * @return scenario names (e.g., {@code {"INITIAL", "COMMON"}})
      */
-    String[] scenario() default {};
+    String[] scenario();
 
     /**
-     * Array of target database names (directory names). If omitted, all sub-directories directly
-     * under each scenario directory are targeted.
+     * Array of target database names (directory names). This attribute must be explicitly
+     * specified.
      *
      * @return database names (e.g., {@code {"DB1", "DB2"}})
      */
-    String[] dbNames() default {};
+    String[] dbNames();
 }
