@@ -607,6 +607,14 @@ This integrates with Spring Test transaction management (`@Transactional`), ensu
 
 A **Spring Test execution context** is required (`@SpringBootTest`, `@MybatisTest`, `@ExtendWith(SpringExtension.class)`, etc.).
 
+For each test execution, FlexDBLink applies exactly one effective `@LoadData` annotation:
+
+- If the test method has `@LoadData`, the method-level annotation is used
+- Otherwise, the class-level annotation is used
+
+The method-level annotation does not merge with the class-level annotation. It fully overrides the
+class-level `scenario` and `dbNames` for that test method.
+
 ### Usage
 
 ```java
@@ -629,6 +637,9 @@ class UserMapperTest {
 }
 ```
 
+This means the following method loads only `ADMIN` for `BBB`. It does not load both `NORMAL` and
+`ADMIN`.
+
 ### Test Resource Layout Convention
 
 ```bash
@@ -639,12 +650,33 @@ src/test/resources/<package>/<TestClassName>/<scenario>/input/<dbName>/files/*  
 
 > **Paths outside this convention will cause an error.**
 
+When method-level `@LoadData` is used, the method-level `scenario` directory is the one that is
+resolved for that test method.
+
 ### `@LoadData` Parameters
 
 | Parameter | Description |
 | ----------- | ------------- |
-| `scenario` | Required. Scenario directory names. Single value shorthand is allowed. E.g., `"NORMAL"`, `{"NORMAL","ERROR_CASE"}` |
+| `scenario` | Required. Scenario directory names. Single value shorthand is allowed. E.g., `"NORMAL"` |
 | `dbNames` | Required. Target DB directory names. Single value shorthand is allowed. E.g., `"AAA"`, `{"AAA","BBB"}` |
+
+Both parameters are validated before loading starts. Blank `scenario` values and unmapped `dbNames`
+fail fast with an exception.
+
+### Using `FlexAssert` with `@LoadData`
+
+When `FlexAssert` is used in the same test, it resolves the expected dataset from the same effective
+`@LoadData` annotation that was applied for loading.
+
+Expected resource layout:
+
+```bash
+src/test/resources/<package>/<TestClassName>/<scenario>/expected/<dbName>/*.csv
+src/test/resources/<package>/<TestClassName>/<scenario>/expected/<dbName>/files/*  # LOB content
+```
+
+If a method-level `@LoadData` overrides the class-level annotation, `FlexAssert` also uses that
+method-level `scenario` when resolving `expected/<dbName>`.
 
 ### DataSource Mapping (`flexdblink.properties`)
 

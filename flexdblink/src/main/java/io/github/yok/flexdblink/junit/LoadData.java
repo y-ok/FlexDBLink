@@ -40,12 +40,11 @@ import org.junit.jupiter.api.extension.ExtendWith;
 public @interface LoadData {
 
     /**
-     * Array of target scenario names (directory names). This attribute must be explicitly
-     * specified.
+     * Target scenario name (directory name). This attribute must be explicitly specified.
      *
-     * @return scenario names (e.g., {@code {"INITIAL", "COMMON"}})
+     * @return scenario name (e.g., {@code "INITIAL"})
      */
-    String[] scenario();
+    String scenario();
 
     /**
      * Array of target database names (directory names). This attribute must be explicitly
