@@ -1,0 +1,84 @@
+{
+  "properties": [
+    {
+      "name": "spring.datasource.db1.url",
+      "type": "java.lang.String",
+      "description": "JDBC URL for db1 (resolved by FlexDBLink TestResourceContext)."
+    },
+    {
+      "name": "spring.datasource.db1.username",
+      "type": "java.lang.String",
+      "description": "Username for db1."
+    },
+    {
+      "name": "spring.datasource.db1.password",
+      "type": "java.lang.String",
+      "description": "Password for db1."
+    },
+    {
+      "name": "spring.datasource.db1.driver-class-name",
+      "type": "java.lang.String",
+      "description": "JDBC driver class name for db1."
+    },
+    {
+      "name": "spring.datasource.db2.url",
+      "type": "java.lang.String",
+      "description": "JDBC URL for db2 (resolved by FlexDBLink TestResourceContext)."
+    },
+    {
+      "name": "spring.datasource.db2.username",
+      "type": "java.lang.String",
+      "description": "Username for db2."
+    },
+    {
+      "name": "spring.datasource.db2.password",
+      "type": "java.lang.String",
+      "description": "Password for db2."
+    },
+    {
+      "name": "spring.datasource.db2.driver-class-name",
+      "type": "java.lang.String",
+      "description": "JDBC driver class name for db2."
+    },
+    {
+      "name": "spring.datasource.db3.url",
+      "type": "java.lang.String",
+      "description": "JDBC URL for db3 (resolved by FlexDBLink TestResourceContext)."
+    },
+    {
+      "name": "spring.datasource.db3.username",
+      "type": "java.lang.String",
+      "description": "Username for db3."
+    },
+    {
+      "name": "spring.datasource.db3.password",
+      "type": "java.lang.String",
+      "description": "Password for db3."
+    },
+    {
+      "name": "spring.datasource.db3.driver-class-name",
+      "type": "java.lang.String",
+      "description": "JDBC driver class name for db3."
+    },
+    {
+      "name": "spring.datasource.db4.url",
+      "type": "java.lang.String",
+      "description": "JDBC URL for db4 (resolved by FlexDBLink TestResourceContext)."
+    },
+    {
+      "name": "spring.datasource.db4.username",
+      "type": "java.lang.String",
+      "description": "Username for db4."
+    },
+    {
+      "name": "spring.datasource.db4.password",
+      "type": "java.lang.String",
+      "description": "Password for db4."
+    },
+    {
+      "name": "spring.datasource.db4.driver-class-name",
+      "type": "java.lang.String",
+      "description": "JDBC driver class name for db4."
+    }
+  ]
+}

@@ -1,0 +1,11 @@
+ID,LABEL,CLOB_COL,BLOB_COL,LOB_KIND
+1,lob-1,file:lob_text_1.txt,file:lob_bin_1.bin,normal
+2,lob-2,file:lob_text_2.txt,file:lob_bin_2.bin,normal
+3,lob-3,file:lob_text_3.txt,file:lob_bin_3.bin,normal
+4,lob-4,file:lob_text_4.txt,,clob_only
+5,lob-5,file:lob_text_5.txt,,clob_only
+6,lob-6,,file:lob_bin_6.bin,blob_only
+7,lob-7,,file:lob_bin_7.bin,blob_only
+8,lob-8,,,null_lob
+9,lob-9,,,null_lob
+10,lob-10,file:lob_text_10.txt,file:lob_bin_10.bin,empty_lob

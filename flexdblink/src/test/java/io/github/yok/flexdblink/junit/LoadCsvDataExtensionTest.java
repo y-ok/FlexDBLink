@@ -57,17 +57,17 @@ class LoadCsvDataExtensionTest {
     }
 
     static class DummyClass_MethodAnn_DB指定_Spring_Participate {
-        @LoadData(scenario = {"scenario1"}, dbNames = {"bbb"})
+        @LoadData(scenario = "scenario1", dbNames = {"bbb"})
         void dummy() {}
     }
 
     static class DummyClass_MethodAnn_DB指定_NonSpring_Recording {
-        @LoadData(scenario = {"s_ns"}, dbNames = {"db2"})
+        @LoadData(scenario = "s_ns", dbNames = {"db2"})
         void dummy() {}
     }
 
     static class DummyClass_MethodAnn_DBspecified_NonSpring_Recording {
-        @LoadData(scenario = {"s_ns"}, dbNames = {"db2"})
+        @LoadData(scenario = "s_ns", dbNames = {"db2"})
         void dummy() {}
     }
 
@@ -75,21 +75,21 @@ class LoadCsvDataExtensionTest {
     }
 
     static class DummyClass_MethodAnn_ScenarioExists_NoDbDir {
-        @LoadData(scenario = {"m_ok"}, dbNames = {"db1"})
+        @LoadData(scenario = "m_ok", dbNames = {"db1"})
         void dummy() {}
     }
 
-    @LoadData(scenario = {"missing"}, dbNames = {"db1"})
+    @LoadData(scenario = "missing", dbNames = {"db1"})
     static class DummyClass_ClassAnn_Missing {
     }
 
     static class DummyClass_MethodAnn_Missing {
-        @LoadData(scenario = {"m1"}, dbNames = {"db1"})
+        @LoadData(scenario = "m1", dbNames = {"db1"})
         void dummy() {}
     }
 
     static class DummyClass_MethodAnn_DbSpecified {
-        @LoadData(scenario = {"m2"}, dbNames = {"dbx"})
+        @LoadData(scenario = "m2", dbNames = {"dbx"})
         void dummy() {}
     }
 
@@ -98,21 +98,21 @@ class LoadCsvDataExtensionTest {
     }
 
     static class DummyClass_MethodAnn_ScenarioNotFound {
-        @LoadData(scenario = {"noDir"}, dbNames = {"db1"})
+        @LoadData(scenario = "noDir", dbNames = {"db1"})
         void dummy() {}
     }
 
-    @LoadData(scenario = {"c1"}, dbNames = {"db1"})
+    @LoadData(scenario = "c1", dbNames = {"db1"})
     static class DummyClass_ClassAnn_Exists {
     }
 
     static class DummyClass_MethodAnn_SpringBranch {
-        @LoadData(scenario = {"s_spring"}, dbNames = {"db1"})
+        @LoadData(scenario = "s_spring", dbNames = {"db1"})
         void dummy() {}
     }
 
     static class DummyClass_MethodAnn_NonSpringBranch {
-        @LoadData(scenario = {"s_non"}, dbNames = {"db2"})
+        @LoadData(scenario = "s_non", dbNames = {"db2"})
         void dummy() {}
     }
 
@@ -186,7 +186,7 @@ class LoadCsvDataExtensionTest {
     }
 
     @Test
-    void resolveScenarios_正常ケース_アノテーション指定時_指定リストが返ること() throws Exception {
+    void resolveScenario_正常ケース_アノテーション指定時_指定値が返ること() {
         LoadDataExtension ext = new LoadDataExtension();
         LoadData ann = new LoadData() {
             @Override
@@ -195,8 +195,8 @@ class LoadCsvDataExtensionTest {
             }
 
             @Override
-            public String[] scenario() {
-                return new String[] {"s1", "s2"};
+            public String scenario() {
+                return "s1";
             }
 
             @Override
@@ -204,8 +204,8 @@ class LoadCsvDataExtensionTest {
                 return new String[0];
             }
         };
-        var list = ext.resolveScenarios(ann);
-        assertEquals(ImmutableList.of("s1", "s2"), list);
+        String result = ext.resolveScenario(ann);
+        assertEquals("s1", result);
     }
 
     @Test
@@ -600,12 +600,12 @@ class LoadCsvDataExtensionTest {
     }
 
     static class DummyClass_ProfileLoad_Success {
-        @LoadData(scenario = {"s"}, dbNames = {"db1"})
+        @LoadData(scenario = "s", dbNames = {"db1"})
         void dummy() {}
     }
 
     static class DummyClass_ProfileLoad_Missing {
-        @LoadData(scenario = {"s"}, dbNames = {"db1"})
+        @LoadData(scenario = "s", dbNames = {"db1"})
         void dummy() {}
     }
 
@@ -668,12 +668,12 @@ class LoadCsvDataExtensionTest {
     }
 
     static class DummyClass_MethodAnn_SpringBranch_PathGetters {
-        @LoadData(scenario = {"s_path"}, dbNames = {"dbp"})
+        @LoadData(scenario = "s_path", dbNames = {"dbp"})
         void dummy() {}
     }
 
     static class DummyClass_MethodAnn_SpringBranch_UserUpper {
-        @LoadData(scenario = {"s_upper"}, dbNames = {"dbu"})
+        @LoadData(scenario = "s_upper", dbNames = {"dbu"})
         void dummy() {}
     }
 

@@ -69,21 +69,21 @@ class LoadDataExtensionTest {
     private LoadDataExtension target;
 
     // ダミーの「テストクラス」
-    @LoadData(scenario = {"CSV"}, dbNames = {"bbb"})
+    @LoadData(scenario = "CSV", dbNames = {"bbb"})
     static class DummyTargetTest {
-        @LoadData(scenario = {"METHOD_ONLY"}, dbNames = {"bbb"})
+        @LoadData(scenario = "METHOD_ONLY", dbNames = {"bbb"})
         void methodHasScenario() {}
 
-        @LoadData(scenario = {"AUTO"}, dbNames = {"bbb"})
+        @LoadData(scenario = "AUTO", dbNames = {"bbb"})
         void methodScenarioAutoDetect() {}
     }
 
-    @LoadData(scenario = {""}, dbNames = {"bbb"})
+    @LoadData(scenario = "", dbNames = {"bbb"})
     static class BlankScenarioClass {
     }
 
     static class BlankScenarioMethodClass {
-        @LoadData(scenario = {""}, dbNames = {"bbb"})
+        @LoadData(scenario = "", dbNames = {"bbb"})
         void blankScenarioMethod() {}
     }
 
@@ -842,12 +842,11 @@ class LoadDataExtensionTest {
     }
 
     @Test
-    void loadFlexDbLinkProperties_正常ケース_テストリソースのみを読み込む_テストリソースのBean名が保持されること()
-            throws Exception {
-        Path testPropsPath = tempDir.resolve("target").resolve("test-classes")
-                .resolve("flexdblink.properties");
-        Path classesPropsPath = tempDir.resolve("target").resolve("classes")
-                .resolve("flexdblink.properties");
+    void loadFlexDbLinkProperties_正常ケース_テストリソースのみを読み込む_テストリソースのBean名が保持されること() throws Exception {
+        Path testPropsPath =
+                tempDir.resolve("target").resolve("test-classes").resolve("flexdblink.properties");
+        Path classesPropsPath =
+                tempDir.resolve("target").resolve("classes").resolve("flexdblink.properties");
         Path jarLikePropsPath = tempDir.resolve("m2").resolve("repository").resolve("lib")
                 .resolve("flexdblink.properties");
         Files.createDirectories(testPropsPath.getParent());
@@ -878,12 +877,11 @@ class LoadDataExtensionTest {
     }
 
     @Test
-    void loadFlexDbLinkProperties_正常ケース_同一キーが複数リソースに存在する_先勝ちで保持されること()
-            throws Exception {
-        Path firstPropsPath = tempDir.resolve("target").resolve("test-classes")
-                .resolve("first").resolve("flexdblink.properties");
-        Path secondPropsPath = tempDir.resolve("target").resolve("test-classes")
-                .resolve("second").resolve("flexdblink.properties");
+    void loadFlexDbLinkProperties_正常ケース_同一キーが複数リソースに存在する_先勝ちで保持されること() throws Exception {
+        Path firstPropsPath = tempDir.resolve("target").resolve("test-classes").resolve("first")
+                .resolve("flexdblink.properties");
+        Path secondPropsPath = tempDir.resolve("target").resolve("test-classes").resolve("second")
+                .resolve("flexdblink.properties");
         Files.createDirectories(firstPropsPath.getParent());
         Files.createDirectories(secondPropsPath.getParent());
         writeToFile(firstPropsPath, "flexdblink.load.datasource.bbb=bbbRoutingDataSource\n");
@@ -1714,8 +1712,7 @@ class LoadDataExtensionTest {
     }
 
     @Test
-    void resolveScenarios_異常ケース_アノテーションscenario未指定時_IllegalStateExceptionが送出されること()
-            throws Exception {
+    void resolveScenario_異常ケース_アノテーションscenarioが空文字_IllegalStateExceptionが送出されること() {
         // Arrange
         Properties props = new Properties();
         TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
@@ -1727,8 +1724,8 @@ class LoadDataExtensionTest {
             }
 
             @Override
-            public String[] scenario() {
-                return new String[0];
+            public String scenario() {
+                return "";
             }
 
             @Override
@@ -1739,7 +1736,7 @@ class LoadDataExtensionTest {
 
         // Act / Assert
         IllegalStateException ex =
-                assertThrows(IllegalStateException.class, () -> target.resolveScenarios(ann));
+                assertThrows(IllegalStateException.class, () -> target.resolveScenario(ann));
         assertTrue(ex.getMessage().contains("scenario"));
     }
 
@@ -2428,8 +2425,8 @@ class LoadDataExtensionTest {
             }
 
             @Override
-            public String[] scenario() {
-                return new String[] {"CSV"};
+            public String scenario() {
+                return "CSV";
             }
 
             @Override
@@ -2439,6 +2436,14 @@ class LoadDataExtensionTest {
         };
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> target.validateLoadDataAnnotation(ann, "test-location"));
+        assertTrue(ex.getMessage().contains("dbNames"));
+    }
+
+    @Test
+    void validateAnnotationArrayAttribute_異常ケース_dbNamesに空文字を含む_IllegalStateExceptionが送出されること() {
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> target.validateAnnotationArrayAttribute("dbNames", new String[] {"db1", ""},
+                        "test-location"));
         assertTrue(ex.getMessage().contains("dbNames"));
     }
 

@@ -399,17 +399,17 @@ public class OracleDialectHandler implements DbDialectHandler {
             switch (sqlType) {
                 case Types.DECIMAL:
                 case Types.NUMERIC:
-                    return new BigDecimal(str);
+                    return parseBigDecimal(str);
                 case Types.TINYINT:
                 case Types.INTEGER:
                 case Types.SMALLINT:
-                    return Integer.valueOf(str);
+                    return parseInteger(str);
                 case Types.BIGINT:
-                    return Long.valueOf(str);
+                    return parseLong(str);
                 case Types.REAL:
                 case Types.FLOAT:
                 case Types.DOUBLE:
-                    return Double.valueOf(str);
+                    return parseDouble(str);
                 case Types.DATE:
                     return parseDate(str, column);
                 case Types.TIME:
@@ -456,6 +456,70 @@ public class OracleDialectHandler implements DbDialectHandler {
     }
 
     /**
+     * Parses Oracle numeric text and accepts boolean literals for NUMBER(1)-backed flags.
+     *
+     * @param str raw numeric text
+     * @return parsed decimal value
+     */
+    private BigDecimal parseBigDecimal(String str) {
+        if ("true".equalsIgnoreCase(str) || "t".equalsIgnoreCase(str)) {
+            return BigDecimal.ONE;
+        }
+        if ("false".equalsIgnoreCase(str) || "f".equalsIgnoreCase(str)) {
+            return BigDecimal.ZERO;
+        }
+        return new BigDecimal(str);
+    }
+
+    /**
+     * Parses Oracle integer text and accepts boolean literals for NUMBER(1)-backed flags.
+     *
+     * @param str raw integer text
+     * @return parsed integer value
+     */
+    private Integer parseInteger(String str) {
+        if ("true".equalsIgnoreCase(str) || "t".equalsIgnoreCase(str)) {
+            return Integer.valueOf(1);
+        }
+        if ("false".equalsIgnoreCase(str) || "f".equalsIgnoreCase(str)) {
+            return Integer.valueOf(0);
+        }
+        return Integer.valueOf(str);
+    }
+
+    /**
+     * Parses Oracle bigint text and accepts boolean literals for NUMBER(1)-backed flags.
+     *
+     * @param str raw bigint text
+     * @return parsed long value
+     */
+    private Long parseLong(String str) {
+        if ("true".equalsIgnoreCase(str) || "t".equalsIgnoreCase(str)) {
+            return Long.valueOf(1L);
+        }
+        if ("false".equalsIgnoreCase(str) || "f".equalsIgnoreCase(str)) {
+            return Long.valueOf(0L);
+        }
+        return Long.valueOf(str);
+    }
+
+    /**
+     * Parses Oracle floating point text and accepts boolean literals for NUMBER(1)-backed flags.
+     *
+     * @param str raw floating point text
+     * @return parsed double value
+     */
+    private Double parseDouble(String str) {
+        if ("true".equalsIgnoreCase(str) || "t".equalsIgnoreCase(str)) {
+            return Double.valueOf(1D);
+        }
+        if ("false".equalsIgnoreCase(str) || "f".equalsIgnoreCase(str)) {
+            return Double.valueOf(0D);
+        }
+        return Double.valueOf(str);
+    }
+
+    /**
      * Formats a JDBC/DBUnit value for CSV output.
      *
      * @param columnName column name
@@ -468,6 +532,12 @@ public class OracleDialectHandler implements DbDialectHandler {
         if (dbValue == null) {
             return "";
         }
+        if (dbValue instanceof Blob) {
+            return readBlobValue((Blob) dbValue);
+        }
+        if (dbValue instanceof Clob) {
+            return readClobValue((Clob) dbValue);
+        }
         if (dbValue instanceof BigDecimal) {
             return ((BigDecimal) dbValue).toPlainString();
         }
@@ -475,6 +545,29 @@ public class OracleDialectHandler implements DbDialectHandler {
             return dbValue.toString().replaceAll("\\.0+$", "");
         }
         return dbValue.toString();
+    }
+
+    /**
+     * Reads a {@link Clob} value as plain text.
+     *
+     * @param clob JDBC clob value
+     * @return full clob text
+     * @throws SQLException if reading fails
+     */
+    private String readClobValue(Clob clob) throws SQLException {
+        return clob.getSubString(1L, (int) clob.length());
+    }
+
+    /**
+     * Reads a {@link Blob} value as an uppercase hex string.
+     *
+     * @param blob JDBC blob value
+     * @return full blob content as hex
+     * @throws SQLException if reading fails
+     */
+    private String readBlobValue(Blob blob) throws SQLException {
+        byte[] bytes = blob.getBytes(1L, (int) blob.length());
+        return Hex.encodeHexString(bytes).toUpperCase();
     }
 
     /**
@@ -1273,6 +1366,10 @@ public class OracleDialectHandler implements DbDialectHandler {
         if (configured != null) {
             return Timestamp.valueOf(configured);
         }
+        LocalTime configuredTime = dateTimeFormatter.parseConfiguredTime(str);
+        if (configuredTime != null) {
+            return Timestamp.valueOf(LocalDate.ofEpochDay(0).atTime(configuredTime));
+        }
         String normalized = str.replace('T', ' ').replace('/', '-').trim();
         try {
             OffsetDateTime odt = OffsetDateTime.parse(normalized,
@@ -1297,6 +1394,22 @@ public class OracleDialectHandler implements DbDialectHandler {
                 log.debug("DATE-only format {} parse failed: column={} value={}", fmt, column,
                         normalized);
             }
+        }
+        try {
+            LocalTime lt = LocalTime.parse(normalized,
+                    FlexibleDateTimeParsers.FLEXIBLE_LOCAL_TIME_PARSER_COLON);
+            return Timestamp.valueOf(LocalDate.ofEpochDay(0).atTime(lt));
+        } catch (DateTimeParseException e) {
+            log.debug("FLEXIBLE_LOCAL_TIME_PARSER_COLON parse failed: column={} value={}", column,
+                    normalized);
+        }
+        try {
+            LocalTime lt = LocalTime.parse(normalized,
+                    FlexibleDateTimeParsers.FLEXIBLE_LOCAL_TIME_PARSER_NO_COLON);
+            return Timestamp.valueOf(LocalDate.ofEpochDay(0).atTime(lt));
+        } catch (DateTimeParseException e) {
+            log.debug("FLEXIBLE_LOCAL_TIME_PARSER_NO_COLON parse failed: column={} value={}",
+                    column, normalized);
         }
         try {
             LocalDateTime ldt = LocalDateTime.parse(normalized, FLEXIBLE_TIMESTAMP_PARSER);

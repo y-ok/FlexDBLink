@@ -359,6 +359,28 @@ public class OracleDialectHandlerTest {
     }
 
     @Test
+    void convertCsvValueToDbType_正常ケース_bigint型で真偽値文字列を指定する_0または1のLongが返ること() throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("BIG_COL", DataType.BIGINT));
+
+        assertEquals(Long.valueOf(1L),
+                handler.convertCsvValueToDbType("TBL", "BIG_COL", "true"));
+        assertEquals(Long.valueOf(0L),
+                handler.convertCsvValueToDbType("TBL", "BIG_COL", "f"));
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_bigint型で真偽値別表記を指定する_0または1のLongが返ること() throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("BIG_COL", DataType.BIGINT));
+
+        assertEquals(Long.valueOf(1L),
+                handler.convertCsvValueToDbType("TBL", "BIG_COL", "t"));
+        assertEquals(Long.valueOf(0L),
+                handler.convertCsvValueToDbType("TBL", "BIG_COL", "false"));
+    }
+
+    @Test
     void convertCsvValueToDbType_異常ケース_bigintに非数値を指定する_DataSetExceptionが送出されること() throws Exception {
         OracleDialectHandler handler =
                 createHandlerWithMeta("TBL", new ColumnDef("BIG_COL", DataType.BIGINT));
@@ -898,6 +920,30 @@ public class OracleDialectHandlerTest {
     }
 
     @Test
+    public void convertCsvValueToDbType_正常ケース_integer型で真偽値文字列を指定する_0または1のIntegerが返ること()
+            throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("I_COL", DataType.INTEGER));
+
+        assertEquals(Integer.valueOf(1),
+                handler.convertCsvValueToDbType("TBL", "I_COL", "t"));
+        assertEquals(Integer.valueOf(0),
+                handler.convertCsvValueToDbType("TBL", "I_COL", "false"));
+    }
+
+    @Test
+    public void convertCsvValueToDbType_正常ケース_integer型で真偽値別表記を指定する_0または1のIntegerが返ること()
+            throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("I_COL", DataType.INTEGER));
+
+        assertEquals(Integer.valueOf(1),
+                handler.convertCsvValueToDbType("TBL", "I_COL", "true"));
+        assertEquals(Integer.valueOf(0),
+                handler.convertCsvValueToDbType("TBL", "I_COL", "f"));
+    }
+
+    @Test
     public void convertCsvValueToDbType_異常ケース_integerに非数値を指定する_DataSetExceptionが送出されること()
             throws Exception {
         OracleDialectHandler handler =
@@ -915,6 +961,30 @@ public class OracleDialectHandlerTest {
         Object actual = handler.convertCsvValueToDbType("TBL", "D_COL", "10.5");
         assertEquals(Double.class, actual.getClass());
         assertEquals(10.5d, (Double) actual, 0.0d);
+    }
+
+    @Test
+    public void convertCsvValueToDbType_正常ケース_double型で真偽値文字列を指定する_0または1のDoubleが返ること()
+            throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("D_COL", DataType.DOUBLE));
+
+        assertEquals(Double.valueOf(1D),
+                handler.convertCsvValueToDbType("TBL", "D_COL", "true"));
+        assertEquals(Double.valueOf(0D),
+                handler.convertCsvValueToDbType("TBL", "D_COL", "f"));
+    }
+
+    @Test
+    public void convertCsvValueToDbType_正常ケース_double型で真偽値別表記を指定する_0または1のDoubleが返ること()
+            throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("D_COL", DataType.DOUBLE));
+
+        assertEquals(Double.valueOf(1D),
+                handler.convertCsvValueToDbType("TBL", "D_COL", "t"));
+        assertEquals(Double.valueOf(0D),
+                handler.convertCsvValueToDbType("TBL", "D_COL", "false"));
     }
 
     @Test
@@ -1283,6 +1353,20 @@ public class OracleDialectHandlerTest {
     }
 
     @Test
+    void convertCsvValueToDbType_正常ケース_TIMESTAMP型で設定済み時刻フォーマッタ成功_基準日Timestampが返ること()
+            throws Exception {
+        DateTimeFormatSupport formatter = mock(DateTimeFormatSupport.class);
+        OracleDialectHandler handler =
+                createHandlerWithMeta(formatter, mock(DbUnitConfigFactory.class), "TBL",
+                        new ColumnDef("TS_COL", DataType.TIMESTAMP));
+        when(formatter.parseConfiguredTime("14|05|30")).thenReturn(LocalTime.of(14, 5, 30));
+
+        Object actual = handler.convertCsvValueToDbType("TBL", "TS_COL", "14|05|30");
+
+        assertEquals(Timestamp.valueOf(LocalDate.ofEpochDay(0).atTime(14, 5, 30)), actual);
+    }
+
+    @Test
     void convertCsvValueToDbType_正常ケース_TIMESTAMP型でコロン付きオフセットを指定する_UTC換算Timestampが返ること()
             throws Exception {
         OracleDialectHandler handler =
@@ -1292,6 +1376,77 @@ public class OracleDialectHandlerTest {
                 handler.convertCsvValueToDbType("TBL", "TS_COL", "2026-02-15 01:02:03+09:00");
 
         assertEquals(Timestamp.from(OffsetDateTime.parse("2026-02-15T01:02:03+09:00").toInstant()),
+                actual);
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_TIMESTAMP型で時刻のみを指定する_基準日Timestampが返ること() throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("TS_COL", DataType.TIMESTAMP));
+
+        Object actual = handler.convertCsvValueToDbType("TBL", "TS_COL", "14:05:30");
+
+        assertEquals(Timestamp.valueOf(LocalDate.ofEpochDay(0).atTime(14, 5, 30)), actual);
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_NUMERIC型でtrueを指定する_1のBigDecimalが返ること() throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("FLAG", DataType.NUMERIC));
+
+        Object actual = handler.convertCsvValueToDbType("TBL", "FLAG", "true");
+
+        assertEquals(BigDecimal.ONE, actual);
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_NUMERIC型でfalseを指定する_0のBigDecimalが返ること() throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("FLAG", DataType.NUMERIC));
+
+        Object actual = handler.convertCsvValueToDbType("TBL", "FLAG", "false");
+
+        assertEquals(BigDecimal.ZERO, actual);
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_NUMERIC型で真偽値別表記を指定する_0または1のBigDecimalが返ること()
+            throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("FLAG", DataType.NUMERIC));
+
+        assertEquals(BigDecimal.ONE, handler.convertCsvValueToDbType("TBL", "FLAG", "t"));
+        assertEquals(BigDecimal.ZERO, handler.convertCsvValueToDbType("TBL", "FLAG", "f"));
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_TIMESTAMP型で日付のみを指定する_開始時刻Timestampが返ること() throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("TS_COL", DataType.TIMESTAMP));
+
+        Object actual = handler.convertCsvValueToDbType("TBL", "TS_COL", "2026/02/15");
+
+        assertEquals(Timestamp.valueOf(LocalDate.of(2026, 2, 15).atStartOfDay()), actual);
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_TIMESTAMP型で時刻のみ数字指定をする_基準日Timestampが返ること() throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("TS_COL", DataType.TIMESTAMP));
+
+        Object actual = handler.convertCsvValueToDbType("TBL", "TS_COL", "140530");
+
+        assertEquals(Timestamp.valueOf(LocalDate.ofEpochDay(0).atTime(14, 5, 30)), actual);
+    }
+
+    @Test
+    void convertCsvValueToDbType_正常ケース_TIMESTAMP型でT区切り日時を指定する_Timestampが返ること() throws Exception {
+        OracleDialectHandler handler =
+                createHandlerWithMeta("TBL", new ColumnDef("TS_COL", DataType.TIMESTAMP));
+
+        Object actual = handler.convertCsvValueToDbType("TBL", "TS_COL", "2026-02-15T01:02:03.123");
+
+        assertEquals(Timestamp.valueOf(LocalDateTime.of(2026, 2, 15, 1, 2, 3, 123000000)),
                 actual);
     }
 

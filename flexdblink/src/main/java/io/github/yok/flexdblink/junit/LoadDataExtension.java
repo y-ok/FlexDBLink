@@ -14,6 +14,7 @@ import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.LogPathUtil;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.nio.file.Files;
@@ -92,6 +93,33 @@ public class LoadDataExtension
     private static final String FLEXDBLINK_PROPERTIES = "flexdblink.properties";
     private static final String LOAD_DS_PREFIX = "flexdblink.load.datasource.";
 
+    /** ThreadLocal holding the current test class for FlexAssert context resolution. */
+    static final ThreadLocal<Class<?>> CURRENT_TEST_CLASS = new ThreadLocal<>();
+
+    /** ThreadLocal holding the current scenario for FlexAssert context resolution. */
+    static final ThreadLocal<String> CURRENT_SCENARIO = new ThreadLocal<>();
+
+    /** ThreadLocal holding DataSources resolved per dbId for FlexAssert. */
+    static final ThreadLocal<Map<String, DataSource>> CURRENT_DATASOURCES =
+            ThreadLocal.withInitial(LinkedHashMap::new);
+
+    /**
+     * Returns the current DataSource mapped to the specified dbId.
+     *
+     * @param dbId database identifier.
+     * @return current DataSource, or {@code null} when not registered.
+     */
+    public static DataSource getCurrentDataSource(String dbId) {
+        return CURRENT_DATASOURCES.get().get(dbId);
+    }
+
+    /**
+     * Clears the current DataSource mappings for the running test thread.
+     */
+    public static void clearCurrentDataSources() {
+        CURRENT_DATASOURCES.get().clear();
+    }
+
     /**
      * Replaces the test resource context used by this extension.
      *
@@ -147,55 +175,64 @@ public class LoadDataExtension
             }
 
             Class<?> testClass = context.getRequiredTestClass();
+            CURRENT_TEST_CLASS.set(testClass);
             log.info("Extension is active. testClass={}", testClass.getName());
 
-            // Class-level @LoadData
             LoadData classAnn = testClass.getAnnotation(LoadData.class);
-            if (classAnn != null) {
-                validateLoadDataAnnotation(classAnn, "class " + testClass.getName());
-                for (String scenario : resolveScenarios(classAnn)) {
-                    Path base = trc.getClassRoot().resolve(scenario);
-                    if (Files.isDirectory(base)) {
-                        log.info("Found class-level @LoadData. scenario={}, dir={}", scenario,
-                                base);
-                        loadScenarioParticipating(context, scenario, classAnn.dbNames());
-                    } else {
-                        log.warn("Class-level scenario directory not found. scenario={}, dir={}",
-                                scenario, base);
-                    }
-                }
+            Method testMethod = context.getTestMethod().orElse(null);
+            LoadData methodAnn = null;
+            if (testMethod != null) {
+                methodAnn = testMethod.getAnnotation(LoadData.class);
+            }
+            LoadData effectiveAnn = methodAnn;
+            String location = "method " + testClass.getName();
+            String logType = "method-level";
+            if (methodAnn == null) {
+                effectiveAnn = classAnn;
+                location = "class " + testClass.getName();
+                logType = "class-level";
+            } else {
+                location = "method " + testClass.getName() + "#" + testMethod.getName();
             }
 
-            // Method-level @LoadData
-            context.getTestMethod().ifPresent(m -> {
-                LoadData methodAnn = m.getAnnotation(LoadData.class);
-                if (methodAnn == null) {
-                    return;
-                }
-                validateLoadDataAnnotation(methodAnn,
-                        "method " + testClass.getName() + "#" + m.getName());
-                try {
-                    for (String scenario : resolveScenarios(methodAnn)) {
-                        Path base = trc.getClassRoot().resolve(scenario);
-                        if (Files.isDirectory(base)) {
-                            log.info("Found method-level @LoadData. method={}, scenario={}, dir={}",
-                                    m.getName(), scenario,
-                                    LogPathUtil.renderDirForLog(base.toFile()));
-                            loadScenarioParticipating(context, scenario, methodAnn.dbNames());
-                        } else {
-                            log.info(
-                                    "Method-level scenario directory not found."
-                                            + "method={}, scenario={}, dir={}",
-                                    m.getName(), scenario,
-                                    LogPathUtil.renderDirForLog(base.toFile()));
-                        }
+            if (effectiveAnn != null) {
+                validateLoadDataAnnotation(effectiveAnn, location);
+                String scenario = resolveScenario(effectiveAnn);
+                CURRENT_SCENARIO.set(scenario);
+                if (methodAnn != null) {
+                    try {
+                        applyEffectiveLoadData(context, effectiveAnn, scenario, logType);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
                     }
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
+                } else {
+                    applyEffectiveLoadData(context, effectiveAnn, scenario, logType);
                 }
-            });
+            }
         } finally {
             ErrorHandler.restoreExitForCurrentThread();
+        }
+    }
+
+    /**
+     * Applies the resolved {@link LoadData} annotation to the current test execution.
+     *
+     * @param context execution context
+     * @param effectiveAnn effective annotation selected for this execution
+     * @param scenario resolved scenario name
+     * @param logType annotation source label
+     * @throws Exception when loading fails
+     */
+    private void applyEffectiveLoadData(ExtensionContext context, LoadData effectiveAnn,
+            String scenario, String logType) throws Exception {
+        Path base = trc.getClassRoot().resolve(scenario);
+        if (Files.isDirectory(base)) {
+            log.info("Found {} @LoadData. scenario={}, dir={}", logType, scenario,
+                    LogPathUtil.renderDirForLog(base.toFile()));
+            loadScenarioParticipating(context, scenario, effectiveAnn.dbNames());
+        } else {
+            log.warn("{} scenario directory not found. scenario={}, dir={}", logType, scenario,
+                    LogPathUtil.renderDirForLog(base.toFile()));
         }
     }
 
@@ -206,8 +243,22 @@ public class LoadDataExtension
      * @param location location label for error message.
      */
     void validateLoadDataAnnotation(LoadData ann, String location) {
-        validateAnnotationArrayAttribute("scenario", ann.scenario(), location);
+        validateAnnotationStringAttribute("scenario", ann.scenario(), location);
         validateAnnotationArrayAttribute("dbNames", ann.dbNames(), location);
+    }
+
+    /**
+     * Validate that an annotation string attribute is explicitly specified with a non-blank value.
+     *
+     * @param attrName annotation attribute name.
+     * @param value attribute value.
+     * @param location location label for error message.
+     */
+    void validateAnnotationStringAttribute(String attrName, String value, String location) {
+        if (StringUtils.isBlank(value)) {
+            throw new IllegalStateException(
+                    "@LoadData " + attrName + " must be specified. location=" + location);
+        }
     }
 
     /**
@@ -239,6 +290,9 @@ public class LoadDataExtension
     public void afterTestExecution(ExtensionContext context) {
         rollbackAllIfBegan(context);
         restoreTxInterceptorDefaultManager(context);
+        CURRENT_TEST_CLASS.remove();
+        CURRENT_SCENARIO.remove();
+        CURRENT_DATASOURCES.remove();
     }
 
     /**
@@ -386,6 +440,7 @@ public class LoadDataExtension
         for (String dbId : dbIds) {
             DataSource ds = resolveDataSourceByDbId(ac, dbId, dsBeanNamesByDbId);
             dss.add(ds);
+            CURRENT_DATASOURCES.get().put(dbId, ds);
         }
 
         // Check existing TX and begin local TX only when needed
@@ -542,12 +597,11 @@ public class LoadDataExtension
      * Resolve {@link LoadData#scenario()}.
      *
      * @param ann annotation.
-     * @return scenario names.
-     * @throws Exception on failure.
+     * @return scenario name.
      */
-    List<String> resolveScenarios(LoadData ann) throws Exception {
-        validateAnnotationArrayAttribute("scenario", ann.scenario(), "resolveScenarios");
-        return Arrays.asList(ann.scenario());
+    String resolveScenario(LoadData ann) {
+        validateAnnotationStringAttribute("scenario", ann.scenario(), "resolveScenario");
+        return ann.scenario();
     }
 
     /**
