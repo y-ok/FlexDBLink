@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>io.github.yok</groupId>
 		<artifactId>flexdblink-parent</artifactId>
-		<version>0.2.6</version>
+		<version>0.2.7</version>
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 	<artifactId>flexdblink</artifactId>
@@ -269,6 +269,32 @@
 							<shadedArtifactAttached>true</shadedArtifactAttached>
 							<shadedClassifierName>all</shadedClassifierName>
 							<createDependencyReducedPom>false</createDependencyReducedPom>
+							<relocations>
+								<relocation>
+									<pattern>org.apache.commons.csv</pattern>
+									<shadedPattern>io.github.yok.flexdblink.shaded.csv</shadedPattern>
+								</relocation>
+								<relocation>
+									<pattern>org.apache.commons.lang3</pattern>
+									<shadedPattern>io.github.yok.flexdblink.shaded.lang3</shadedPattern>
+								</relocation>
+								<relocation>
+									<pattern>org.apache.commons.io</pattern>
+									<shadedPattern>io.github.yok.flexdblink.shaded.io</shadedPattern>
+								</relocation>
+								<relocation>
+									<pattern>com.google.common</pattern>
+									<shadedPattern>io.github.yok.flexdblink.shaded.guava</shadedPattern>
+								</relocation>
+								<relocation>
+									<pattern>com.google.thirdparty</pattern>
+									<shadedPattern>io.github.yok.flexdblink.shaded.guava.thirdparty</shadedPattern>
+								</relocation>
+								<relocation>
+									<pattern>org.yaml.snakeyaml</pattern>
+									<shadedPattern>io.github.yok.flexdblink.shaded.snakeyaml</shadedPattern>
+								</relocation>
+							</relocations>
 							<filters>
 								<filter>
 									<artifact>*:*</artifact>
