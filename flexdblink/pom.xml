@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>io.github.yok</groupId>
 		<artifactId>flexdblink-parent</artifactId>
-		<version>0.2.7</version>
+		<version>0.2.8</version>
 		<relativePath>../pom.xml</relativePath>
 	</parent>
 	<artifactId>flexdblink</artifactId>
@@ -17,7 +17,11 @@
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter</artifactId>
+			<artifactId>spring-boot</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-autoconfigure</artifactId>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -271,6 +275,14 @@
 							<createDependencyReducedPom>false</createDependencyReducedPom>
 							<relocations>
 								<relocation>
+									<pattern>com.fasterxml.jackson</pattern>
+									<shadedPattern>io.github.yok.flexdblink.shaded.jackson</shadedPattern>
+								</relocation>
+								<relocation>
+									<pattern>org.dbunit</pattern>
+									<shadedPattern>io.github.yok.flexdblink.shaded.dbunit</shadedPattern>
+								</relocation>
+								<relocation>
 									<pattern>org.apache.commons.csv</pattern>
 									<shadedPattern>io.github.yok.flexdblink.shaded.csv</shadedPattern>
 								</relocation>
@@ -293,6 +305,22 @@
 								<relocation>
 									<pattern>org.yaml.snakeyaml</pattern>
 									<shadedPattern>io.github.yok.flexdblink.shaded.snakeyaml</shadedPattern>
+								</relocation>
+								<relocation>
+									<pattern>org.apache.commons.codec</pattern>
+									<shadedPattern>io.github.yok.flexdblink.shaded.codec</shadedPattern>
+								</relocation>
+								<relocation>
+									<pattern>com.google.errorprone</pattern>
+									<shadedPattern>io.github.yok.flexdblink.shaded.errorprone</shadedPattern>
+								</relocation>
+								<relocation>
+									<pattern>com.google.j2objc</pattern>
+									<shadedPattern>io.github.yok.flexdblink.shaded.j2objc</shadedPattern>
+								</relocation>
+								<relocation>
+									<pattern>org.jspecify</pattern>
+									<shadedPattern>io.github.yok.flexdblink.shaded.jspecify</shadedPattern>
 								</relocation>
 							</relocations>
 							<filters>
