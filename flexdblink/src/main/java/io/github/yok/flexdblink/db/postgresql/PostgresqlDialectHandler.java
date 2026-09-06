@@ -61,6 +61,7 @@ import org.dbunit.database.DatabaseConnection;
 import org.dbunit.dataset.Column;
 import org.dbunit.dataset.DataSetException;
 import org.dbunit.dataset.IDataSet;
+import org.dbunit.dataset.ITableMetaData;
 import org.dbunit.dataset.csv.CsvDataSet;
 import org.dbunit.dataset.datatype.DataType;
 import org.dbunit.dataset.datatype.IDataTypeFactory;
@@ -187,6 +188,25 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     public PostgresqlDialectHandler(DatabaseConnection dbConn, DumpConfig dumpConfig,
             DbUnitConfig dbUnitConfig, DbUnitConfigFactory configFactory,
             DateTimeFormatSupport dateTimeFormatter, PathsConfig pathsConfig) throws Exception {
+        this(dbConn, dumpConfig, dbUnitConfig, configFactory, dateTimeFormatter, pathsConfig, null);
+    }
+
+    /**
+     * Creates a handler with metadata restricted to this load's tables.
+     *
+     * @param dbConn DBUnit wrapper around the caller's connection
+     * @param dumpConfig exclusion settings for unrestricted initialization
+     * @param dbUnitConfig DBUnit settings
+     * @param configFactory common configuration factory
+     * @param dateTimeFormatter date and time conversion rules
+     * @param pathsConfig dataset and LOB paths
+     * @param loadTables selected tables, or null for unrestricted initialization
+     * @throws Exception if metadata retrieval fails
+     */
+    public PostgresqlDialectHandler(DatabaseConnection dbConn, DumpConfig dumpConfig,
+            DbUnitConfig dbUnitConfig, DbUnitConfigFactory configFactory,
+            DateTimeFormatSupport dateTimeFormatter, PathsConfig pathsConfig,
+            List<String> loadTables) throws Exception {
         this.configFactory = configFactory;
         this.dateTimeFormatter = dateTimeFormatter;
         this.pathsConfig = pathsConfig;
@@ -203,14 +223,31 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
         }
 
         List<String> excludeTables = dumpConfig.getExcludeTables();
-        List<String> targetTables = fetchTargetTables(jdbcConn, schema, excludeTables);
-
-        IDataSet ds = dbConn.createDataSet();
-        for (String tbl : targetTables) {
-            tableColumnsMap.put(tbl.toLowerCase(Locale.ROOT),
-                    ds.getTableMetaData(tbl).getColumns());
+        List<String> targetTables = loadTables;
+        if (targetTables == null) {
+            targetTables = fetchTargetTables(jdbcConn, schema, excludeTables);
+        } else {
+            schema = dbConn.getSchema();
         }
-        cacheJdbcColumnSpecs(jdbcConn, schema, targetTables);
+
+        IDataSet ds;
+        if (loadTables == null) {
+            ds = dbConn.createDataSet();
+        } else {
+            ds = dbConn.createDataSet(targetTables.toArray(new String[0]));
+        }
+        List<String> metadataTables = new ArrayList<>();
+        for (String tbl : targetTables) {
+            ITableMetaData metadata = ds.getTableMetaData(tbl);
+            tableColumnsMap.put(tbl.toLowerCase(Locale.ROOT), metadata.getColumns());
+            String metadataName = tbl;
+            if (loadTables != null) {
+                // JDBC metadata patterns are case-sensitive even when DBUnit resolves aliases.
+                metadataName = metadata.getTableName();
+            }
+            metadataTables.add(metadataName);
+        }
+        cacheJdbcColumnSpecs(jdbcConn, schema, metadataTables);
     }
 
     /**

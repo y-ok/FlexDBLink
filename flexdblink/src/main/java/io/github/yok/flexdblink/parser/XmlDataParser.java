@@ -40,11 +40,23 @@ public class XmlDataParser implements DataParser {
         }
 
         // For now, load the first XML dataset file
-        File file = files[0];
+        return parseFile(files[0]);
+    }
+
+    /**
+     * Parses the selected XML file without resolving sibling files.
+     *
+     * @param file selected XML file
+     * @return parsed dataset
+     * @throws Exception if the file cannot be read or parsed
+     */
+    public IDataSet parseFile(File file) throws Exception {
         if (!Files.isReadable(file.toPath())) {
             throw new DataSetException("XML file is not readable: " + file);
         }
 
-        return new FlatXmlDataSetBuilder().setColumnSensing(true).build(new FileInputStream(file));
+        try (FileInputStream stream = new FileInputStream(file)) {
+            return new FlatXmlDataSetBuilder().setColumnSensing(true).build(stream);
+        }
     }
 }

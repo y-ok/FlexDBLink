@@ -5,6 +5,7 @@ import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
+import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.db.LobResolvingTableWrapper;
 import io.github.yok.flexdblink.parser.DataFormat;
 import io.github.yok.flexdblink.parser.DataLoaderFactory;
@@ -141,11 +142,14 @@ public class DataLoader {
     // Scenario-mode duplicate detection and deletion
     private ScenarioDuplicateHandler scenarioHandler;
 
+    private TransactionalDataLoader transactionalLoader;
+
     // Insert summary: dbId → (table → total inserted count)
     private final Map<String, Map<String, Integer>> insertSummary = new LinkedHashMap<>();
 
     /**
-     * Creates a loader with default DBUnit operations.
+     * Creates a loader with default DBUnit operations. Passing a {@link DbDialectHandlerFactory}
+     * directly enables preparation on the caller-owned connection for external loads.
      *
      * @param pathsConfig path settings
      * @param connectionConfig connection settings
@@ -200,6 +204,10 @@ public class DataLoader {
         this.pathsConfig = pathsConfig;
         this.connectionConfig = connectionConfig;
         this.dialectFactory = dialectFactory;
+        if (dialectFactory instanceof DbDialectHandlerFactory) {
+            this.transactionalLoader = new TransactionalDataLoader(
+                    (DbDialectHandlerFactory) dialectFactory, dumpConfig);
+        }
         this.dbUnitConfig = dbUnitConfig;
         this.dumpConfig = dumpConfig;
         this.operationExecutor = operationExecutor;
@@ -776,6 +784,16 @@ public class DataLoader {
             throw new IllegalStateException(
                     "Target directory does not exist or is not a directory: "
                             + dir.getAbsolutePath());
+        }
+
+        if (transactionalLoader != null) {
+            try {
+                transactionalLoader.execute(dir, entry, connection);
+            } catch (Exception e) {
+                ErrorHandler.errorAndExit("Data load failed (db=" + dbId + ")", e);
+            }
+            log.info("=== DataLoader (external connection) END (db={}) ===", dbId);
+            return;
         }
 
         // Resolve dialect handler

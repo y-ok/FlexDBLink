@@ -3,6 +3,7 @@ package io.github.yok.flexdblink.parser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
 import java.io.File;
+import java.io.Reader;
 import java.nio.file.Files;
 import java.util.Iterator;
 import org.dbunit.dataset.Column;
@@ -26,26 +27,51 @@ import org.dbunit.dataset.datatype.DataType;
  */
 public class YamlDataParser implements DataParser {
 
-    private final YAMLMapper mapper = new YAMLMapper();
+    private static final YAMLMapper MAPPER = new YAMLMapper();
 
     /**
      * {@inheritDoc}
      */
     @Override
     public IDataSet parse(File dir) throws Exception {
-        DefaultDataSet dataSet = new DefaultDataSet();
-
         File[] files = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".yaml")
                 || name.toLowerCase().endsWith(".yml"));
         if (files == null) {
             throw new DataSetException("No YAML files found in directory: " + dir);
         }
 
+        return parseFiles(files);
+    }
+
+    /**
+     * Parses one selected file without scanning or reading sibling datasets.
+     *
+     * @param file selected dataset file
+     * @return parsed dataset
+     * @throws Exception if parsing fails
+     */
+    public IDataSet parseFile(File file) throws Exception {
+        return parseFiles(new File[] {file});
+    }
+
+    /**
+     * Parses the supplied files using the same conversion rules for both entry points.
+     *
+     * @param files files to parse
+     * @return parsed dataset
+     * @throws Exception if parsing fails
+     */
+    private IDataSet parseFiles(File[] files) throws Exception {
+        DefaultDataSet dataSet = new DefaultDataSet();
         for (File file : files) {
-            JsonNode root = mapper.readTree(Files.newBufferedReader(file.toPath()));
+            JsonNode root;
+            try (Reader reader = Files.newBufferedReader(file.toPath())) {
+                root = MAPPER.readTree(reader);
+            }
 
             if (!root.isArray() || root.size() == 0) {
-                continue; // skip empty or invalid
+                // skip empty or invalid
+                continue;
             }
 
             // extract column names
@@ -69,7 +95,9 @@ public class YamlDataParser implements DataParser {
                 Object[] values = new Object[cols.length];
                 for (int i = 0; i < cols.length; i++) {
                     JsonNode val = row.get(cols[i]);
-                    values[i] = (val != null && !val.isNull()) ? val.asText() : null;
+                    if (val != null && !val.isNull()) {
+                        values[i] = val.asText();
+                    }
                 }
                 table.addRow(values);
             }

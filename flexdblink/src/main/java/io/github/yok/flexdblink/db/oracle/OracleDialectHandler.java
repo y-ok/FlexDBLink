@@ -69,6 +69,8 @@ import org.dbunit.database.DatabaseConnection;
 import org.dbunit.dataset.Column;
 import org.dbunit.dataset.DataSetException;
 import org.dbunit.dataset.IDataSet;
+import org.dbunit.dataset.ITable;
+import org.dbunit.dataset.ITableMetaData;
 import org.dbunit.dataset.csv.CsvDataSet;
 import org.dbunit.dataset.datatype.DataType;
 import org.dbunit.dataset.datatype.IDataTypeFactory;
@@ -260,6 +262,25 @@ public class OracleDialectHandler implements DbDialectHandler {
     public OracleDialectHandler(DatabaseConnection dbConn, DumpConfig dumpConfig,
             DbUnitConfig dbUnitConfig, DbUnitConfigFactory configFactory,
             DateTimeFormatSupport dateTimeFormatter, PathsConfig pathsConfig) throws Exception {
+        this(dbConn, dumpConfig, dbUnitConfig, configFactory, dateTimeFormatter, pathsConfig, null);
+    }
+
+    /**
+     * Creates a handler with metadata restricted to this load's tables.
+     *
+     * @param dbConn DBUnit wrapper around the caller's connection
+     * @param dumpConfig exclusion settings for unrestricted initialization
+     * @param dbUnitConfig DBUnit settings
+     * @param configFactory common configuration factory
+     * @param dateTimeFormatter date and time conversion rules
+     * @param pathsConfig dataset and LOB paths
+     * @param loadTables selected tables, or null for unrestricted initialization
+     * @throws Exception if metadata retrieval fails
+     */
+    public OracleDialectHandler(DatabaseConnection dbConn, DumpConfig dumpConfig,
+            DbUnitConfig dbUnitConfig, DbUnitConfigFactory configFactory,
+            DateTimeFormatSupport dateTimeFormatter, PathsConfig pathsConfig,
+            List<String> loadTables) throws Exception {
         this.configFactory = configFactory;
         this.dateTimeFormatter = dateTimeFormatter;
         this.pathsConfig = pathsConfig;
@@ -279,14 +300,32 @@ public class OracleDialectHandler implements DbDialectHandler {
 
         // Apply exclusion list → determine target tables
         List<String> excludeTables = dumpConfig.getExcludeTables();
-        List<String> targetTables = fetchTargetTables(jdbcConn, schema, excludeTables);
+        List<String> targetTables = loadTables;
+        if (targetTables == null) {
+            targetTables = fetchTargetTables(jdbcConn, schema, excludeTables);
+        } else {
+            schema = dbConn.getSchema();
+        }
 
         // Cache metadata from the DBUnit dataset
-        IDataSet ds = dbConn.createDataSet();
-        for (String tbl : targetTables) {
-            tableColumnsMap.put(tbl.toUpperCase(), ds.getTableMetaData(tbl).getColumns());
+        IDataSet ds;
+        if (loadTables == null) {
+            ds = dbConn.createDataSet();
+        } else {
+            ds = dbConn.createDataSet(targetTables.toArray(new String[0]));
         }
-        cacheJdbcColumnSpecs(jdbcConn, schema, targetTables);
+        List<String> metadataTables = new ArrayList<>();
+        for (String tbl : targetTables) {
+            ITableMetaData metadata = ds.getTableMetaData(tbl);
+            tableColumnsMap.put(tbl.toUpperCase(), metadata.getColumns());
+            String metadataName = tbl;
+            if (loadTables != null) {
+                // JDBC metadata patterns are case-sensitive even when DBUnit resolves aliases.
+                metadataName = metadata.getTableName();
+            }
+            metadataTables.add(metadataName);
+        }
+        cacheJdbcColumnSpecs(jdbcConn, schema, metadataTables);
     }
 
     /**
@@ -1206,6 +1245,32 @@ public class OracleDialectHandler implements DbDialectHandler {
                 if (DataType.BLOB.equals(col.getDataType()) || sqlType == Types.BLOB
                         || DataType.CLOB.equals(col.getDataType()) || sqlType == Types.CLOB) {
                     result.add(col);
+                }
+            }
+        }
+        return result.toArray(new Column[0]);
+    }
+
+    /**
+     * Detects LOB columns without reading the CSV again.
+     *
+     * @param table parsed CSV table
+     * @return columns requiring the existing two-phase LOB strategy
+     * @throws DataSetException if the table cannot be read
+     */
+    @Override
+    public Column[] getLobColumns(ITable table) throws DataSetException {
+        List<Column> result = new ArrayList<>();
+        for (Column column : table.getTableMetaData().getColumns()) {
+            if (!DataType.BLOB.equals(column.getDataType())
+                    && !DataType.CLOB.equals(column.getDataType())) {
+                continue;
+            }
+            for (int row = 0; row < table.getRowCount(); row++) {
+                Object value = table.getValue(row, column.getColumnName());
+                if (value instanceof String && ((String) value).startsWith("file:")) {
+                    result.add(column);
+                    break;
                 }
             }
         }

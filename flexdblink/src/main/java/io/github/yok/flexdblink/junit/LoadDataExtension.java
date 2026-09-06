@@ -129,6 +129,8 @@ public class LoadDataExtension
      */
     void setTestResourceContext(TestResourceContext trc) {
         this.trc = trc;
+        this.dataLoader = null;
+        this.dataSourceMappings.clear();
     }
 
     /**
@@ -148,6 +150,9 @@ public class LoadDataExtension
         final Map<String, Boolean> touched = new LinkedHashMap<>();
     }
 
+    private DataLoader dataLoader;
+    private final Map<ClassLoader, Map<String, String>> dataSourceMappings = new LinkedHashMap<>();
+
     /**
      * Initialize shared context at class start.
      *
@@ -156,7 +161,7 @@ public class LoadDataExtension
      */
     @Override
     public void beforeAll(ExtensionContext context) throws Exception {
-        this.trc = TestResourceContext.init(context);
+        setTestResourceContext(TestResourceContext.init(context));
         log.info("Initialization completed. classRoot={}, loadedProperties={}", trc.getClassRoot(),
                 trc.getAppProps().size());
     }
@@ -307,67 +312,13 @@ public class LoadDataExtension
     void loadScenarioParticipating(ExtensionContext context, String scenarioName,
             String[] dbNamesAttr) throws Exception {
 
-        // Prepare dump output directory
-        Path dumpRoot = Paths.get(System.getProperty("user.dir"), "target", "dbunit", "dump")
-                .toAbsolutePath().normalize();
-        Files.createDirectories(dumpRoot);
-        log.info("Dump directory prepared: {}", dumpRoot);
-
-        // CSV/DateTime settings (Oracle compatible)
-        CsvDateTimeFormatProperties dtProps = new CsvDateTimeFormatProperties();
-        dtProps.setDate("yyyy-MM-dd");
-        dtProps.setTime("HH:mm:ss");
-        dtProps.setDateTimeWithMillis("yyyy-MM-dd HH:mm:ss.SSS");
-        dtProps.setDateTime("yyyy-MM-dd HH:mm:ss");
-
-        DumpConfig dumpConfig = new DumpConfig();
-        log.info("Excluded tables: {}", dumpConfig.getExcludeTables());
-
-        DbUnitConfigFactory configFactory = new DbUnitConfigFactory();
-        ConnectionConfig connectionConfig = new ConnectionConfig();
-        DateTimeFormatUtil dateTimeUtil = new DateTimeFormatUtil(dtProps);
-
-        // Resolve paths
-        Path classRoot = trc.getClassRoot();
-        PathsConfig pathsConfig = new PathsConfig() {
-            /**
-             * {@inheritDoc}
-             */
-            @Override
-            public String getLoad() {
-                return classRoot.toAbsolutePath().toString();
-            }
-
-            /**
-             * {@inheritDoc}
-             */
-            @Override
-            public String getDataPath() {
-                return classRoot.toAbsolutePath().toString();
-            }
-
-            /**
-             * {@inheritDoc}
-             */
-            @Override
-            public String getDump() {
-                return dumpRoot.toString();
-            }
-        };
-
-        DbUnitConfig dbUnitConfig = new DbUnitConfig();
-        DbDialectHandlerFactory handlerFactory = new DbDialectHandlerFactory(dbUnitConfig,
-                dumpConfig, pathsConfig, dateTimeUtil, configFactory);
-
-        DataLoader loader = new DataLoader(pathsConfig, connectionConfig, handlerFactory::create,
-                dbUnitConfig, dumpConfig);
+        DataLoader loader = getDataLoader();
 
         // Mode detection
         boolean multi = dbNamesAttr != null && dbNamesAttr.length > 0;
         ApplicationContext ac = getApplicationContext(context);
         ClassLoader cl = resolveClassLoader(context);
-        Properties flexProps = loadFlexDbLinkProperties(cl);
-        Map<String, String> dsBeanNamesByDbId = readConfiguredDataSourceBeanNames(flexProps);
+        Map<String, String> dsBeanNamesByDbId = getDataSourceMappings(cl);
 
         // ===== Single-DB mode =====
         if (!multi) {
@@ -483,6 +434,96 @@ public class LoadDataExtension
             log.info("Data load completed. dbId={}, dir={}", dbId,
                     LogPathUtil.renderDirForLog(datasetDir.toFile()));
         }
+    }
+
+    /**
+     * Reuses immutable load configuration for the current test class.
+     *
+     * @return connection-aware loader with no retained connections or datasets
+     */
+    private synchronized DataLoader getDataLoader() {
+        if (dataLoader == null) {
+            dataLoader = createDataLoader();
+        }
+        return dataLoader;
+    }
+
+    /**
+     * Builds load configuration without creating unused dump directories.
+     *
+     * @return loader for the current class resource root
+     */
+    private DataLoader createDataLoader() {
+        // Prepare dump output directory
+        final Path dumpRoot = Paths.get(System.getProperty("user.dir"), "target", "dbunit", "dump")
+                .toAbsolutePath().normalize();
+
+        // CSV/DateTime settings (Oracle compatible)
+        CsvDateTimeFormatProperties dtProps = new CsvDateTimeFormatProperties();
+        dtProps.setDate("yyyy-MM-dd");
+        dtProps.setTime("HH:mm:ss");
+        dtProps.setDateTimeWithMillis("yyyy-MM-dd HH:mm:ss.SSS");
+        dtProps.setDateTime("yyyy-MM-dd HH:mm:ss");
+
+        DumpConfig dumpConfig = new DumpConfig();
+        log.info("Excluded tables: {}", dumpConfig.getExcludeTables());
+
+        DbUnitConfigFactory configFactory = new DbUnitConfigFactory();
+        ConnectionConfig connectionConfig = new ConnectionConfig();
+        DateTimeFormatUtil dateTimeUtil = new DateTimeFormatUtil(dtProps);
+
+        // Resolve paths
+        Path classRoot = trc.getClassRoot();
+        PathsConfig pathsConfig = new PathsConfig() {
+            /**
+             * {@inheritDoc}
+             */
+            @Override
+            public String getLoad() {
+                return classRoot.toAbsolutePath().toString();
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            @Override
+            public String getDataPath() {
+                return classRoot.toAbsolutePath().toString();
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            @Override
+            public String getDump() {
+                return dumpRoot.toString();
+            }
+        };
+
+        DbUnitConfig dbUnitConfig = new DbUnitConfig();
+        DbDialectHandlerFactory handlerFactory = new DbDialectHandlerFactory(dbUnitConfig,
+                dumpConfig, pathsConfig, dateTimeUtil, configFactory);
+
+        return new DataLoader(pathsConfig, connectionConfig, handlerFactory,
+                dbUnitConfig, dumpConfig);
+
+    }
+
+    /**
+     * Reads fixed bean mappings once per class loader within this extension's lifecycle.
+     *
+     * @param cl test class loader
+     * @return normalized bean mappings
+     * @throws Exception if configuration cannot be read
+     */
+    private synchronized Map<String, String> getDataSourceMappings(ClassLoader cl)
+            throws Exception {
+        Map<String, String> mappings = dataSourceMappings.get(cl);
+        if (mappings == null) {
+            mappings = readConfiguredDataSourceBeanNames(loadFlexDbLinkProperties(cl));
+            dataSourceMappings.put(cl, mappings);
+        }
+        return mappings;
     }
 
     /**

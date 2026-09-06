@@ -603,6 +603,14 @@ Also add the JDBC driver for your target database as a normal project dependency
 your project's `<dependencies>` instead of `<plugin><dependencies>`.
 
 Simply annotate your test with `@LoadData` to automatically inject the dataset before the test and roll it back on completion.
+
+Load preparation uses the existing transaction connection and reads metadata only
+for the selected tables. Each selected dataset file is parsed once per load;
+loading does not rewrite `table-ordering.txt`. Data files and schema metadata are
+refreshed for every load, while fixed configuration and DataSource bean mappings
+are reused until the next test class initialization. Each test still receives its
+own data load and the same transaction rollback behavior.
+
 This integrates with Spring Test transaction management (`@Transactional`), ensuring the DB state is reliably restored after each test method.
 
 A **Spring Test execution context** is required (`@SpringBootTest`, `@MybatisTest`, `@ExtendWith(SpringExtension.class)`, etc.).

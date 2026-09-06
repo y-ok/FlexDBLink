@@ -4,9 +4,11 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import org.dbunit.dataset.Column;
 import org.dbunit.dataset.DataSetException;
+import org.dbunit.dataset.ITable;
 
 /**
  * Metadata and table-definition operations for each database dialect.
@@ -82,6 +84,27 @@ public interface DbDialectMetadataOperations {
      * @throws DataSetException if metadata resolution fails
      */
     Column[] getLobColumns(Path dataDir, String table) throws IOException, DataSetException;
+
+    /**
+     * Detects LOB columns using an already parsed CSV table.
+     *
+     * @param table parsed CSV table
+     * @return LOB columns using the dialect's existing CSV rules
+     * @throws DataSetException if table values cannot be accessed
+     */
+    default Column[] getLobColumns(ITable table) throws DataSetException {
+        List<Column> result = new ArrayList<>();
+        for (Column column : table.getTableMetaData().getColumns()) {
+            for (int row = 0; row < table.getRowCount(); row++) {
+                Object value = table.getValue(row, column.getColumnName());
+                if (value instanceof String && ((String) value).startsWith("file:")) {
+                    result.add(column);
+                    break;
+                }
+            }
+        }
+        return result.toArray(new Column[0]);
+    }
 
     /**
      * Logs table definition details.
