@@ -1,5 +1,6 @@
 package io.github.yok.flexdblink.junit;
 
+import static io.github.yok.flexdblink.junit.TestMocks.mockNonNull;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -35,6 +36,7 @@ import java.util.Enumeration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -57,6 +59,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DataSourceUtils;
+import org.springframework.lang.NonNull;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
@@ -130,7 +133,8 @@ class LoadDataExtensionTest {
         try {
             Map<Object, Object> map = TransactionSynchronizationManager.getResourceMap();
             for (Object key : new ArrayList<>(map.keySet())) {
-                TransactionSynchronizationManager.unbindResourceIfPossible(key);
+                TransactionSynchronizationManager
+                        .unbindResourceIfPossible(Objects.requireNonNull(key));
             }
         } catch (Exception ignore) {
         }
@@ -191,7 +195,7 @@ class LoadDataExtensionTest {
         Method dummyMethod = DummyTargetTest.class.getDeclaredMethod("methodHasScenario");
 
         // ExtensionContext をモックし、ジェネリクス問題を避けるため doReturn(..).when(..) を使用
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(DummyTargetTest.class).when(ctx).getRequiredTestClass();
         doReturn(Optional.of(dummyMethod)).when(ctx).getTestMethod();
 
@@ -230,8 +234,8 @@ class LoadDataExtensionTest {
         ApplicationContext applicationContext = mock(ApplicationContext.class);
 
         // DataSource / Connection / MetaData（resolveComponentsForDbId のメタデータ照合用）
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
+        DataSource ds = mockNonNull(DataSource.class);
+        Connection conn = mockNonNull(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
 
         when(ds.getConnection()).thenReturn(conn);
@@ -296,7 +300,7 @@ class LoadDataExtensionTest {
             throws Exception {
 
         // Arrange: ExtensionContext + Store を「Map バックの疑似 Store」で用意
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         Store store = mock(Store.class);
         when(context.getStore(Mockito.any(Namespace.class))).thenReturn(store);
 
@@ -318,8 +322,8 @@ class LoadDataExtensionTest {
 
         PlatformTransactionManager tm1 = mock(PlatformTransactionManager.class);
         PlatformTransactionManager tm2 = mock(PlatformTransactionManager.class);
-        TransactionStatus st1 = mock(TransactionStatus.class);
-        TransactionStatus st2 = mock(TransactionStatus.class);
+        TransactionStatus st1 = mockNonNull(TransactionStatus.class);
+        TransactionStatus st2 = mockNonNull(TransactionStatus.class);
 
         txRecordList.add(new LoadDataExtension.TxRecord("db1", tm1, st1));
         txRecordList.add(new LoadDataExtension.TxRecord("db2", tm2, st2));
@@ -372,7 +376,7 @@ class LoadDataExtensionTest {
     @Test
     void wrapConnectionNoClose_正常ケース_close呼び出しが無視されること() throws Exception {
         // Arrange: Connection モックを生成
-        Connection original = mock(Connection.class);
+        Connection original = mockNonNull(Connection.class);
         when(original.getAutoCommit()).thenReturn(true); // 委譲確認用
 
         Connection proxy = target.wrapConnectionNoClose(original);
@@ -515,7 +519,7 @@ class LoadDataExtensionTest {
     @Test
     void springManagedConnection_正常ケース_datasource指定の場合_接続が返ること() throws Exception {
         DataSource ds = dummyDataSource();
-        Connection c = mock(Connection.class);
+        Connection c = mockNonNull(Connection.class);
         when(ds.getConnection()).thenReturn(c);
         TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, new Properties());
         Optional<Connection> conn = trc.springManagedConnection(Optional.of(ds));
@@ -552,7 +556,7 @@ class LoadDataExtensionTest {
     @Test
     void innerClasses_正常ケース_private内部クラスを生成する_フィールド値が保持されること() throws Exception {
         PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
-        TransactionStatus status = mock(TransactionStatus.class);
+        TransactionStatus status = mockNonNull(TransactionStatus.class);
         DataSource ds = dummyDataSource();
 
         LoadDataExtension.TxRecord txRecord = new LoadDataExtension.TxRecord("db1", tm, status);
@@ -598,19 +602,19 @@ class LoadDataExtensionTest {
 
     @Test
     void probeDataSourceMeta_正常ケース_メタデータ取得可否を判定する_成功時はProbeMeta失敗時はnullが返ること() throws Exception {
-        Connection okConn = mock(Connection.class);
+        Connection okConn = mockNonNull(Connection.class);
         DatabaseMetaData md = mock(DatabaseMetaData.class);
         when(okConn.getMetaData()).thenReturn(md);
         when(md.getURL()).thenReturn("jdbc:h2:mem:ok");
         when(md.getUserName()).thenReturn("sa");
-        DataSource okDs = mock(DataSource.class);
+        DataSource okDs = mockNonNull(DataSource.class);
         when(okDs.getConnection()).thenReturn(okConn);
         LoadDataExtension.ProbeMeta meta = target.probeDataSourceMeta(okDs);
         assertNotNull(meta);
         assertEquals("jdbc:h2:mem:ok", meta.url);
         assertEquals("sa", meta.user);
 
-        DataSource ngDs = mock(DataSource.class);
+        DataSource ngDs = mockNonNull(DataSource.class);
         when(ngDs.getConnection()).thenThrow(new RuntimeException("x"));
         LoadDataExtension.ProbeMeta nullMeta = target.probeDataSourceMeta(ngDs);
         assertEquals(null, nullMeta);
@@ -632,7 +636,7 @@ class LoadDataExtensionTest {
     void resolveTxAndDsSingle_正常ケース_必須Beanが存在する場合に解決する_設定済みBeanが返ること() throws Exception {
         ApplicationContext ac = mock(ApplicationContext.class);
         PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
-        DataSource ds = mock(DataSource.class);
+        DataSource ds = mockNonNull(DataSource.class);
         when(ac.getBean("transactionManager", PlatformTransactionManager.class)).thenReturn(tm);
         when(ac.getBean("dataSource", DataSource.class)).thenReturn(ds);
 
@@ -643,7 +647,7 @@ class LoadDataExtensionTest {
     @Test
     void setTxInterceptorDefaultManager_正常ケース_interceptorが空の場合は切替不要として終了する_ストアへ記録されないこと()
             throws Exception {
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         Map<Object, Object> storeMap = new HashMap<>();
         mockStore(context, storeMap);
 
@@ -662,7 +666,7 @@ class LoadDataExtensionTest {
     @Test
     void resolveClassLoader_正常ケース_requiredTestClassがnullの場合はスレッドコンテキストを採用する_設定ローダーが返ること()
             throws Exception {
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         doReturn(null).when(context).getRequiredTestClass();
 
         ClassLoader original = Thread.currentThread().getContextClassLoader();
@@ -679,7 +683,7 @@ class LoadDataExtensionTest {
     @Test
     void resolveClassLoader_異常ケース_requiredTestClass取得で例外かつスレッドローダーなしの場合_拡張クラスローダーが返ること()
             throws Exception {
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         when(context.getRequiredTestClass())
                 .thenThrow(new RuntimeException("required class error"));
 
@@ -696,7 +700,7 @@ class LoadDataExtensionTest {
     @Test
     void resolveDataSourceSingle_正常ケース_default指定を優先する_指定DataSourceが返ること() throws Exception {
         ApplicationContext ac = mock(ApplicationContext.class);
-        DataSource ds = mock(DataSource.class);
+        DataSource ds = mockNonNull(DataSource.class);
         when(ac.getBean("defaultDs", DataSource.class)).thenReturn(ds);
 
         Map<String, String> mapping = new HashMap<>();
@@ -711,7 +715,7 @@ class LoadDataExtensionTest {
     void resolveDataSourceSingle_正常ケース_mappingが1件のみの場合はそのDataSourceを採用する_指定DataSourceが返ること()
             throws Exception {
         ApplicationContext ac = mock(ApplicationContext.class);
-        DataSource ds = mock(DataSource.class);
+        DataSource ds = mockNonNull(DataSource.class);
         when(ac.getBean("singleDs", DataSource.class)).thenReturn(ds);
 
         Map<String, String> mapping = new HashMap<>();
@@ -725,7 +729,7 @@ class LoadDataExtensionTest {
     void resolveDataSourceSingle_正常ケース_dataSource名がなくても単一候補なら採用する_単一DataSourceが返ること()
             throws Exception {
         ApplicationContext ac = mock(ApplicationContext.class);
-        DataSource ds = mock(DataSource.class);
+        DataSource ds = mockNonNull(DataSource.class);
         when(ac.getBean("dataSource", DataSource.class))
                 .thenThrow(new RuntimeException("not found"));
         when(ac.getBeanNamesForType(DataSource.class))
@@ -743,8 +747,8 @@ class LoadDataExtensionTest {
         ConfigurableListableBeanFactory bf = mock(ConfigurableListableBeanFactory.class);
         BeanDefinition bd1 = mock(BeanDefinition.class);
         BeanDefinition bd2 = mock(BeanDefinition.class);
-        DataSource ds1 = mock(DataSource.class);
-        DataSource ds2 = mock(DataSource.class);
+        DataSource ds1 = mockNonNull(DataSource.class);
+        DataSource ds2 = mockNonNull(DataSource.class);
 
         when(ac.getBean("dataSource", DataSource.class))
                 .thenThrow(new RuntimeException("not found"));
@@ -770,8 +774,8 @@ class LoadDataExtensionTest {
         when(ac.getBean("dataSource", DataSource.class))
                 .thenThrow(new RuntimeException("not found"));
         when(ac.getBeanNamesForType(DataSource.class)).thenReturn(new String[] {"ds1", "ds2"});
-        when(ac.getBean("ds1", DataSource.class)).thenReturn(mock(DataSource.class));
-        when(ac.getBean("ds2", DataSource.class)).thenReturn(mock(DataSource.class));
+        when(ac.getBean("ds1", DataSource.class)).thenReturn(mockNonNull(DataSource.class));
+        when(ac.getBean("ds2", DataSource.class)).thenReturn(mockNonNull(DataSource.class));
 
         assertThrows(IllegalStateException.class,
                 () -> target.resolveDataSourceSingle(ac, Collections.emptyMap()));
@@ -920,7 +924,7 @@ class LoadDataExtensionTest {
 
     @Test
     void resolveTxManagerByDataSource_正常異常ケース_TM候補数を判定する_単一は返却し複数ゼロは例外であること() throws Exception {
-        DataSource ds = mock(DataSource.class);
+        DataSource ds = mockNonNull(DataSource.class);
         ApplicationContext single = mock(ApplicationContext.class);
         DataSourceTransactionManager tm = new DataSourceTransactionManager(ds);
         when(single.getBeanNamesForType(PlatformTransactionManager.class))
@@ -933,7 +937,7 @@ class LoadDataExtensionTest {
         when(none.getBeanNamesForType(PlatformTransactionManager.class))
                 .thenReturn(new String[] {"tm1"});
         when(none.getBean("tm1", PlatformTransactionManager.class))
-                .thenReturn(new DataSourceTransactionManager(mock(DataSource.class)));
+                .thenReturn(new DataSourceTransactionManager(mockNonNull(DataSource.class)));
         assertThrows(Exception.class, () -> target.resolveTxManagerByDataSource(none, "db1", ds));
 
         ApplicationContext multiple = mock(ApplicationContext.class);
@@ -958,7 +962,7 @@ class LoadDataExtensionTest {
     @Test
     void txInterceptorSwitch_正常ケース_デフォルトTMを切替して復元する_設定が更新されること() throws Exception {
         // Arrange
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         Store store = mock(Store.class);
         when(context.getStore(Mockito.any(Namespace.class))).thenReturn(store);
         Map<Object, Object> storeMap = new HashMap<>();
@@ -1009,14 +1013,14 @@ class LoadDataExtensionTest {
     @Test
     void rollbackAllIfBegan_正常ケース_開始済みトランザクションを巻き戻す_rollbackが実行されること() throws Exception {
         // Arrange
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         Store store = mock(Store.class);
         when(context.getStore(Mockito.any(Namespace.class))).thenReturn(store);
 
         LoadDataExtension.TxRecordList txRecordList = new LoadDataExtension.TxRecordList();
 
         PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
-        TransactionStatus transactionStatus = mock(TransactionStatus.class);
+        TransactionStatus transactionStatus = mockNonNull(TransactionStatus.class);
         txRecordList
                 .add(new LoadDataExtension.TxRecord("db1", transactionManager, transactionStatus));
 
@@ -1038,8 +1042,8 @@ class LoadDataExtensionTest {
         TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
+        DataSource ds = mockNonNull(DataSource.class);
+        Connection conn = mockNonNull(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         when(ds.getConnection()).thenReturn(conn);
         when(conn.getMetaData()).thenReturn(meta);
@@ -1082,8 +1086,8 @@ class LoadDataExtensionTest {
     void findBeanNameByInstance_正常ケース_参照一致するBean名を検索する_Bean名が返ること() throws Exception {
         // Arrange
         ApplicationContext applicationContext = mock(ApplicationContext.class);
-        DataSource ds1 = mock(DataSource.class);
-        DataSource ds2 = mock(DataSource.class);
+        DataSource ds1 = mockNonNull(DataSource.class);
+        DataSource ds2 = mockNonNull(DataSource.class);
         when(applicationContext.getBeanNamesForType(DataSource.class))
                 .thenReturn(new String[] {"dataSource1", "dataSource2"});
         when(applicationContext.getBean("dataSource1", DataSource.class)).thenReturn(ds1);
@@ -1108,7 +1112,7 @@ class LoadDataExtensionTest {
         TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         Store store = mock(Store.class);
         when(context.getStore(Mockito.any(Namespace.class))).thenReturn(store);
         Map<Object, Object> storeMap = new HashMap<>();
@@ -1129,8 +1133,8 @@ class LoadDataExtensionTest {
         }).when(store).remove(Mockito.any());
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
+        DataSource ds = mockNonNull(DataSource.class);
+        Connection conn = mockNonNull(Connection.class);
         when(ds.getConnection()).thenReturn(conn);
 
         when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
@@ -1166,7 +1170,7 @@ class LoadDataExtensionTest {
         TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         when(context.getStore(Mockito.any(Namespace.class))).thenReturn(mock(Store.class));
 
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class)) {
@@ -1188,8 +1192,8 @@ class LoadDataExtensionTest {
         TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
+        DataSource ds = mockNonNull(DataSource.class);
+        Connection conn = mockNonNull(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         when(ds.getConnection()).thenReturn(conn);
         when(conn.getMetaData()).thenReturn(meta);
@@ -1205,7 +1209,7 @@ class LoadDataExtensionTest {
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds);
         when(ac.getBeansOfType(TransactionInterceptor.class)).thenReturn(Collections.emptyMap());
 
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         mockStore(context, new HashMap<>());
 
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
@@ -1237,14 +1241,14 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.db1.username", "sa");
         setTrc(props);
 
-        DataSource dsDb1 = mock(DataSource.class);
-        DataSource dsAaa = mock(DataSource.class);
-        DataSource dsCcc = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
+        DataSource dsDb1 = mockNonNull(DataSource.class);
+        DataSource dsAaa = mockNonNull(DataSource.class);
+        DataSource dsCcc = mockNonNull(DataSource.class);
+        Connection conn = mockNonNull(Connection.class);
         when(dsDb1.getConnection()).thenReturn(conn);
         when(conn.getMetaData()).thenReturn(mock(DatabaseMetaData.class));
-        when(dsAaa.getConnection()).thenReturn(mock(Connection.class));
-        when(dsCcc.getConnection()).thenReturn(mock(Connection.class));
+        when(dsAaa.getConnection()).thenReturn(mockNonNull(Connection.class));
+        when(dsCcc.getConnection()).thenReturn(mockNonNull(Connection.class));
 
         DataSourceTransactionManager tmAaa = new DataSourceTransactionManager(dsAaa);
         DataSourceTransactionManager tmBbb = new DataSourceTransactionManager(dsDb1);
@@ -1265,7 +1269,7 @@ class LoadDataExtensionTest {
         interceptors.put("txInterceptor", interceptor);
         when(ac.getBeansOfType(TransactionInterceptor.class)).thenReturn(interceptors);
 
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         mockStore(context, new HashMap<>());
 
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
@@ -1293,8 +1297,8 @@ class LoadDataExtensionTest {
 
     @Test
     void pickPrimary_正常ケース_primaryが1件のみ存在する_primary候補が返ること() throws Exception {
-        DataSource ds1 = mock(DataSource.class);
-        DataSource ds2 = mock(DataSource.class);
+        DataSource ds1 = mockNonNull(DataSource.class);
+        DataSource ds2 = mockNonNull(DataSource.class);
         LoadDataExtension.NamedDs n1 = new LoadDataExtension.NamedDs("ds1", ds1);
         LoadDataExtension.NamedDs n2 = new LoadDataExtension.NamedDs("ds2", ds2);
 
@@ -1316,9 +1320,9 @@ class LoadDataExtensionTest {
 
     @Test
     void pickSingleReferencedByTm_正常ケース_TM参照が1件のみの場合_該当候補が返ること() throws Exception {
-        DataSource ds1 = mock(DataSource.class);
-        DataSource ds2 = mock(DataSource.class);
-        DataSource ds3 = mock(DataSource.class);
+        DataSource ds1 = mockNonNull(DataSource.class);
+        DataSource ds2 = mockNonNull(DataSource.class);
+        DataSource ds3 = mockNonNull(DataSource.class);
 
         LoadDataExtension.NamedDs n1 = new LoadDataExtension.NamedDs("ds1", ds1);
         LoadDataExtension.NamedDs n2 = new LoadDataExtension.NamedDs("ds2", ds2);
@@ -1360,10 +1364,10 @@ class LoadDataExtensionTest {
         TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
-        DataSource ds1 = mock(DataSource.class);
-        DataSource ds2 = mock(DataSource.class);
-        Connection metaConn1 = mock(Connection.class);
-        Connection metaConn2 = mock(Connection.class);
+        DataSource ds1 = mockNonNull(DataSource.class);
+        DataSource ds2 = mockNonNull(DataSource.class);
+        Connection metaConn1 = mockNonNull(Connection.class);
+        Connection metaConn2 = mockNonNull(Connection.class);
         DatabaseMetaData meta1 = mock(DatabaseMetaData.class);
         DatabaseMetaData meta2 = mock(DatabaseMetaData.class);
         when(ds1.getConnection()).thenReturn(metaConn1);
@@ -1377,8 +1381,8 @@ class LoadDataExtensionTest {
 
         DataSourceTransactionManager tm1 = mock(DataSourceTransactionManager.class);
         DataSourceTransactionManager tm2 = mock(DataSourceTransactionManager.class);
-        TransactionStatus status1 = mock(TransactionStatus.class);
-        TransactionStatus status2 = mock(TransactionStatus.class);
+        TransactionStatus status1 = mockNonNull(TransactionStatus.class);
+        TransactionStatus status2 = mockNonNull(TransactionStatus.class);
         when(tm1.getDataSource()).thenReturn(ds1);
         when(tm2.getDataSource()).thenReturn(ds2);
         when(tm1.getTransaction(Mockito.any())).thenReturn(status1);
@@ -1393,7 +1397,7 @@ class LoadDataExtensionTest {
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds1);
         when(ac.getBean("ds2", DataSource.class)).thenReturn(ds2);
 
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         Store store = mock(Store.class);
         when(context.getStore(Mockito.any(Namespace.class))).thenReturn(store);
         Map<Object, Object> storeMap = new HashMap<>();
@@ -1413,8 +1417,8 @@ class LoadDataExtensionTest {
             return null;
         }).when(store).remove(Mockito.any());
 
-        Connection loadConn1 = mock(Connection.class);
-        Connection loadConn2 = mock(Connection.class);
+        Connection loadConn1 = mockNonNull(Connection.class);
+        Connection loadConn2 = mockNonNull(Connection.class);
 
         try (MockedStatic<SpringExtension> spring = Mockito.mockStatic(SpringExtension.class);
                 MockedStatic<DataSourceUtils> dsUtils = Mockito.mockStatic(DataSourceUtils.class);
@@ -1457,7 +1461,7 @@ class LoadDataExtensionTest {
         Files.createDirectories(inputDir);
 
         Method testMethod = DummyTargetTest.class.getDeclaredMethod("methodHasScenario");
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         doReturn(DummyTargetTest.class).when(context).getRequiredTestClass();
         doReturn(Optional.of(testMethod)).when(context).getTestMethod();
 
@@ -1465,9 +1469,9 @@ class LoadDataExtensionTest {
         Store store = mockStore(context, storeMap);
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
-        DataSource ds = mock(DataSource.class);
+        DataSource ds = mockNonNull(DataSource.class);
         DataSourceTransactionManager tm = new DataSourceTransactionManager(ds);
-        Connection conn = mock(Connection.class);
+        Connection conn = mockNonNull(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         when(ds.getConnection()).thenReturn(conn);
         when(conn.getMetaData()).thenReturn(meta);
@@ -1516,7 +1520,7 @@ class LoadDataExtensionTest {
         Files.createDirectories(scenarioBase);
 
         Method testMethod = DummyTargetTest.class.getDeclaredMethod("methodHasScenario");
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         doReturn(DummyTargetTest.class).when(context).getRequiredTestClass();
         doReturn(Optional.of(testMethod)).when(context).getTestMethod();
 
@@ -1546,12 +1550,12 @@ class LoadDataExtensionTest {
         TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         Store store = mockStore(context, new HashMap<>());
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
+        DataSource ds = mockNonNull(DataSource.class);
+        Connection conn = mockNonNull(Connection.class);
         when(ds.getConnection()).thenReturn(conn);
         when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
 
@@ -1596,12 +1600,12 @@ class LoadDataExtensionTest {
         TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         mockStore(context, new HashMap<>());
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
+        DataSource ds = mockNonNull(DataSource.class);
+        Connection conn = mockNonNull(Connection.class);
         when(ds.getConnection()).thenReturn(conn);
         when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
 
@@ -1639,12 +1643,12 @@ class LoadDataExtensionTest {
         TestResourceContext trc = new TestResourceContext(dummyClassResourcesDir, props);
         target.setTestResourceContext(trc);
 
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         mockStore(context, new HashMap<>());
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
+        DataSource ds = mockNonNull(DataSource.class);
+        Connection conn = mockNonNull(Connection.class);
         when(ds.getConnection()).thenReturn(conn);
         when(applicationContext.getBean("transactionManager", PlatformTransactionManager.class))
                 .thenReturn(mock(PlatformTransactionManager.class));
@@ -1679,8 +1683,8 @@ class LoadDataExtensionTest {
         when(mockTrc.buildEntryFromProps("db1")).thenReturn(entry);
         target.setTestResourceContext(mockTrc);
 
-        DataSource ds = mock(DataSource.class);
-        Connection metaConn = mock(Connection.class);
+        DataSource ds = mockNonNull(DataSource.class);
+        Connection metaConn = mockNonNull(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         when(ds.getConnection()).thenReturn(metaConn);
         when(metaConn.getMetaData()).thenReturn(meta);
@@ -1696,7 +1700,7 @@ class LoadDataExtensionTest {
         when(ac.getBean("ds1", DataSource.class)).thenReturn(ds);
         when(ac.getBeansOfType(TransactionInterceptor.class)).thenReturn(Collections.emptyMap());
 
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         mockStore(context, new HashMap<>());
 
         // Act / Assert
@@ -1744,7 +1748,7 @@ class LoadDataExtensionTest {
     void setTxInterceptorDefaultManager_異常ケース_TM名を解決できない場合は切替をスキップする_ストアへ記録されないこと()
             throws Exception {
         // Arrange
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         Map<Object, Object> storeMap = new HashMap<>();
         mockStore(context, storeMap);
 
@@ -1766,7 +1770,7 @@ class LoadDataExtensionTest {
     void setTxInterceptorDefaultManager_異常ケース_interceptor切替で例外時は継続する_他インターセプタが記録されること()
             throws Exception {
         // Arrange
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         Map<Object, Object> storeMap = new HashMap<>();
         mockStore(context, storeMap);
 
@@ -1796,10 +1800,10 @@ class LoadDataExtensionTest {
     @Test
     void switchTxInterceptorDefaultManagerForBoundDataSource_異常ケース_default以外でTM解決不可の場合は失敗する_IllegalStateExceptionが再スローされること()
             throws Exception {
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         ApplicationContext ac = mock(ApplicationContext.class);
-        DataSource targetDs = mock(DataSource.class);
-        DataSource otherDs = mock(DataSource.class);
+        DataSource targetDs = mockNonNull(DataSource.class);
+        DataSource otherDs = mockNonNull(DataSource.class);
         DataSourceTransactionManager otherTm = new DataSourceTransactionManager(otherDs);
         when(ac.getBeanNamesForType(PlatformTransactionManager.class))
                 .thenReturn(new String[] {"tm1"});
@@ -1813,7 +1817,7 @@ class LoadDataExtensionTest {
     @Test
     void restoreTxInterceptorDefaultManager_異常ケース_復元対象なしや復元失敗を許容する_例外とならないこと() throws Exception {
         // Arrange
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         Map<Object, Object> storeMap = new HashMap<>();
         mockStore(context, storeMap);
 
@@ -1844,15 +1848,15 @@ class LoadDataExtensionTest {
     @Test
     void rollbackAllIfBegan_異常ケース_rollback例外時も継続して削除する_ストアキーが削除されること() throws Exception {
         // Arrange
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         Map<Object, Object> storeMap = new HashMap<>();
         mockStore(context, storeMap);
 
         LoadDataExtension.TxRecordList txRecordList = new LoadDataExtension.TxRecordList();
 
         PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
-        Mockito.doThrow(new RuntimeException("rollback error")).when(tm).rollback(Mockito.any());
-        TransactionStatus status = mock(TransactionStatus.class);
+        TransactionStatus status = mockNonNull(TransactionStatus.class);
+        Mockito.doThrow(new RuntimeException("rollback error")).when(tm).rollback(status);
         txRecordList.add(new LoadDataExtension.TxRecord("db1", tm, status));
         storeMap.put("TX_RECORDS", txRecordList);
 
@@ -1886,9 +1890,9 @@ class LoadDataExtensionTest {
     void findBeanNameByInstance_異常ケース_一致するBeanが存在しない場合_unknownが返ること() throws Exception {
         // Arrange
         ApplicationContext applicationContext = mock(ApplicationContext.class);
-        DataSource ds1 = mock(DataSource.class);
-        DataSource ds2 = mock(DataSource.class);
-        DataSource targetDs = mock(DataSource.class);
+        DataSource ds1 = mockNonNull(DataSource.class);
+        DataSource ds2 = mockNonNull(DataSource.class);
+        DataSource targetDs = mockNonNull(DataSource.class);
         when(applicationContext.getBeanNamesForType(DataSource.class))
                 .thenReturn(new String[] {"dataSource1", "dataSource2"});
         when(applicationContext.getBean("dataSource1", DataSource.class)).thenReturn(ds1);
@@ -1913,14 +1917,14 @@ class LoadDataExtensionTest {
 
     @Test
     void rollbackAllIfBegan_正常ケース_記録が空の場合は何もしない_例外とならないこと() throws Exception {
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         mockStore(context, new HashMap<>());
         assertDoesNotThrow(() -> target.rollbackAllIfBegan(context));
     }
 
     @Test
     void getTxRecords_正常ケース_ストア未格納時に空リストを返す_空であること() throws Exception {
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         mockStore(context, new HashMap<>());
         List<LoadDataExtension.TxRecord> list = target.getTxRecords(context);
         assertTrue(list.isEmpty());
@@ -1928,7 +1932,7 @@ class LoadDataExtensionTest {
 
     @Test
     void findTmByMetadata_正常ケース_dsNullとmeta取得失敗を除外して一致TMを返す_一致件数が1件であること() throws Exception {
-        DataSource dsFail = mock(DataSource.class);
+        DataSource dsFail = mockNonNull(DataSource.class);
         when(dsFail.getConnection()).thenThrow(new RuntimeException("meta fail"));
         DataSource dsMatch = dataSourceWithMeta("jdbc:h2:mem:ftm", "sa");
 
@@ -2004,8 +2008,8 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.db1.username", "sa");
         setTrc(props);
 
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
+        DataSource ds = mockNonNull(DataSource.class);
+        Connection conn = mockNonNull(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         when(ds.getConnection()).thenReturn(conn);
         when(conn.getMetaData()).thenReturn(meta);
@@ -2044,7 +2048,8 @@ class LoadDataExtensionTest {
         BeanDefinition bd1 = mock(BeanDefinition.class);
         BeanDefinition bd2 = mock(BeanDefinition.class);
         when(ac.getBeanFactory()).thenReturn(bf);
-        when(bf.containsBeanDefinition(Mockito.anyString())).thenReturn(true);
+        when(bf.containsBeanDefinition("ds1")).thenReturn(true);
+        when(bf.containsBeanDefinition("ds2")).thenReturn(true);
         when(bf.getBeanDefinition("ds1")).thenReturn(bd1);
         when(bf.getBeanDefinition("ds2")).thenReturn(bd2);
         when(bd1.isPrimary()).thenReturn(true);
@@ -2100,10 +2105,10 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.db1.username", "sa");
         setTrc(props);
 
-        DataSource ds1 = mock(DataSource.class);
-        DataSource ds2 = mock(DataSource.class);
-        Connection c1 = mock(Connection.class);
-        Connection c2 = mock(Connection.class);
+        DataSource ds1 = mockNonNull(DataSource.class);
+        DataSource ds2 = mockNonNull(DataSource.class);
+        Connection c1 = mockNonNull(Connection.class);
+        Connection c2 = mockNonNull(Connection.class);
         DatabaseMetaData m1 = mock(DatabaseMetaData.class);
         DatabaseMetaData m2 = mock(DatabaseMetaData.class);
         when(ds1.getConnection()).thenReturn(c1);
@@ -2134,10 +2139,10 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.db1.username", "sa");
         setTrc(props);
 
-        DataSource ds1 = mock(DataSource.class);
-        DataSource ds2 = mock(DataSource.class);
-        Connection c1 = mock(Connection.class);
-        Connection c2 = mock(Connection.class);
+        DataSource ds1 = mockNonNull(DataSource.class);
+        DataSource ds2 = mockNonNull(DataSource.class);
+        Connection c1 = mockNonNull(Connection.class);
+        Connection c2 = mockNonNull(Connection.class);
         DatabaseMetaData m1 = mock(DatabaseMetaData.class);
         DatabaseMetaData m2 = mock(DatabaseMetaData.class);
         when(ds1.getConnection()).thenReturn(c1);
@@ -2167,8 +2172,8 @@ class LoadDataExtensionTest {
 
     @Test
     void pickPrimary_異常ケース_primary複数と非Configurableを判定する_nullが返ること() throws Exception {
-        DataSource ds1 = mock(DataSource.class);
-        DataSource ds2 = mock(DataSource.class);
+        DataSource ds1 = mockNonNull(DataSource.class);
+        DataSource ds2 = mockNonNull(DataSource.class);
         LoadDataExtension.NamedDs n1 = new LoadDataExtension.NamedDs("ds1", ds1);
         LoadDataExtension.NamedDs n2 = new LoadDataExtension.NamedDs("ds2", ds2);
 
@@ -2193,7 +2198,7 @@ class LoadDataExtensionTest {
     @Test
     void pickSingleReferencedByTm_異常ケース_TMがDataSourceTransactionManager以外の場合_参照なしでnullが返ること()
             throws Exception {
-        DataSource ds1 = mock(DataSource.class);
+        DataSource ds1 = mockNonNull(DataSource.class);
         LoadDataExtension.NamedDs n1 = new LoadDataExtension.NamedDs("ds1", ds1);
 
         ApplicationContext ac = mock(ApplicationContext.class);
@@ -2207,8 +2212,8 @@ class LoadDataExtensionTest {
 
     @Test
     void pickSingleByDbIdName_正常異常ケース_dbId名一致と曖昧一致を判定する_単一一致のみ返ること() throws Exception {
-        DataSource ds1 = mock(DataSource.class);
-        DataSource ds2 = mock(DataSource.class);
+        DataSource ds1 = mockNonNull(DataSource.class);
+        DataSource ds2 = mockNonNull(DataSource.class);
         LoadDataExtension.NamedDs n1 = new LoadDataExtension.NamedDs("db1RoutingDataSource", ds1);
         LoadDataExtension.NamedDs n2 = new LoadDataExtension.NamedDs("otherDataSource", ds2);
         LoadDataExtension.NamedDs picked = target.pickSingleByDbIdName(List.of(n1, n2), "db1");
@@ -2265,8 +2270,8 @@ class LoadDataExtensionTest {
     @Test
     void probeDataSourceMeta_正常ケース_getMetaDataがnullの場合はurluserにnullを保持する_ProbeMetaが返ること()
             throws Exception {
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
+        DataSource ds = mockNonNull(DataSource.class);
+        Connection conn = mockNonNull(Connection.class);
         when(ds.getConnection()).thenReturn(conn);
         when(conn.getMetaData()).thenReturn(null);
 
@@ -2279,7 +2284,7 @@ class LoadDataExtensionTest {
     @Test
     void resolveTxManagerByDataSource_異常ケース_同一TM別名付きで複数実体一致する_例外メッセージにaliasesが含まれること()
             throws Exception {
-        DataSource ds1 = mock(DataSource.class);
+        DataSource ds1 = mockNonNull(DataSource.class);
         PlatformTransactionManager tmOtherType = mock(PlatformTransactionManager.class);
         DataSourceTransactionManager tmA = new DataSourceTransactionManager(ds1);
         DataSourceTransactionManager tmB = new DataSourceTransactionManager(ds1);
@@ -2314,7 +2319,7 @@ class LoadDataExtensionTest {
 
     @Test
     void findDataSourceByMetadata_正常ケース_メタデータ取得失敗候補を除外する_一致件数が1件であること() throws Exception {
-        DataSource fail = mock(DataSource.class);
+        DataSource fail = mockNonNull(DataSource.class);
         when(fail.getConnection()).thenThrow(new RuntimeException("meta fail"));
         DataSource match = dataSourceWithMeta("jdbc:h2:mem:fds2", "sa");
 
@@ -2331,7 +2336,7 @@ class LoadDataExtensionTest {
     @Test
     void restoreTxInterceptorDefaultManager_正常ケース_touched空の場合は即時復帰する_ストア値が維持されること()
             throws Exception {
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         Map<Object, Object> storeMap = new HashMap<>();
         mockStore(context, storeMap);
 
@@ -2354,12 +2359,12 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.username", "sa");
         setTrc(props);
 
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         mockStore(context, new HashMap<>());
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
+        DataSource ds = mockNonNull(DataSource.class);
+        Connection conn = mockNonNull(Connection.class);
         when(ds.getConnection()).thenReturn(conn);
         when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
 
@@ -2389,7 +2394,7 @@ class LoadDataExtensionTest {
         TestResourceContext trc = new TestResourceContext(dummyClassClassPathDir, new Properties());
         target.setTestResourceContext(trc);
 
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         doReturn(BlankScenarioClass.class).when(context).getRequiredTestClass();
         doReturn(Optional.empty()).when(context).getTestMethod();
         mockStore(context, new HashMap<>());
@@ -2406,7 +2411,7 @@ class LoadDataExtensionTest {
         target.setTestResourceContext(trc);
 
         Method method = BlankScenarioMethodClass.class.getDeclaredMethod("blankScenarioMethod");
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         doReturn(BlankScenarioMethodClass.class).when(context).getRequiredTestClass();
         doReturn(Optional.of(method)).when(context).getTestMethod();
         mockStore(context, new HashMap<>());
@@ -2458,13 +2463,13 @@ class LoadDataExtensionTest {
         props.setProperty("spring.datasource.username", "sa");
         setTrc(props);
 
-        ExtensionContext context = mock(ExtensionContext.class);
+        ExtensionContext context = mockNonNull(ExtensionContext.class);
         mockStore(context, new HashMap<>());
 
         ApplicationContext applicationContext = mock(ApplicationContext.class);
-        DataSource ds = mock(DataSource.class);
+        DataSource ds = mockNonNull(DataSource.class);
         PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
-        Connection conn = mock(Connection.class);
+        Connection conn = mockNonNull(Connection.class);
         when(applicationContext.getBean("transactionManager", PlatformTransactionManager.class))
                 .thenReturn(tm);
         when(applicationContext.getBean("dataSource", DataSource.class)).thenReturn(ds);
@@ -2512,8 +2517,8 @@ class LoadDataExtensionTest {
 
     @Test
     void pickPrimary_正常ケース_BeanDefinition未登録候補をスキップする_登録済primaryが返ること() throws Exception {
-        DataSource ds1 = mock(DataSource.class);
-        DataSource ds2 = mock(DataSource.class);
+        DataSource ds1 = mockNonNull(DataSource.class);
+        DataSource ds2 = mockNonNull(DataSource.class);
         LoadDataExtension.NamedDs n1 = new LoadDataExtension.NamedDs("ds1", ds1);
         LoadDataExtension.NamedDs n2 = new LoadDataExtension.NamedDs("ds2", ds2);
 
@@ -2534,8 +2539,9 @@ class LoadDataExtensionTest {
      * Creates a mock {@link ExtensionContext} whose required test class returns the given class and
      * whose test method is empty.
      */
+    @NonNull
     private ExtensionContext mockContextForClass(Class<?> clazz) {
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(clazz).when(ctx).getRequiredTestClass();
         doReturn(Optional.empty()).when(ctx).getTestMethod();
         return ctx;
@@ -2554,9 +2560,10 @@ class LoadDataExtensionTest {
      * Creates a mock {@link DataSource} whose connection metadata returns the specified JDBC URL
      * and user name.
      */
+    @NonNull
     private DataSource dataSourceWithMeta(String url, String user) throws Exception {
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
+        DataSource ds = mockNonNull(DataSource.class);
+        Connection conn = mockNonNull(Connection.class);
         DatabaseMetaData meta = mock(DatabaseMetaData.class);
         when(ds.getConnection()).thenReturn(conn);
         when(conn.getMetaData()).thenReturn(meta);
@@ -2631,12 +2638,13 @@ class LoadDataExtensionTest {
      * Creates a minimal mock {@link DataSource} with a named dummy connection, suitable for tests
      * that need a DataSource but do not inspect its data.
      */
+    @NonNull
     private DataSource dummyDataSource() throws Exception {
         Connection conn = mock(Connection.class, Mockito.withSettings().name("DummyConnection"));
         when(conn.getWarnings()).thenReturn(new SQLWarning());
         when(conn.getMetaData()).thenReturn(mock(DatabaseMetaData.class));
 
-        DataSource ds = mock(DataSource.class);
+        DataSource ds = mockNonNull(DataSource.class);
         when(ds.getConnection()).thenReturn(conn);
         return ds;
     }

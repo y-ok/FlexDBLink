@@ -6,6 +6,7 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
+import io.github.yok.flexdblink.db.LoadMetadata;
 import io.github.yok.flexdblink.db.FlexibleDateTimeParsers;
 import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import io.github.yok.flexdblink.util.LobPathConstants;
@@ -61,6 +62,7 @@ import org.dbunit.database.DatabaseConnection;
 import org.dbunit.dataset.Column;
 import org.dbunit.dataset.DataSetException;
 import org.dbunit.dataset.IDataSet;
+import org.dbunit.dataset.ITableMetaData;
 import org.dbunit.dataset.csv.CsvDataSet;
 import org.dbunit.dataset.datatype.DataType;
 import org.dbunit.dataset.datatype.IDataTypeFactory;
@@ -113,6 +115,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     private final DbUnitConfigFactory configFactory;
     // Path settings (used for log-friendly relative path output)
     private final PathsConfig pathsConfig;
+    private final LoadMetadata loadMetadata;
 
     private static final Set<String> TEXT_LIKE_TYPE_NAMES = new HashSet<>(
             List.of("text", "varchar", "bpchar", "character varying", "character", "xml"));
@@ -187,9 +190,29 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     public PostgresqlDialectHandler(DatabaseConnection dbConn, DumpConfig dumpConfig,
             DbUnitConfig dbUnitConfig, DbUnitConfigFactory configFactory,
             DateTimeFormatSupport dateTimeFormatter, PathsConfig pathsConfig) throws Exception {
+        this(dbConn, dumpConfig, dbUnitConfig, configFactory, dateTimeFormatter, pathsConfig, null);
+    }
+
+    /**
+     * Creates a handler with metadata restricted to this load's tables.
+     *
+     * @param dbConn DBUnit wrapper around the caller's connection
+     * @param dumpConfig exclusion settings for unrestricted initialization
+     * @param dbUnitConfig DBUnit settings
+     * @param configFactory common configuration factory
+     * @param dateTimeFormatter date and time conversion rules
+     * @param pathsConfig dataset and LOB paths
+     * @param loadTables selected tables, or null for unrestricted initialization
+     * @throws Exception if metadata retrieval fails
+     */
+    public PostgresqlDialectHandler(DatabaseConnection dbConn, DumpConfig dumpConfig,
+            DbUnitConfig dbUnitConfig, DbUnitConfigFactory configFactory,
+            DateTimeFormatSupport dateTimeFormatter, PathsConfig pathsConfig,
+            List<String> loadTables) throws Exception {
         this.configFactory = configFactory;
         this.dateTimeFormatter = dateTimeFormatter;
         this.pathsConfig = pathsConfig;
+        this.loadMetadata = new LoadMetadata(dbConn, loadTables);
 
         Path dumpBase = Paths.get(pathsConfig.getDump());
         this.baseLobDir = dumpBase.resolve(LobPathConstants.DIRECTORY_NAME);
@@ -203,14 +226,31 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
         }
 
         List<String> excludeTables = dumpConfig.getExcludeTables();
-        List<String> targetTables = fetchTargetTables(jdbcConn, schema, excludeTables);
-
-        IDataSet ds = dbConn.createDataSet();
-        for (String tbl : targetTables) {
-            tableColumnsMap.put(tbl.toLowerCase(Locale.ROOT),
-                    ds.getTableMetaData(tbl).getColumns());
+        List<String> targetTables = loadTables;
+        if (targetTables == null) {
+            targetTables = fetchTargetTables(jdbcConn, schema, excludeTables);
+        } else {
+            schema = dbConn.getSchema();
         }
-        cacheJdbcColumnSpecs(jdbcConn, schema, targetTables);
+
+        IDataSet ds;
+        if (loadTables == null) {
+            ds = dbConn.createDataSet();
+        } else {
+            ds = dbConn.createDataSet(targetTables.toArray(new String[0]));
+        }
+        List<String> metadataTables = new ArrayList<>();
+        for (String tbl : targetTables) {
+            ITableMetaData metadata = ds.getTableMetaData(tbl);
+            tableColumnsMap.put(tbl.toLowerCase(Locale.ROOT), metadata.getColumns());
+            String metadataName = tbl;
+            if (loadTables != null) {
+                // JDBC metadata patterns are case-sensitive even when DBUnit resolves aliases.
+                metadataName = metadata.getTableName();
+            }
+            metadataTables.add(metadataName);
+        }
+        cacheJdbcColumnSpecs(jdbcConn, schema, metadataTables);
     }
 
     /**
@@ -444,6 +484,10 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     @Override
     public DatabaseConnection createDbUnitConnection(Connection jdbc, String schema)
             throws Exception {
+        DatabaseConnection reused = loadMetadata.getConnection(jdbc, schema);
+        if (reused != null) {
+            return reused;
+        }
         DatabaseConnection dbConn = new DatabaseConnection(jdbc, schema);
         DatabaseConfig config = dbConn.getConfig();
         configFactory.configure(config, getDataTypeFactory());
@@ -677,7 +721,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
     public boolean hasNotNullLobColumn(Connection connection, String schema, String table,
             Column[] columns) throws SQLException {
         DatabaseMetaData meta = connection.getMetaData();
-        ResultSet rs = meta.getColumns(null, schema, table, null);
+        ResultSet rs = loadMetadata.getColumns(meta, schema, table, null);
         try {
             while (rs.next()) {
                 String nullable = rs.getString("IS_NULLABLE");
@@ -807,7 +851,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
         sb.append(" table=");
         sb.append(table);
 
-        try (ResultSet rs = meta.getColumns(null, schema, table, null)) {
+        try (ResultSet rs = loadMetadata.getColumns(meta, schema, table, null)) {
             while (rs.next()) {
                 sb.append(System.lineSeparator());
                 sb.append("  ");
@@ -870,7 +914,7 @@ public class PostgresqlDialectHandler implements DbDialectHandler {
             Map<String, JdbcColumnSpec> byCol = new HashMap<>();
             jdbcColumnSpecMap.put(tbl.toLowerCase(Locale.ROOT), byCol);
 
-            try (ResultSet rs = meta.getColumns(null, schema, tbl, null)) {
+            try (ResultSet rs = loadMetadata.getColumns(meta, schema, tbl, null)) {
                 while (rs.next()) {
                     String col = rs.getString("COLUMN_NAME");
                     int sqlType = rs.getInt("DATA_TYPE");

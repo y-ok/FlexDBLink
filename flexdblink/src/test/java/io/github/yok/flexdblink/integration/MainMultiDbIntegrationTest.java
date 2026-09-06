@@ -143,7 +143,8 @@ class MainMultiDbIntegrationTest {
 
         Main main = buildMain(dataPath);
         String targetCsv =
-                targets.stream().map(DbKind::id).reduce((a, b) -> a + "," + b).orElseThrow();
+                targets.stream().map(target -> target.id()).reduce((a, b) -> a + "," + b)
+                        .orElseThrow();
 
         try {
             main.run("--setup", "--target", targetCsv);
@@ -341,7 +342,8 @@ class MainMultiDbIntegrationTest {
      * @param targets list of target database kinds
      */
     private void assertDumpOutputs(Path dataPath, String scenario, List<DbKind> targets) {
-        List<String> targetIds = targets.stream().map(DbKind::id).collect(Collectors.toList());
+        List<String> targetIds =
+                targets.stream().map(target -> target.id()).collect(Collectors.toList());
         for (DbKind dbKind : DbKind.values()) {
             Path dbDir = dataPath.resolve("dump").resolve(scenario).resolve(dbKind.id());
             if (targetIds.contains(dbKind.id())) {
@@ -369,7 +371,7 @@ class MainMultiDbIntegrationTest {
         }
         String expected = (tableName + ".csv").toLowerCase(Locale.ROOT);
         try (Stream<Path> files = Files.list(dbDir)) {
-            return files.filter(Files::isRegularFile).map(Path::getFileName).map(Path::toString)
+            return files.filter(Files::isRegularFile).map(path -> path.getFileName().toString())
                     .map(name -> name.toLowerCase(Locale.ROOT)).anyMatch(expected::equals);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to inspect dump directory: " + dbDir, e);

@@ -1,11 +1,13 @@
 package io.github.yok.flexdblink.integration;
 
+import java.util.Objects;
 import java.util.Properties;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.context.ApplicationContextInitializer;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.core.env.PropertiesPropertySource;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.lang.NonNull;
 
 /**
  * Loads the common integration test YAML as Spring properties via
@@ -28,10 +30,11 @@ class YamlPropertySourceFactory
     private static final String YAML_LOCATION = "integration/common/flexdblink-it.yml";
 
     @Override
-    public void initialize(ConfigurableApplicationContext ctx) {
+    public void initialize(@NonNull ConfigurableApplicationContext ctx) {
         YamlPropertiesFactoryBean yamlFactory = new YamlPropertiesFactoryBean();
         yamlFactory.setResources(new ClassPathResource(YAML_LOCATION));
-        Properties props = yamlFactory.getObject();
+        Properties props = Objects.requireNonNull(yamlFactory.getObject(),
+                "Integration test YAML must produce properties");
         ctx.getEnvironment().getPropertySources()
                 .addFirst(new PropertiesPropertySource(YAML_LOCATION, props));
     }

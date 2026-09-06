@@ -17,7 +17,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.core.env.Environment;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
-import org.springframework.util.StringUtils;
 
 /**
  * Spring configuration for FlexAssert integration tests.
@@ -91,7 +90,7 @@ class FlexAssertTestConfig {
         ds.setUsername(env.getProperty("connections[" + index + "].user"));
         ds.setPassword(env.getProperty("connections[" + index + "].password"));
         String driverClass = env.getProperty("connections[" + index + "].driver-class");
-        if (StringUtils.hasText(driverClass)) {
+        if (driverClass != null && !driverClass.isBlank()) {
             ds.setDriverClassName(driverClass);
         }
         return ds;

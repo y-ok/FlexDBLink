@@ -17,6 +17,7 @@ import org.apache.maven.settings.crypto.SettingsDecrypter;
 import org.apache.maven.settings.crypto.SettingsDecryptionRequest;
 import org.apache.maven.settings.crypto.SettingsDecryptionResult;
 import org.apache.maven.shared.utils.xml.Xpp3Dom;
+import org.springframework.lang.NonNull;
 import org.junit.jupiter.api.Test;
 
 class SettingsConnectionResolverTest {
@@ -321,7 +322,7 @@ class SettingsConnectionResolverTest {
         return server;
     }
 
-    private void addChild(Xpp3Dom parent, String name, String value) {
+    private void addChild(Xpp3Dom parent, String name, @NonNull String value) {
         Xpp3Dom child = new Xpp3Dom(name);
         child.setValue(value);
         parent.addChild(child);

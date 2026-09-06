@@ -5,6 +5,7 @@ import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
+import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.db.LobResolvingTableWrapper;
 import io.github.yok.flexdblink.parser.DataFormat;
 import io.github.yok.flexdblink.parser.DataLoaderFactory;
@@ -141,11 +142,14 @@ public class DataLoader {
     // Scenario-mode duplicate detection and deletion
     private ScenarioDuplicateHandler scenarioHandler;
 
+    private TransactionalDataLoader transactionalLoader;
+
     // Insert summary: dbId → (table → total inserted count)
     private final Map<String, Map<String, Integer>> insertSummary = new LinkedHashMap<>();
 
     /**
-     * Creates a loader with default DBUnit operations.
+     * Creates a loader with default DBUnit operations. Passing a {@link DbDialectHandlerFactory}
+     * directly enables preparation on the caller-owned connection for external loads.
      *
      * @param pathsConfig path settings
      * @param connectionConfig connection settings
@@ -200,6 +204,10 @@ public class DataLoader {
         this.pathsConfig = pathsConfig;
         this.connectionConfig = connectionConfig;
         this.dialectFactory = dialectFactory;
+        if (dialectFactory instanceof DbDialectHandlerFactory) {
+            this.transactionalLoader = new TransactionalDataLoader(
+                    (DbDialectHandlerFactory) dialectFactory, dumpConfig);
+        }
         this.dbUnitConfig = dbUnitConfig;
         this.dumpConfig = dumpConfig;
         this.operationExecutor = operationExecutor;
@@ -511,7 +519,8 @@ public class DataLoader {
                 return;
             }
             List<String> tables = Files.readAllLines(orderPath, StandardCharsets.UTF_8).stream()
-                    .map(String::trim).filter(StringUtils::isNotEmpty).collect(Collectors.toList());
+                    .map(value -> value.trim()).filter(StringUtils::isNotEmpty)
+                    .collect(Collectors.toList());
 
             if (tables.isEmpty()) {
                 log.info("[{}] No tables → skipping", dbId);
@@ -707,11 +716,11 @@ public class DataLoader {
         log.info("===== Summary =====");
         int globalMaxNameLen =
                 insertSummary.values().stream().flatMap(tableMap -> tableMap.keySet().stream())
-                        .mapToInt(String::length).max().orElse(0);
+                        .mapToInt(tableName -> tableName.length()).max().orElse(0);
         insertSummary.forEach((dbId, tableMap) -> {
             log.info("DB[{}]:", dbId);
-            int maxCountDigits = tableMap.values().stream().map(cnt -> String.valueOf(cnt).length())
-                    .mapToInt(Integer::intValue).max().orElse(0);
+            int maxCountDigits = tableMap.values().stream()
+                    .mapToInt(cnt -> String.valueOf(cnt).length()).max().orElse(0);
             String fmt = "  Table[%-" + globalMaxNameLen + "s] Total=%" + maxCountDigits + "d";
             tableMap.forEach((table, cnt) -> log.info(String.format(fmt, table, cnt)));
         });
@@ -777,6 +786,16 @@ public class DataLoader {
                             + dir.getAbsolutePath());
         }
 
+        if (transactionalLoader != null) {
+            try {
+                transactionalLoader.execute(dir, entry, connection);
+            } catch (Exception e) {
+                ErrorHandler.errorAndExit("Data load failed (db=" + dbId + ")", e);
+            }
+            log.info("=== DataLoader (external connection) END (db={}) ===", dbId);
+            return;
+        }
+
         // Resolve dialect handler
         DbDialectHandler dialectHandler = dialectFactory.apply(entry);
 
@@ -832,7 +851,7 @@ public class DataLoader {
                 return;
             }
             // Stable alphabetical order
-            tables.sort(String::compareTo);
+            tables.sort((left, right) -> left.compareTo(right));
 
             // Apply DumpConfig exclusions
             if (dumpConfig != null && dumpConfig.getExcludeTables() != null

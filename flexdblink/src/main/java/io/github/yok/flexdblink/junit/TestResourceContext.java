@@ -28,7 +28,6 @@ import java.util.Properties;
 import java.util.Set;
 import javax.sql.DataSource;
 import lombok.Getter;
-import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.extension.ExtensionContext;
@@ -105,11 +104,13 @@ class TestResourceContext {
      * @return initialized {@link TestResourceContext}
      * @throws Exception if resource resolution or properties loading fails
      */
-    static TestResourceContext init(@NonNull ExtensionContext ctx) throws Exception {
-        Class<?> testClass = ctx.getRequiredTestClass();
+    static TestResourceContext init(ExtensionContext ctx) throws Exception {
+        ExtensionContext context =
+                Objects.requireNonNull(ctx, "ctx is marked non-null but is null");
+        Class<?> testClass = context.getRequiredTestClass();
         Path root = resolveTestClassRootFromClasspath(testClass);
         Properties props =
-                loadAllApplicationProperties(ctx.getRequiredTestClass().getClassLoader());
+                loadAllApplicationProperties(context.getRequiredTestClass().getClassLoader());
         log.info("TestResourceContext initialized. classRoot={}, propertiesCount={}", root,
                 props.size());
         return new TestResourceContext(root, props);
@@ -229,7 +230,8 @@ class TestResourceContext {
         if (dsOpt.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(DataSourceUtils.getConnection(dsOpt.get()));
+        DataSource dataSource = Objects.requireNonNull(dsOpt.get());
+        return Optional.of(DataSourceUtils.getConnection(dataSource));
     }
 
     /**
@@ -388,7 +390,7 @@ class TestResourceContext {
     static Properties loadAllApplicationProperties(ClassLoader cl) throws Exception {
         // Load all application.properties / application.yml / application.yaml (sorted by URL)
         List<URL> baseUrls = findAllBaseResources(cl);
-        baseUrls.sort(Comparator.comparing(URL::toString));
+        baseUrls.sort(Comparator.comparing(url -> url.toString()));
         Properties result = new Properties();
         for (URL u : baseUrls) {
             loadResourceToProps(result, u);
@@ -439,7 +441,7 @@ class TestResourceContext {
         for (String ap : actives) {
             List<URL> urls = profileToUrls.getOrDefault(ap, List.of());
             List<URL> sorted = new ArrayList<>(urls);
-            sorted.sort(Comparator.comparing(URL::toString));
+            sorted.sort(Comparator.comparing(url -> url.toString()));
             for (URL u : sorted) {
                 loadResourceToProps(result, u);
                 log.info("Loaded properties (active profile={}): {}", ap, u);
@@ -490,7 +492,8 @@ class TestResourceContext {
         List<URL> urls = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
         for (String pattern : patterns) {
-            Resource[] resources = resolver.getResources(pattern);
+            Resource[] resources =
+                    resolver.getResources(Objects.requireNonNull(pattern, "Resource pattern"));
             for (Resource resource : resources) {
                 URL url = resource.getURL();
                 String key = url.toString();
@@ -553,14 +556,16 @@ class TestResourceContext {
         for (int pass = 0; pass < maxPass; pass++) {
             changed = false;
             for (Map.Entry<Object, Object> entry : props.entrySet()) {
-                if (!(entry.getKey() instanceof String)) {
+                Object propertyKey = entry.getKey();
+                if (!(propertyKey instanceof String)) {
                     continue;
                 }
-                if (!(entry.getValue() instanceof String)) {
+                Object propertyValue = entry.getValue();
+                if (!(propertyValue instanceof String)) {
                     continue;
                 }
-                String key = (String) entry.getKey();
-                String original = (String) entry.getValue();
+                String key = (String) propertyKey;
+                String original = (String) propertyValue;
                 String resolved = PLACEHOLDER_HELPER.replacePlaceholders(original, name -> {
                     String sys = System.getProperty(name);
                     if (sys != null) {
@@ -676,7 +681,7 @@ class TestResourceContext {
      */
     static void loadYamlToProps(Properties target, URL url) {
         YamlPropertiesFactoryBean factory = new YamlPropertiesFactoryBean();
-        factory.setResources(new UrlResource(url));
+        factory.setResources(new UrlResource(Objects.requireNonNull(url, "Resource URL")));
         Properties p = factory.getObject();
         if (p == null) {
             return;

@@ -17,7 +17,9 @@ import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
+import java.util.List;
 import java.util.Locale;
+import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.dbunit.database.DatabaseConfig;
@@ -41,7 +43,7 @@ import org.springframework.stereotype.Component;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class DbDialectHandlerFactory {
+public class DbDialectHandlerFactory implements Function<ConnectionConfig.Entry, DbDialectHandler> {
 
     // DBUnit settings used by dialect handlers (e.g., preDirName, confirmBeforeLoad)
     private final DbUnitConfig dbUnitConfig;
@@ -105,6 +107,70 @@ public class DbDialectHandlerFactory {
             log.error("Unexpected error during DbDialectHandler creation", e);
             throw new IllegalStateException("Failed to create DbDialectHandler", e);
         }
+    }
+
+    /**
+     * Initializes only selected table metadata using the caller's transaction connection. No
+     * connection is opened, closed, committed, or rolled back by this method.
+     *
+     * @param entry dialect and schema settings
+     * @param jdbc caller-owned connection
+     * @param tables selected dataset tables
+     * @return handler containing metadata scoped to this load
+     * @throws Exception if dialect resolution or metadata initialization fails
+     */
+    public DbDialectHandler create(ConnectionConfig.Entry entry, Connection jdbc,
+            List<String> tables) throws Exception {
+        DataTypeFactoryMode mode = resolveMode(entry);
+        if (mode == DataTypeFactoryMode.ORACLE) {
+            DatabaseConnection db = metadataConnection(jdbc, entry.getUser().toUpperCase(),
+                    new CustomOracleDataTypeFactory());
+            return new OracleDialectHandler(db, dumpConfig, dbUnitConfig, configFactory,
+                    dateTimeFormatter, pathsConfig, tables);
+        }
+        if (mode == DataTypeFactoryMode.POSTGRESQL) {
+            DatabaseConnection db =
+                    metadataConnection(jdbc, "public", new CustomPostgresqlDataTypeFactory());
+            return new PostgresqlDialectHandler(db, dumpConfig, dbUnitConfig, configFactory,
+                    dateTimeFormatter, pathsConfig, tables);
+        }
+        if (mode == DataTypeFactoryMode.MYSQL) {
+            DatabaseConnection db = metadataConnection(jdbc, null,
+                    new CustomMySqlDataTypeFactory());
+            return new MySqlDialectHandler(db, dumpConfig, dbUnitConfig, configFactory,
+                    dateTimeFormatter, pathsConfig, tables);
+        }
+        DatabaseConnection db =
+                metadataConnection(jdbc, "dbo", new CustomSqlServerDataTypeFactory());
+        return new SqlServerDialectHandler(db, dumpConfig, dbUnitConfig, configFactory,
+                dateTimeFormatter, pathsConfig, tables);
+    }
+
+    /**
+     * Configures a metadata wrapper without taking ownership of the JDBC connection.
+     *
+     * @param jdbc caller-owned connection
+     * @param schema load schema
+     * @param typeFactory dialect conversion rules
+     * @return metadata wrapper
+     * @throws Exception if DBUnit initialization fails
+     */
+    private DatabaseConnection metadataConnection(Connection jdbc, String schema,
+            IDataTypeFactory typeFactory) throws Exception {
+        DatabaseConnection db = new DatabaseConnection(jdbc, schema);
+        configFactory.configure(db.getConfig(), typeFactory);
+        return db;
+    }
+
+    /**
+     * Adapts this factory to the existing function-based loader API.
+     *
+     * @param entry connection and dialect settings
+     * @return initialized dialect handler
+     */
+    @Override
+    public DbDialectHandler apply(ConnectionConfig.Entry entry) {
+        return create(entry);
     }
 
     /**

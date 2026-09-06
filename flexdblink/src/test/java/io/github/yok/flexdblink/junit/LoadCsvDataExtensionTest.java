@@ -1,5 +1,6 @@
 package io.github.yok.flexdblink.junit;
 
+import static io.github.yok.flexdblink.junit.TestMocks.mockNonNull;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -45,8 +46,9 @@ class LoadCsvDataExtensionTest {
 
     @AfterEach
     void cleanup() {
-        if (boundDsForCleanup != null) {
-            TransactionSynchronizationManager.unbindResource(boundDsForCleanup);
+        DataSource boundDataSource = boundDsForCleanup;
+        if (boundDataSource != null) {
+            TransactionSynchronizationManager.unbindResource(boundDataSource);
             boundDsForCleanup = null;
         }
         if (tcclOverridden) {
@@ -119,7 +121,7 @@ class LoadCsvDataExtensionTest {
     @Test
     void wrapConnectionNoClose_正常ケース_closeが無視されること() throws Exception {
         LoadDataExtension ext = new LoadDataExtension();
-        Connection original = mock(Connection.class);
+        Connection original = mockNonNull(Connection.class);
         Connection wrapped = ext.wrapConnectionNoClose(original);
         wrapped.close();
         verify(original, never()).close();
@@ -128,7 +130,7 @@ class LoadCsvDataExtensionTest {
     @Test
     void wrapConnectionNoClose_正常ケース_他メソッドは委譲されること() throws Exception {
         LoadDataExtension ext = new LoadDataExtension();
-        Connection original = mock(Connection.class);
+        Connection original = mockNonNull(Connection.class);
         Connection wrapped = ext.wrapConnectionNoClose(original);
         wrapped.setAutoCommit(false);
         verify(original, times(1)).setAutoCommit(false);
@@ -211,7 +213,7 @@ class LoadCsvDataExtensionTest {
     @Test
     void maybeGetSpringManagedDataSource_正常ケース_トランザクションにバインド済み_そのDataSourceが返ること()
             throws Exception {
-        DataSource ds = mock(DataSource.class);
+        DataSource ds = mockNonNull(DataSource.class);
         TransactionSynchronizationManager.bindResource(ds, new Object());
         boundDsForCleanup = ds;
         TestResourceContext trc = new TestResourceContext(Paths.get("."), new Properties());
@@ -272,7 +274,7 @@ class LoadCsvDataExtensionTest {
         URLClassLoader cl = new URLClassLoader(new URL[] {base.toUri().toURL()}, prevTccl);
         Thread.currentThread().setContextClassLoader(cl);
         tcclOverridden = true;
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(testClass).when(ctx).getRequiredTestClass();
         doReturn(Optional.empty()).when(ctx).getTestMethod();
         LoadDataExtension ext = new LoadDataExtension();
@@ -296,7 +298,7 @@ class LoadCsvDataExtensionTest {
         Thread.currentThread().setContextClassLoader(cl);
         tcclOverridden = true;
         Method m = testClass.getDeclaredMethod("dummy");
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(testClass).when(ctx).getRequiredTestClass();
         doReturn(Optional.of(m)).when(ctx).getTestMethod();
         LoadDataExtension ext = new LoadDataExtension();
@@ -326,7 +328,7 @@ class LoadCsvDataExtensionTest {
         tcclOverridden = true;
 
         // ExtensionContext をモック
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(testClass).when(ctx).getRequiredTestClass();
         doReturn(Optional.empty()).when(ctx).getTestMethod();
 
@@ -353,7 +355,7 @@ class LoadCsvDataExtensionTest {
         // シナリオフォルダは作成しない（スキップさせる）
 
         Method m = testClass.getDeclaredMethod("dummy");
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(testClass).when(ctx).getRequiredTestClass();
         doReturn(Optional.of(m)).when(ctx).getTestMethod();
 
@@ -386,7 +388,7 @@ class LoadCsvDataExtensionTest {
         Thread.currentThread().setContextClassLoader(cl);
         tcclOverridden = true;
         Method m = testClass.getDeclaredMethod("dummy");
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(testClass).when(ctx).getRequiredTestClass();
         doReturn(Optional.of(m)).when(ctx).getTestMethod();
         LoadDataExtension ext = new LoadDataExtension();
@@ -409,7 +411,7 @@ class LoadCsvDataExtensionTest {
         Thread.currentThread().setContextClassLoader(cl);
         tcclOverridden = true;
         Method m = testClass.getDeclaredMethod("dummy");
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(testClass).when(ctx).getRequiredTestClass();
         doReturn(Optional.of(m)).when(ctx).getTestMethod();
         LoadDataExtension ext = new LoadDataExtension();
@@ -442,7 +444,7 @@ class LoadCsvDataExtensionTest {
         Method m = testClass.getDeclaredMethod("dummy");
 
         // ExtensionContext をモック
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(testClass).when(ctx).getRequiredTestClass();
         doReturn(Optional.of(m)).when(ctx).getTestMethod();
 
@@ -493,13 +495,14 @@ class LoadCsvDataExtensionTest {
     }
 
     static final class RecordingMap extends LinkedHashMap<String, Connection> {
+        private static final long serialVersionUID = 1L;
         boolean called;
 
         @Override
         public Connection computeIfAbsent(String key,
                 Function<? super String, ? extends Connection> mappingFunction) {
             called = true;
-            Connection c = mock(Connection.class);
+            Connection c = mockNonNull(Connection.class);
             super.put(key, c);
             return c;
         }
@@ -527,12 +530,12 @@ class LoadCsvDataExtensionTest {
         tcclOverridden = true;
 
         Method m = testClass.getDeclaredMethod("dummy");
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(testClass).when(ctx).getRequiredTestClass();
         doReturn(Optional.of(m)).when(ctx).getTestMethod();
 
-        DataSource ds = mock(DataSource.class);
-        ConnectionHolder holder = new ConnectionHolder(mock(Connection.class));
+        DataSource ds = mockNonNull(DataSource.class);
+        ConnectionHolder holder = new ConnectionHolder(mockNonNull(Connection.class));
         TransactionSynchronizationManager.bindResource(ds, holder);
         boundDsForCleanup = ds;
 
@@ -548,7 +551,7 @@ class LoadCsvDataExtensionTest {
         private final Connection conn;
 
         TestStubDriver() {
-            this.conn = mock(Connection.class);
+            this.conn = mockNonNull(Connection.class);
             DatabaseMetaData meta = mock(DatabaseMetaData.class);
             try {
                 when(conn.getMetaData()).thenReturn(meta);
@@ -625,7 +628,7 @@ class LoadCsvDataExtensionTest {
         URLClassLoader cl = new URLClassLoader(new URL[] {base.toUri().toURL()}, prev);
         Thread.currentThread().setContextClassLoader(cl);
 
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(testClass).when(ctx).getRequiredTestClass();
 
         LoadDataExtension ext = new LoadDataExtension();
@@ -654,7 +657,7 @@ class LoadCsvDataExtensionTest {
         URLClassLoader cl = new URLClassLoader(new URL[] {base.toUri().toURL()}, prev);
         Thread.currentThread().setContextClassLoader(cl);
 
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(testClass).when(ctx).getRequiredTestClass();
 
         LoadDataExtension ext = new LoadDataExtension();
@@ -700,16 +703,17 @@ class LoadCsvDataExtensionTest {
         tcclOverridden = true;
 
         // --- Spring テスト TX に DataSource をバインド（参加させる） ---
-        DataSource ds = mock(DataSource.class);
+        DataSource ds = mockNonNull(DataSource.class);
         org.springframework.jdbc.datasource.ConnectionHolder holder =
-                new org.springframework.jdbc.datasource.ConnectionHolder(mock(Connection.class));
+                new org.springframework.jdbc.datasource.ConnectionHolder(
+                        mockNonNull(Connection.class));
         org.springframework.transaction.support.TransactionSynchronizationManager.bindResource(ds,
                 holder);
         boundDsForCleanup = ds;
 
         // --- 実行（公開 API 経由） ---
         Method m = testClass.getDeclaredMethod("dummy");
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(testClass).when(ctx).getRequiredTestClass();
         doReturn(Optional.of(m)).when(ctx).getTestMethod();
 
@@ -744,16 +748,17 @@ class LoadCsvDataExtensionTest {
         tcclOverridden = true;
 
         // --- Spring テスト TX 参加 ---
-        DataSource ds = mock(DataSource.class);
+        DataSource ds = mockNonNull(DataSource.class);
         org.springframework.jdbc.datasource.ConnectionHolder holder =
-                new org.springframework.jdbc.datasource.ConnectionHolder(mock(Connection.class));
+                new org.springframework.jdbc.datasource.ConnectionHolder(
+                        mockNonNull(Connection.class));
         org.springframework.transaction.support.TransactionSynchronizationManager.bindResource(ds,
                 holder);
         boundDsForCleanup = ds;
 
         // --- 実行（公開 API 経由） ---
         Method m = testClass.getDeclaredMethod("dummy");
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(testClass).when(ctx).getRequiredTestClass();
         doReturn(Optional.of(m)).when(ctx).getTestMethod();
 
@@ -788,16 +793,17 @@ class LoadCsvDataExtensionTest {
         tcclOverridden = true;
 
         // --- Spring テスト TX 参加 ---
-        DataSource ds = mock(DataSource.class);
+        DataSource ds = mockNonNull(DataSource.class);
         org.springframework.jdbc.datasource.ConnectionHolder holder =
-                new org.springframework.jdbc.datasource.ConnectionHolder(mock(Connection.class));
+                new org.springframework.jdbc.datasource.ConnectionHolder(
+                        mockNonNull(Connection.class));
         org.springframework.transaction.support.TransactionSynchronizationManager.bindResource(ds,
                 holder);
         boundDsForCleanup = ds;
 
         // --- 実行（公開 API 経由） ---
         Method m = testClass.getDeclaredMethod("dummy");
-        ExtensionContext ctx = mock(ExtensionContext.class);
+        ExtensionContext ctx = mockNonNull(ExtensionContext.class);
         doReturn(testClass).when(ctx).getRequiredTestClass();
         doReturn(Optional.of(m)).when(ctx).getTestMethod();
 

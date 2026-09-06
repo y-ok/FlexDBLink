@@ -3,7 +3,6 @@ package io.github.yok.flexdblink.config;
 import com.google.common.base.Strings;
 import java.util.Map;
 import lombok.RequiredArgsConstructor;
-import org.apache.commons.lang3.StringUtils;
 
 /**
  * Utility class that dynamically resolves file names for large text/binary columns such as
@@ -48,7 +47,7 @@ public class FileNameResolver {
             pattern = patternConfig.getFilePatterns().get(table).get(column);
         }
         // If a pattern exists, replace variables like {id} with actual values
-        if (StringUtils.isNotBlank(pattern)) {
+        if (pattern != null && !pattern.isBlank()) {
             String filename = pattern;
             for (Map.Entry<String, Object> entry : values.entrySet()) {
                 filename = filename.replace("{" + entry.getKey() + "}",

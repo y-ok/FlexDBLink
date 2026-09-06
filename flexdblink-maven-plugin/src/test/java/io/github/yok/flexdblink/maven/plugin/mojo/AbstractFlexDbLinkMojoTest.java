@@ -23,6 +23,7 @@ import org.apache.maven.settings.crypto.SettingsDecryptionResult;
 import org.apache.maven.shared.utils.xml.Xpp3Dom;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.lang.NonNull;
 
 class AbstractFlexDbLinkMojoTest {
 
@@ -207,7 +208,7 @@ class AbstractFlexDbLinkMojoTest {
         return decrypter;
     }
 
-    private void addChild(Xpp3Dom parent, String name, String value) {
+    private void addChild(Xpp3Dom parent, String name, @NonNull String value) {
         Xpp3Dom child = new Xpp3Dom(name);
         child.setValue(value);
         parent.addChild(child);
