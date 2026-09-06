@@ -111,8 +111,10 @@
 
 ### テスト・ビルド
 
-- 新規作成や改修を行った場合は、原則として `mvn clean test` を実行して検証する。
-- ただし、体裁修正のみ、テストコード変更なし、実行結果が変わらない変更は実行しない。
+- Before running tests, check prior results from the conversation, user reports, local logs / reports, or CI, and identify any subsequent changes that affect the tested behavior.
+- Reuse successful results, including measured C0 / C1, when the current changes and relevant test conditions have already been validated. A new turn or missing results in the current conversation alone is not a reason to rerun tests.
+- Run `mvn clean test` for unvalidated logic or build / test configuration changes. Rerun only when subsequent changes, failures, or a specific unresolved concern justify it, or when explicitly requested by the user.
+- Do not run tests solely to create a branch, stage changes, or commit already validated changes. Skip tests for documentation-only changes and formatting-only changes that do not affect behavior or test code.
 - テスト実行前に、変更を「ロジック変更 / 設定変更 / 体裁修正のみ」に分類して明示する。
 - テスト実行前に、実行理由を 1 行で明示する。理由を明示できない場合は実行しない。
 - テスト / ビルドが失敗した場合は、原因を特定し、成功するまで処置する。
