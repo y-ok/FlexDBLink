@@ -7,6 +7,7 @@ import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.db.FlexibleDateTimeParsers;
+import io.github.yok.flexdblink.db.LoadMetadata;
 import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import io.github.yok.flexdblink.util.LobPathConstants;
 import java.io.BufferedReader;
@@ -101,6 +102,8 @@ public class OracleDialectHandler implements DbDialectHandler {
     private final DbUnitConfigFactory configFactory;
 
     private final PathsConfig pathsConfig;
+    // Reused only by the selected-table path while the caller's transaction is active.
+    private final LoadMetadata loadMetadata;
 
     // Flexible parser definitions
     private static final DateTimeFormatter FLEXIBLE_OFFSET_DATETIME_PARSER =
@@ -284,6 +287,7 @@ public class OracleDialectHandler implements DbDialectHandler {
         this.configFactory = configFactory;
         this.dateTimeFormatter = dateTimeFormatter;
         this.pathsConfig = pathsConfig;
+        this.loadMetadata = new LoadMetadata(dbConn, loadTables);
 
         // Build LOB directory path
         Path dumpBase = Paths.get(pathsConfig.getDump());
@@ -373,7 +377,7 @@ public class OracleDialectHandler implements DbDialectHandler {
         DatabaseMetaData meta = conn.getMetaData();
         for (String table : targetTables) {
             Map<String, JdbcColumnSpec> columnMap = new HashMap<>();
-            try (ResultSet rs = meta.getColumns(null, schema, table, "%")) {
+            try (ResultSet rs = loadMetadata.getColumns(meta, schema, table, "%")) {
                 while (rs.next()) {
                     String columnName = rs.getString("COLUMN_NAME");
                     int sqlType = rs.getInt("DATA_TYPE");
@@ -635,6 +639,10 @@ public class OracleDialectHandler implements DbDialectHandler {
     @Override
     public DatabaseConnection createDbUnitConnection(Connection jdbc, String schema)
             throws Exception {
+        DatabaseConnection reused = loadMetadata.getConnection(jdbc, schema);
+        if (reused != null) {
+            return reused;
+        }
         DatabaseConnection dbConn = new DatabaseConnection(jdbc, schema);
         DatabaseConfig config = dbConn.getConfig();
         configFactory.configure(config, getDataTypeFactory());
@@ -1151,7 +1159,7 @@ public class OracleDialectHandler implements DbDialectHandler {
     public boolean hasNotNullLobColumn(Connection conn, String schema, String table,
             Column[] lobCols) throws SQLException {
         DatabaseMetaData meta = conn.getMetaData();
-        ResultSet rs = meta.getColumns(null, schema, table, null);
+        ResultSet rs = loadMetadata.getColumns(meta, schema, table, null);
         try {
             while (rs.next()) {
                 String colName = rs.getString("COLUMN_NAME");
@@ -1290,7 +1298,7 @@ public class OracleDialectHandler implements DbDialectHandler {
     public void logTableDefinition(Connection conn, String schema, String table, String dbId)
             throws SQLException {
         DatabaseMetaData meta = conn.getMetaData();
-        try (ResultSet rs = meta.getColumns(null, schema, table, null)) {
+        try (ResultSet rs = loadMetadata.getColumns(meta, schema, table, null)) {
             while (rs.next()) {
                 String colName = rs.getString("COLUMN_NAME");
                 String typeName = rs.getString("TYPE_NAME");

@@ -2,6 +2,10 @@ package io.github.yok.flexdblink.db;
 
 import java.io.File;
 import java.io.IOException;
+import java.util.AbstractMap.SimpleImmutableEntry;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Map.Entry;
 import lombok.extern.slf4j.Slf4j;
 import org.dbunit.dataset.DataSetException;
 import org.dbunit.dataset.ITable;
@@ -28,6 +32,8 @@ public class LobResolvingTableWrapper implements ITable {
     private final File baseDir;
     // Dialect-specific LOB processing and CSV conversion utility
     private final DbDialectHandler dialectHandler;
+    // Keep only the last reference per column, bounding retention to one row's LOB values.
+    private final Map<String, Entry<String, Object>> lobValues = new HashMap<>();
 
     /**
      * Constructor.
@@ -82,10 +88,16 @@ public class LobResolvingTableWrapper implements ITable {
             // LOB file reference ("file:...")
             if (str.startsWith("file:")) {
                 String fileRef = str.substring("file:".length());
-                log.debug("Reading LOB file: table={}, column={}, file={}", table, columnName,
-                        fileRef);
                 try {
-                    return dialectHandler.readLobFile(fileRef, table, columnName, baseDir);
+                    Entry<String, Object> cached = lobValues.get(columnName);
+                    if (cached != null && cached.getKey().equals(fileRef)) {
+                        return cached.getValue();
+                    }
+                    log.debug("Reading LOB file: table={}, column={}, file={}", table, columnName,
+                            fileRef);
+                    Object value = dialectHandler.readLobFile(fileRef, table, columnName, baseDir);
+                    lobValues.put(columnName, new SimpleImmutableEntry<>(fileRef, value));
+                    return value;
                 } catch (IOException e) {
                     String msg =
                             String.format("Failed to read LOB file: table=%s, column=%s, file=%s",

@@ -6,6 +6,7 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
+import io.github.yok.flexdblink.db.LoadMetadata;
 import io.github.yok.flexdblink.db.FlexibleDateTimeParsers;
 import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import io.github.yok.flexdblink.util.LobPathConstants;
@@ -111,6 +112,7 @@ public class SqlServerDialectHandler implements DbDialectHandler {
     private final Map<String, Map<String, JdbcColumnSpec>> jdbcColumnSpecMap = new HashMap<>();
     private final DbUnitConfigFactory configFactory;
     private final PathsConfig pathsConfig;
+    private final LoadMetadata loadMetadata;
 
     /**
      * JDBC metadata snapshot for one column.
@@ -186,6 +188,7 @@ public class SqlServerDialectHandler implements DbDialectHandler {
         this.configFactory = configFactory;
         this.dateTimeFormatter = dateTimeFormatter;
         this.pathsConfig = pathsConfig;
+        this.loadMetadata = new LoadMetadata(dbConn, loadTables);
 
         Path dumpBase = Paths.get(pathsConfig.getDump());
         this.baseLobDir = dumpBase.resolve(LobPathConstants.DIRECTORY_NAME);
@@ -412,6 +415,11 @@ public class SqlServerDialectHandler implements DbDialectHandler {
     @Override
     public DatabaseConnection createDbUnitConnection(Connection jdbc, String schema)
             throws Exception {
+        DatabaseConnection reused = loadMetadata.getConnection(jdbc, schema);
+        if (reused != null) {
+            reused.getConfig().setProperty(DatabaseConfig.PROPERTY_ESCAPE_PATTERN, "[?]");
+            return reused;
+        }
         DatabaseConnection dbConn = new DatabaseConnection(jdbc, schema);
         DatabaseConfig config = dbConn.getConfig();
         configFactory.configure(config, getDataTypeFactory());
@@ -598,7 +606,7 @@ public class SqlServerDialectHandler implements DbDialectHandler {
     public boolean hasNotNullLobColumn(Connection conn, String schema, String table,
             Column[] lobCols) throws SQLException {
         DatabaseMetaData meta = conn.getMetaData();
-        ResultSet rs = meta.getColumns(null, schema, table, null);
+        ResultSet rs = loadMetadata.getColumns(meta, schema, table, null);
         try {
             while (rs.next()) {
                 String colName = rs.getString("COLUMN_NAME");
@@ -749,7 +757,7 @@ public class SqlServerDialectHandler implements DbDialectHandler {
     public void logTableDefinition(Connection connection, String schema, String table,
             String loggerName) throws SQLException {
         DatabaseMetaData meta = connection.getMetaData();
-        try (ResultSet rs = meta.getColumns(null, schema, table, null)) {
+        try (ResultSet rs = loadMetadata.getColumns(meta, schema, table, null)) {
             while (rs.next()) {
                 String colName = rs.getString("COLUMN_NAME");
                 String typeName = rs.getString("TYPE_NAME");
@@ -801,7 +809,7 @@ public class SqlServerDialectHandler implements DbDialectHandler {
         DatabaseMetaData meta = conn.getMetaData();
         for (String table : targetTables) {
             Map<String, JdbcColumnSpec> byColumn = new HashMap<>();
-            try (ResultSet rs = meta.getColumns(null, schema, table, "%")) {
+            try (ResultSet rs = loadMetadata.getColumns(meta, schema, table, "%")) {
                 while (rs.next()) {
                     String columnName = rs.getString("COLUMN_NAME");
                     int sqlType = rs.getInt("DATA_TYPE");

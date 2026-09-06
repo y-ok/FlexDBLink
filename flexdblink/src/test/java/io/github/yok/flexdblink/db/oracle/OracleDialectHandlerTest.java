@@ -363,10 +363,8 @@ public class OracleDialectHandlerTest {
         OracleDialectHandler handler =
                 createHandlerWithMeta("TBL", new ColumnDef("BIG_COL", DataType.BIGINT));
 
-        assertEquals(Long.valueOf(1L),
-                handler.convertCsvValueToDbType("TBL", "BIG_COL", "true"));
-        assertEquals(Long.valueOf(0L),
-                handler.convertCsvValueToDbType("TBL", "BIG_COL", "f"));
+        assertEquals(Long.valueOf(1L), handler.convertCsvValueToDbType("TBL", "BIG_COL", "true"));
+        assertEquals(Long.valueOf(0L), handler.convertCsvValueToDbType("TBL", "BIG_COL", "f"));
     }
 
     @Test
@@ -374,10 +372,8 @@ public class OracleDialectHandlerTest {
         OracleDialectHandler handler =
                 createHandlerWithMeta("TBL", new ColumnDef("BIG_COL", DataType.BIGINT));
 
-        assertEquals(Long.valueOf(1L),
-                handler.convertCsvValueToDbType("TBL", "BIG_COL", "t"));
-        assertEquals(Long.valueOf(0L),
-                handler.convertCsvValueToDbType("TBL", "BIG_COL", "false"));
+        assertEquals(Long.valueOf(1L), handler.convertCsvValueToDbType("TBL", "BIG_COL", "t"));
+        assertEquals(Long.valueOf(0L), handler.convertCsvValueToDbType("TBL", "BIG_COL", "false"));
     }
 
     @Test
@@ -925,10 +921,8 @@ public class OracleDialectHandlerTest {
         OracleDialectHandler handler =
                 createHandlerWithMeta("TBL", new ColumnDef("I_COL", DataType.INTEGER));
 
-        assertEquals(Integer.valueOf(1),
-                handler.convertCsvValueToDbType("TBL", "I_COL", "t"));
-        assertEquals(Integer.valueOf(0),
-                handler.convertCsvValueToDbType("TBL", "I_COL", "false"));
+        assertEquals(Integer.valueOf(1), handler.convertCsvValueToDbType("TBL", "I_COL", "t"));
+        assertEquals(Integer.valueOf(0), handler.convertCsvValueToDbType("TBL", "I_COL", "false"));
     }
 
     @Test
@@ -937,10 +931,8 @@ public class OracleDialectHandlerTest {
         OracleDialectHandler handler =
                 createHandlerWithMeta("TBL", new ColumnDef("I_COL", DataType.INTEGER));
 
-        assertEquals(Integer.valueOf(1),
-                handler.convertCsvValueToDbType("TBL", "I_COL", "true"));
-        assertEquals(Integer.valueOf(0),
-                handler.convertCsvValueToDbType("TBL", "I_COL", "f"));
+        assertEquals(Integer.valueOf(1), handler.convertCsvValueToDbType("TBL", "I_COL", "true"));
+        assertEquals(Integer.valueOf(0), handler.convertCsvValueToDbType("TBL", "I_COL", "f"));
     }
 
     @Test
@@ -969,10 +961,8 @@ public class OracleDialectHandlerTest {
         OracleDialectHandler handler =
                 createHandlerWithMeta("TBL", new ColumnDef("D_COL", DataType.DOUBLE));
 
-        assertEquals(Double.valueOf(1D),
-                handler.convertCsvValueToDbType("TBL", "D_COL", "true"));
-        assertEquals(Double.valueOf(0D),
-                handler.convertCsvValueToDbType("TBL", "D_COL", "f"));
+        assertEquals(Double.valueOf(1D), handler.convertCsvValueToDbType("TBL", "D_COL", "true"));
+        assertEquals(Double.valueOf(0D), handler.convertCsvValueToDbType("TBL", "D_COL", "f"));
     }
 
     @Test
@@ -981,10 +971,8 @@ public class OracleDialectHandlerTest {
         OracleDialectHandler handler =
                 createHandlerWithMeta("TBL", new ColumnDef("D_COL", DataType.DOUBLE));
 
-        assertEquals(Double.valueOf(1D),
-                handler.convertCsvValueToDbType("TBL", "D_COL", "t"));
-        assertEquals(Double.valueOf(0D),
-                handler.convertCsvValueToDbType("TBL", "D_COL", "false"));
+        assertEquals(Double.valueOf(1D), handler.convertCsvValueToDbType("TBL", "D_COL", "t"));
+        assertEquals(Double.valueOf(0D), handler.convertCsvValueToDbType("TBL", "D_COL", "false"));
     }
 
     @Test
@@ -1446,8 +1434,7 @@ public class OracleDialectHandlerTest {
 
         Object actual = handler.convertCsvValueToDbType("TBL", "TS_COL", "2026-02-15T01:02:03.123");
 
-        assertEquals(Timestamp.valueOf(LocalDateTime.of(2026, 2, 15, 1, 2, 3, 123000000)),
-                actual);
+        assertEquals(Timestamp.valueOf(LocalDateTime.of(2026, 2, 15, 1, 2, 3, 123000000)), actual);
     }
 
     @Test

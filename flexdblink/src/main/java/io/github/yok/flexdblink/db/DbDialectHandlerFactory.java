@@ -135,7 +135,7 @@ public class DbDialectHandlerFactory implements Function<ConnectionConfig.Entry,
                     dateTimeFormatter, pathsConfig, tables);
         }
         if (mode == DataTypeFactoryMode.MYSQL) {
-            DatabaseConnection db = metadataConnection(jdbc, resolveMySqlDatabase(entry.getUrl()),
+            DatabaseConnection db = metadataConnection(jdbc, null,
                     new CustomMySqlDataTypeFactory());
             return new MySqlDialectHandler(db, dumpConfig, dbUnitConfig, configFactory,
                     dateTimeFormatter, pathsConfig, tables);

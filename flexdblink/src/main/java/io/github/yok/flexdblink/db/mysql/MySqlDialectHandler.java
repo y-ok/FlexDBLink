@@ -6,6 +6,7 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
+import io.github.yok.flexdblink.db.LoadMetadata;
 import io.github.yok.flexdblink.db.FlexibleDateTimeParsers;
 import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import io.github.yok.flexdblink.util.LobPathConstants;
@@ -114,6 +115,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
     private final DbUnitConfigFactory configFactory;
     // Path settings (used for log-friendly relative path output)
     private final PathsConfig pathsConfig;
+    private final LoadMetadata loadMetadata;
 
     private static final Set<String> TEXT_LIKE_TYPE_NAMES =
             new HashSet<>(List.of("char", "varchar", "character", "character varying", "tinytext",
@@ -213,6 +215,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
         this.configFactory = configFactory;
         this.dateTimeFormatter = dateTimeFormatter;
         this.pathsConfig = pathsConfig;
+        this.loadMetadata = new LoadMetadata(dbConn, loadTables);
 
         Path dumpBase = Paths.get(pathsConfig.getDump());
         this.baseLobDir = dumpBase.resolve(LobPathConstants.DIRECTORY_NAME);
@@ -550,6 +553,11 @@ public class MySqlDialectHandler implements DbDialectHandler {
     @Override
     public DatabaseConnection createDbUnitConnection(Connection jdbc, String schema)
             throws Exception {
+        DatabaseConnection reused = loadMetadata.getConnection(jdbc, null);
+        if (reused != null) {
+            reused.getConfig().setProperty(DatabaseConfig.PROPERTY_ESCAPE_PATTERN, "`?`");
+            return reused;
+        }
         DatabaseConnection dbConn = new DatabaseConnection(jdbc);
         DatabaseConfig config = dbConn.getConfig();
         configFactory.configure(config, getDataTypeFactory());
@@ -809,7 +817,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
     public boolean hasNotNullLobColumn(Connection connection, String schema, String table,
             Column[] columns) throws SQLException {
         DatabaseMetaData meta = connection.getMetaData();
-        ResultSet rs = meta.getColumns(null, schema, table, null);
+        ResultSet rs = loadMetadata.getColumns(meta, schema, table, null);
         try {
             while (rs.next()) {
                 String nullable = rs.getString("IS_NULLABLE");
@@ -939,7 +947,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
         sb.append(" table=");
         sb.append(table);
 
-        try (ResultSet rs = meta.getColumns(null, schema, table, null)) {
+        try (ResultSet rs = loadMetadata.getColumns(meta, schema, table, null)) {
             while (rs.next()) {
                 sb.append(System.lineSeparator());
                 sb.append("  ");
@@ -1002,7 +1010,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
             Map<String, JdbcColumnSpec> byCol = new HashMap<>();
             jdbcColumnSpecMap.put(tbl.toLowerCase(Locale.ROOT), byCol);
 
-            try (ResultSet rs = meta.getColumns(null, schema, tbl, null)) {
+            try (ResultSet rs = loadMetadata.getColumns(meta, schema, tbl, null)) {
                 while (rs.next()) {
                     String col = rs.getString("COLUMN_NAME");
                     int sqlType = rs.getInt("DATA_TYPE");
