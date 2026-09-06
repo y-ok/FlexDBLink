@@ -1,7 +1,6 @@
 package io.github.yok.flexdblink.maven.plugin.integration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.maven.plugin.config.CoreConfigBundle;
@@ -122,15 +121,10 @@ class FlexDbLinkCoreInvokerSqlServerIT {
         Path dumpDbDir = tempDataPath.resolve("dump").resolve("scenarioA").resolve("DB1");
         assertTrue(Files.isDirectory(dumpDbDir));
 
-        List<Path> csvFiles;
-        try (Stream<Path> files = Files.list(dumpDbDir)) {
-            csvFiles = files
-                    .filter(path -> path.getFileName().toString().toLowerCase().endsWith(".csv"))
-                    .collect(Collectors.toList());
-        }
-        assertFalse(csvFiles.isEmpty());
+        Path employeeCsv = dumpDbDir.resolve("employee.csv");
+        assertTrue(Files.isRegularFile(employeeCsv));
 
-        String dumped = Files.readString(csvFiles.get(0), StandardCharsets.UTF_8).toLowerCase();
+        String dumped = Files.readString(employeeCsv, StandardCharsets.UTF_8).toLowerCase();
         assertTrue(dumped.contains("alice"));
         assertTrue(dumped.contains("bob"));
     }
