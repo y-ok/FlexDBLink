@@ -1,5 +1,7 @@
 package io.github.yok.flexdblink.integration;
 
+import java.util.Objects;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import io.github.yok.flexdblink.junit.DataSourceRegistry;
@@ -236,7 +238,8 @@ class FlexAssertMixedMultiDbIT {
         ds.setUrl(container.getJdbcUrl());
         ds.setUsername(container.getUsername());
         ds.setPassword(container.getPassword());
-        ds.setDriverClassName(container.getDriverClassName());
+        ds.setDriverClassName(
+                Objects.requireNonNull(container.getDriverClassName(), "Container driver class"));
         return ds;
     }
 
@@ -250,7 +253,8 @@ class FlexAssertMixedMultiDbIT {
      */
     private int countRows(String dbName, String tableName) throws Exception {
         DataSource ds = LoadDataExtension.getCurrentDataSource(dbName);
-        Connection conn = DataSourceUtils.getConnection(ds);
+        Connection conn = DataSourceUtils.getConnection(
+                Objects.requireNonNull(ds, "DataSource must be registered by @LoadData"));
         try (Statement st = conn.createStatement();
                 ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM " + tableName)) {
             rs.next();

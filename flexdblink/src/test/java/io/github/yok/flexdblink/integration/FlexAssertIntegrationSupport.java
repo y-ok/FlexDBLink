@@ -1,5 +1,7 @@
 package io.github.yok.flexdblink.integration;
 
+import java.util.Objects;
+
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import io.github.yok.flexdblink.junit.DataSourceRegistry;
 import io.github.yok.flexdblink.junit.FlexAssert;
@@ -102,7 +104,8 @@ abstract class FlexAssertIntegrationSupport {
      */
     Connection getTransactionalConnection() {
         DataSource ds = LoadDataExtension.getCurrentDataSource(DB_NAME);
-        return DataSourceUtils.getConnection(ds);
+        return DataSourceUtils.getConnection(
+                Objects.requireNonNull(ds, "DataSource must be registered by @LoadData"));
     }
 
     /**

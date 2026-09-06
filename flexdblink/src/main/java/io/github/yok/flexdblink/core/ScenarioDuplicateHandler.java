@@ -299,7 +299,7 @@ class ScenarioDuplicateHandler {
             log.debug("Table[{}] Column[{}] Type=[{}]", tableName, colName, typeName);
 
             String rawCsv = Optional.ofNullable(csvTable.getValue(csvRow, colName))
-                    .map(Object::toString).orElse(null);
+                    .map(value -> value.toString()).orElse(null);
             String csvCell = StringUtils.trimToNull(rawCsv);
 
             Object rawDbObj = dbTable.getValue(dbRow, colName);

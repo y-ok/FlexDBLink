@@ -403,13 +403,12 @@ public class DataDumper {
         log.info("===== Summary =====");
         int globalMaxNameLen =
                 dumpSummary.values().stream().flatMap(tableMap -> tableMap.keySet().stream())
-                        .mapToInt(String::length).max().orElse(0);
+                        .mapToInt(tableName -> tableName.length()).max().orElse(0);
         dumpSummary.forEach((dbId, tableCountMap) -> {
             log.info("DB[{}]:", dbId);
 
-            int maxCountDigits =
-                    tableCountMap.values().stream().map(count -> String.valueOf(count).length())
-                            .mapToInt(Integer::intValue).max().orElse(0);
+            int maxCountDigits = tableCountMap.values().stream()
+                    .mapToInt(count -> String.valueOf(count).length()).max().orElse(0);
 
             String fmt = "  Table[%-" + globalMaxNameLen + "s] Total=%" + maxCountDigits + "d";
             tableCountMap.forEach((table, count) -> log.info(String.format(fmt, table, count)));

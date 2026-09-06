@@ -41,6 +41,7 @@ import org.dbunit.dataset.ITable;
 import org.dbunit.dataset.csv.CsvDataSet;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.lang.NonNull;
 
 /**
  * Fluent assertion utility for comparing DB records against expected CSV data.
@@ -374,9 +375,9 @@ public class FlexAssert {
         // Fallback: scan stack trace for direct @LoadData usage
         StackWalker stackWalker =
                 StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE);
-        List<StackFrameInfo> stack = stackWalker
-                .walk(frames -> frames.map(frame -> new StackFrameInfo(frame.getDeclaringClass(),
-                        frame.getMethodName())).collect(Collectors.toList()));
+        List<StackFrameInfo> stack = stackWalker.walk(frames -> frames
+                .map(frame -> new StackFrameInfo(frame.getDeclaringClass(), frame.getMethodName()))
+                .collect(Collectors.toList()));
         for (StackFrameInfo frame : stack) {
             Class<?> clazz = frame.clazz;
             LoadData methodAnn = findMethodAnnotation(clazz, frame.methodName);
@@ -443,16 +444,21 @@ public class FlexAssert {
      * {@link DataSourceRegistry}.
      *
      * @param dbName database logical ID
-     * @return DataSource
+     * @return non-null DataSource for the given database
+     * @throws IllegalStateException if no DataSource is available for the database
      */
+    @NonNull
     private DataSource resolveDataSource(String dbName) {
         DataSource current = LoadDataExtension.getCurrentDataSource(dbName);
         if (current != null) {
             return current;
         }
-        return DataSourceRegistry.find(dbName)
-                .orElseThrow(() -> new IllegalStateException("Cannot resolve DataSource for dbName="
-                        + dbName + ". Register it via DataSourceRegistry.register()."));
+        DataSource registered = DataSourceRegistry.find(dbName).orElse(null);
+        if (registered != null) {
+            return registered;
+        }
+        throw new IllegalStateException("Cannot resolve DataSource for dbName=" + dbName
+                + ". Register it via DataSourceRegistry.register().");
     }
 
     /**

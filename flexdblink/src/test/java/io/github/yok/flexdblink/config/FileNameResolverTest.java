@@ -4,6 +4,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class FileNameResolverTest {
 
@@ -56,11 +59,13 @@ class FileNameResolverTest {
         assertEquals("TBL_3_BLOB_COL.bin", actual);
     }
 
-    @Test
-    void resolve_正常ケース_空白パターンを指定する_デフォルト命名が返ること() {
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = {" ", "\t\n", "\u3000"})
+    void resolve_正常ケース_nullまたは空白のパターンを指定する_デフォルト命名であること(String pattern) {
         FilePatternConfig config = new FilePatternConfig();
         Map<String, String> cols = new LinkedHashMap<>();
-        cols.put("BLOB_COL", " ");
+        cols.put("BLOB_COL", pattern);
         Map<String, Map<String, String>> tableMap = new LinkedHashMap<>();
         tableMap.put("TBL", cols);
         config.setFilePatterns(tableMap);

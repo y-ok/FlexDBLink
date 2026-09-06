@@ -134,7 +134,7 @@ public class Main implements CommandLineRunner {
                 case "--target":
                 case "-t":
                     if (i + 1 < args.length) {
-                        targetDbIds = Arrays.stream(args[++i].split(",")).map(String::trim)
+                        targetDbIds = Arrays.stream(args[++i].split(",")).map(value -> value.trim())
                                 .collect(Collectors.toList());
                     }
                     break;
@@ -170,7 +170,7 @@ public class Main implements CommandLineRunner {
         // application.yml
         if (targetDbIds.isEmpty()) {
             targetDbIds = connectionConfig.getConnections().stream()
-                    .map(ConnectionConfig.Entry::getId).collect(Collectors.toList());
+                    .map(entry -> entry.getId()).collect(Collectors.toList());
         }
 
         log.info("Mode: {}, Scenario: {}, Target DBs: {}", mode, scenario, targetDbIds);

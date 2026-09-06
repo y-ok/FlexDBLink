@@ -240,7 +240,7 @@ public class OracleDialectHandler implements DbDialectHandler {
         pkList.sort(Map.Entry.comparingByKey());
 
         List<String> pkColumns =
-                pkList.stream().map(Map.Entry::getValue).collect(Collectors.toList());
+                pkList.stream().map(entry -> entry.getValue()).collect(Collectors.toList());
 
         return pkColumns;
     }

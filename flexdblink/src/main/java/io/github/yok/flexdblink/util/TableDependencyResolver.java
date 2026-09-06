@@ -209,7 +209,7 @@ public final class TableDependencyResolver {
             sorted.add(current);
 
             for (String child : edges.get(current)) {
-                int newDegree = inDegree.merge(child, -1, Integer::sum);
+                int newDegree = inDegree.merge(child, -1, (degree, delta) -> degree + delta);
                 if (newDegree == 0) {
                     queue.offer(child);
                 }
@@ -321,7 +321,7 @@ public final class TableDependencyResolver {
             }
 
             if (edges.get(parentLower).add(childLower)) {
-                inDegree.merge(childLower, 1, Integer::sum);
+                inDegree.merge(childLower, 1, (degree, delta) -> degree + delta);
                 log.debug("FK dependency detected: parent='{}' -> child='{}'",
                         normalizedMap.getOrDefault(parentLower, pkTable),
                         normalizedMap.getOrDefault(childLower, childName));

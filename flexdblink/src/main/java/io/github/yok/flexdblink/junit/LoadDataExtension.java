@@ -30,6 +30,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.Set;
 import javax.sql.DataSource;
@@ -47,6 +48,7 @@ import org.springframework.context.ApplicationContext;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.jdbc.datasource.DataSourceUtils;
+import org.springframework.lang.NonNull;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionStatus;
@@ -181,18 +183,16 @@ public class LoadDataExtension
             LoadData classAnn = testClass.getAnnotation(LoadData.class);
             Method testMethod = context.getTestMethod().orElse(null);
             LoadData methodAnn = null;
+            LoadData effectiveAnn = classAnn;
+            String location = "class " + testClass.getName();
+            String logType = "class-level";
             if (testMethod != null) {
                 methodAnn = testMethod.getAnnotation(LoadData.class);
-            }
-            LoadData effectiveAnn = methodAnn;
-            String location = "method " + testClass.getName();
-            String logType = "method-level";
-            if (methodAnn == null) {
-                effectiveAnn = classAnn;
-                location = "class " + testClass.getName();
-                logType = "class-level";
-            } else {
-                location = "method " + testClass.getName() + "#" + testMethod.getName();
+                if (methodAnn != null) {
+                    effectiveAnn = methodAnn;
+                    location = "method " + testClass.getName() + "#" + testMethod.getName();
+                    logType = "method-level";
+                }
             }
 
             if (effectiveAnn != null) {
@@ -436,18 +436,18 @@ public class LoadDataExtension
         }
 
         // Pre-resolve DS set for each dbId
-        List<DataSource> dss = new ArrayList<>(dbIds.size());
+        List<NamedDs> resolvedDataSources = new ArrayList<>(dbIds.size());
         for (String dbId : dbIds) {
             DataSource ds = resolveDataSourceByDbId(ac, dbId, dsBeanNamesByDbId);
-            dss.add(ds);
+            resolvedDataSources.add(new NamedDs(dbId, ds));
             CURRENT_DATASOURCES.get().put(dbId, ds);
         }
 
         // Check existing TX and begin local TX only when needed
         boolean active = isTxActive();
-        for (int i = 0; i < dbIds.size(); i++) {
-            DataSource ds = dss.get(i);
-            String dbId = dbIds.get(i);
+        for (NamedDs resolved : resolvedDataSources) {
+            DataSource ds = resolved.ds;
+            String dbId = resolved.name;
             if (active && TransactionSynchronizationManager.hasResource(ds)) {
                 log.info("Multi-DB: dbId={} is bound to existing TX; participating in it.", dbId);
                 switchTxInterceptorDefaultManagerForBoundDataSource(context, ac, dbId, ds);
@@ -457,9 +457,9 @@ public class LoadDataExtension
         }
 
         // Execute per dbId
-        for (int i = 0; i < dbIds.size(); i++) {
-            String dbId = dbIds.get(i);
-            DataSource ds = dss.get(i);
+        for (NamedDs resolved : resolvedDataSources) {
+            String dbId = resolved.name;
+            DataSource ds = resolved.ds;
 
             // Dataset: input/{dbId}/
             Path datasetDir = trc.inputDir(scenarioName, dbId);
@@ -627,7 +627,8 @@ public class LoadDataExtension
      * @return application context.
      */
     private ApplicationContext getApplicationContext(ExtensionContext context) {
-        return SpringExtension.getApplicationContext(context);
+        return SpringExtension.getApplicationContext(
+                Objects.requireNonNull(context, "JUnit extension context"));
     }
 
     /**
@@ -671,7 +672,8 @@ public class LoadDataExtension
      */
     private void beginTestTx(String key, PlatformTransactionManager tm, ExtensionContext context) {
         DefaultTransactionDefinition def = new DefaultTransactionDefinition();
-        TransactionStatus status = tm.getTransaction(def);
+        TransactionStatus status = Objects.requireNonNull(tm.getTransaction(def),
+                "Transaction manager must return a status for: " + key);
         List<TxRecord> records = getOrCreateTxRecords(context);
         records.add(new TxRecord(key, tm, status));
         log.info("Started a test transaction. key={}", key);
@@ -682,10 +684,10 @@ public class LoadDataExtension
      * target {@link DataSource}.
      *
      * @param key identifier for logging (dbId, etc.).
-     * @param ds target data source.
+     * @param ds non-null data source resolved before transaction setup.
      * @param context execution context.
      */
-    void beginTestTxWithDataSource(String key, DataSource ds, ExtensionContext context) {
+    void beginTestTxWithDataSource(String key, @NonNull DataSource ds, ExtensionContext context) {
         DataSourceTransactionManager tm = new DataSourceTransactionManager(ds);
         beginTestTx(key, tm, context);
     }
@@ -731,11 +733,12 @@ public class LoadDataExtension
      * Resolve the conventional DS bean ('dataSource') for single-DB mode.
      *
      * @param ac application context.
-     * @return DataSource.
+     * @return non-null DataSource.
      */
+    @NonNull
     DataSource resolveDataSourceSingle(ApplicationContext ac) {
         try {
-            return ac.getBean("dataSource", DataSource.class);
+            return getRequiredDataSourceBean(ac, "dataSource");
         } catch (Exception e) {
             throw new IllegalStateException(
                     "DataSource 'dataSource' not found. It is required in single-DB mode.", e);
@@ -757,8 +760,9 @@ public class LoadDataExtension
      *
      * @param ac application context.
      * @param dsBeanNamesByDbId configured mapping.
-     * @return selected DataSource.
+     * @return selected non-null DataSource.
      */
+    @NonNull
     DataSource resolveDataSourceSingle(ApplicationContext ac,
             Map<String, String> dsBeanNamesByDbId) {
         String configuredDefault = dsBeanNamesByDbId.get("default");
@@ -771,14 +775,14 @@ public class LoadDataExtension
         }
 
         try {
-            return ac.getBean("dataSource", DataSource.class);
+            return getRequiredDataSourceBean(ac, "dataSource");
         } catch (Exception e) {
             log.debug("DataSource bean named 'dataSource' was not found in single-DB mode.", e);
         }
 
         String[] dsNames = ac.getBeanNamesForType(DataSource.class);
         if (dsNames.length == 1) {
-            return ac.getBean(dsNames[0], DataSource.class);
+            return getRequiredDataSourceBean(ac, dsNames[0]);
         }
 
         NamedDs primary = pickPrimaryFromAll(ac);
@@ -797,8 +801,9 @@ public class LoadDataExtension
      * @param ac application context.
      * @param dbId dbId from test input folder.
      * @param dsBeanNamesByDbId configured mapping.
-     * @return selected DataSource.
+     * @return selected non-null DataSource.
      */
+    @NonNull
     DataSource resolveDataSourceByDbId(ApplicationContext ac, String dbId,
             Map<String, String> dsBeanNamesByDbId) {
         String normalizedDbId = normalizeDbIdKey(dbId);
@@ -817,15 +822,31 @@ public class LoadDataExtension
      * @param ac application context.
      * @param dbId dbId for error context.
      * @param beanName data source bean name.
-     * @return resolved DataSource.
+     * @return resolved non-null DataSource.
      */
+    @NonNull
     DataSource resolveDataSourceByBeanName(ApplicationContext ac, String dbId, String beanName) {
         try {
-            return ac.getBean(beanName, DataSource.class);
+            return getRequiredDataSourceBean(ac, beanName);
         } catch (Exception e) {
             throw new IllegalStateException("Configured DataSource bean was not found. dbId=" + dbId
                     + ", beanName=" + beanName, e);
         }
+    }
+
+    /**
+     * Obtains a data source and establishes its non-null contract at the Spring API boundary.
+     *
+     * @param ac application context
+     * @param beanName name of the required data source bean
+     * @return non-null data source bean
+     * @throws NullPointerException if the bean name or the required bean is null
+     */
+    @NonNull
+    private DataSource getRequiredDataSourceBean(ApplicationContext ac, String beanName) {
+        String requiredBeanName = Objects.requireNonNull(beanName, "DataSource bean name");
+        return Objects.requireNonNull(ac.getBean(requiredBeanName, DataSource.class),
+                "Required DataSource bean must not be null: " + beanName);
     }
 
     /**
@@ -945,7 +966,7 @@ public class LoadDataExtension
         String[] dsNames = ac.getBeanNamesForType(DataSource.class);
         List<NamedDs> all = new ArrayList<>();
         for (String dsName : dsNames) {
-            DataSource ds = ac.getBean(dsName, DataSource.class);
+            DataSource ds = getRequiredDataSourceBean(ac, dsName);
             all.add(new NamedDs(dsName, ds));
         }
         return pickPrimary(ac, all);
@@ -1090,7 +1111,8 @@ public class LoadDataExtension
         List<TmWithDs> result = new ArrayList<>();
         String[] tmNames = ac.getBeanNamesForType(PlatformTransactionManager.class);
         for (String tmName : tmNames) {
-            PlatformTransactionManager tm = ac.getBean(tmName, PlatformTransactionManager.class);
+            PlatformTransactionManager tm =
+                    ac.getBean(Objects.requireNonNull(tmName), PlatformTransactionManager.class);
             if (tm instanceof DataSourceTransactionManager) {
                 DataSource ds = ((DataSourceTransactionManager) tm).getDataSource();
                 if (ds == null) {
@@ -1123,7 +1145,7 @@ public class LoadDataExtension
         List<NamedDs> result = new ArrayList<>();
         String[] dsNames = ac.getBeanNamesForType(DataSource.class);
         for (String name : dsNames) {
-            DataSource ds = ac.getBean(name, DataSource.class);
+            DataSource ds = getRequiredDataSourceBean(ac, name);
             ProbeMeta meta = probeDataSourceMeta(ds);
             if (meta == null) {
                 continue;
@@ -1149,8 +1171,9 @@ public class LoadDataExtension
                     ((ConfigurableApplicationContext) ac).getBeanFactory();
             NamedDs found = null;
             for (NamedDs n : candidates) {
-                if (bf.containsBeanDefinition(n.name)) {
-                    BeanDefinition bd = bf.getBeanDefinition(n.name);
+                String beanName = Objects.requireNonNull(n.name, "DataSource bean name");
+                if (bf.containsBeanDefinition(beanName)) {
+                    BeanDefinition bd = bf.getBeanDefinition(beanName);
                     if (bd.isPrimary()) {
                         if (found != null) {
                             // Multiple primaries → treat as ambiguous
@@ -1178,8 +1201,8 @@ public class LoadDataExtension
         for (NamedDs n : candidates) {
             boolean referenced = false;
             for (String tmName : tmNames) {
-                PlatformTransactionManager tm =
-                        ac.getBean(tmName, PlatformTransactionManager.class);
+                PlatformTransactionManager tm = ac.getBean(Objects.requireNonNull(tmName),
+                        PlatformTransactionManager.class);
                 if (tm instanceof DataSourceTransactionManager) {
                     DataSource tmDs = ((DataSourceTransactionManager) tm).getDataSource();
                     if (tmDs == n.ds) {
@@ -1215,7 +1238,8 @@ public class LoadDataExtension
         Map<PlatformTransactionManager, List<String>> aliasesByManager = new IdentityHashMap<>();
 
         for (String name : tmNames) {
-            PlatformTransactionManager tm = ac.getBean(name, PlatformTransactionManager.class);
+            PlatformTransactionManager tm =
+                    ac.getBean(Objects.requireNonNull(name), PlatformTransactionManager.class);
             if (tm instanceof DataSourceTransactionManager) {
                 DataSource tmDs = ((DataSourceTransactionManager) tm).getDataSource();
                 if (tmDs == ds) {
@@ -1357,14 +1381,16 @@ public class LoadDataExtension
      * @param type bean type.
      * @param instance bean instance.
      * @param <T> type parameter.
-     * @return bean name or {@code "<unknown>"}.
+     * @return non-null bean name or {@code "<unknown>"}.
      */
+    @NonNull
     <T> String findBeanNameByInstance(ApplicationContext ac, Class<T> type, T instance) {
         String[] names = ac.getBeanNamesForType(type);
         for (String name : names) {
-            T bean = ac.getBean(name, type);
+            String beanName = Objects.requireNonNull(name, "Bean name");
+            T bean = ac.getBean(beanName, Objects.requireNonNull(type, "Bean type"));
             if (bean == instance) {
-                return name;
+                return beanName;
             }
         }
         return "<unknown>";
@@ -1376,9 +1402,17 @@ public class LoadDataExtension
     static final class TxRecord {
         final String key;
         final PlatformTransactionManager tm;
+        @NonNull
         final TransactionStatus status;
 
-        TxRecord(String key, PlatformTransactionManager tm, TransactionStatus status) {
+        /**
+         * Records a successfully started transaction for rollback after the test.
+         *
+         * @param key logical database identifier
+         * @param tm transaction manager that started the transaction
+         * @param status non-null status returned when the transaction was started
+         */
+        TxRecord(String key, PlatformTransactionManager tm, @NonNull TransactionStatus status) {
             this.key = key;
             this.tm = tm;
             this.status = status;
@@ -1420,9 +1454,16 @@ public class LoadDataExtension
      */
     static final class NamedDs {
         final String name;
+        @NonNull
         final DataSource ds;
 
-        NamedDs(String name, DataSource ds) {
+        /**
+         * Associates a resolved data source with its identifier.
+         *
+         * @param name bean name or logical database identifier
+         * @param ds non-null resolved data source
+         */
+        NamedDs(String name, @NonNull DataSource ds) {
             this.name = name;
             this.ds = ds;
         }

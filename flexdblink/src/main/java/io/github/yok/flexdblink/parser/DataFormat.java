@@ -41,7 +41,8 @@ public enum DataFormat {
     private final Set<String> extensions;
 
     DataFormat(String... exts) {
-        this.extensions = Arrays.stream(exts).map(String::toLowerCase).collect(Collectors.toSet());
+        this.extensions =
+                Arrays.stream(exts).map(value -> value.toLowerCase()).collect(Collectors.toSet());
     }
 
     /**

@@ -1,5 +1,6 @@
 package io.github.yok.flexdblink.junit;
 
+import static io.github.yok.flexdblink.junit.TestMocks.mockNonNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -41,6 +42,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.lang.NonNull;
 
 /**
  * Unit tests for {@link FlexAssert}.
@@ -313,8 +315,8 @@ class FlexAssertTest {
         LoadDataExtension.CURRENT_SCENARIO.set("entry-failure");
         writeExpectedCsv(FlexAssertTest.class, "entry-failure", DB_NAME, "FA_ENTRY", "ID\n1\n");
 
-        DataSource dataSource = mock(DataSource.class);
-        Connection connection = mock(Connection.class);
+        DataSource dataSource = mockNonNull(DataSource.class);
+        Connection connection = mockNonNull(Connection.class);
         when(connection.getMetaData()).thenThrow(new java.sql.SQLException("meta-fail"));
         DataSourceRegistry.register(DB_NAME, dataSource);
 
@@ -695,6 +697,7 @@ class FlexAssertTest {
         return Files.readString(path, StandardCharsets.UTF_8);
     }
 
+    @NonNull
     private DriverManagerDataSource createDriverManagerDataSource() {
         DriverManagerDataSource dataSource = new DriverManagerDataSource();
         dataSource.setUrl("jdbc:postgresql://localhost:5432/flexassert");
@@ -711,7 +714,7 @@ class FlexAssertTest {
     }
 
     private Connection mockConnection(String userName, TableSpec... tableSpecs) throws Exception {
-        Connection connection = mock(Connection.class);
+        Connection connection = mockNonNull(Connection.class);
         Statement statement = mock(Statement.class);
         DatabaseMetaData metaData = mock(DatabaseMetaData.class);
         when(connection.createStatement()).thenReturn(statement);

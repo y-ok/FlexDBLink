@@ -1535,9 +1535,8 @@ class DataLoaderTest {
                     MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class);
                     MockedStatic<TableDependencyResolver> resolver =
                             mockStatic(TableDependencyResolver.class)) {
-                driverManager
-                        .when(() -> DriverManager.getConnection("jdbc:table-width-branch", "u",
-                                "p"))
+                driverManager.when(
+                        () -> DriverManager.getConnection("jdbc:table-width-branch", "u", "p"))
                         .thenReturn(jdbc);
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "AA"))
                         .thenReturn(dsAA.dataSet);

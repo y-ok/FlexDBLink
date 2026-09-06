@@ -511,7 +511,8 @@ public class DataLoader {
                 return;
             }
             List<String> tables = Files.readAllLines(orderPath, StandardCharsets.UTF_8).stream()
-                    .map(String::trim).filter(StringUtils::isNotEmpty).collect(Collectors.toList());
+                    .map(value -> value.trim()).filter(StringUtils::isNotEmpty)
+                    .collect(Collectors.toList());
 
             if (tables.isEmpty()) {
                 log.info("[{}] No tables → skipping", dbId);
@@ -707,11 +708,11 @@ public class DataLoader {
         log.info("===== Summary =====");
         int globalMaxNameLen =
                 insertSummary.values().stream().flatMap(tableMap -> tableMap.keySet().stream())
-                        .mapToInt(String::length).max().orElse(0);
+                        .mapToInt(tableName -> tableName.length()).max().orElse(0);
         insertSummary.forEach((dbId, tableMap) -> {
             log.info("DB[{}]:", dbId);
-            int maxCountDigits = tableMap.values().stream().map(cnt -> String.valueOf(cnt).length())
-                    .mapToInt(Integer::intValue).max().orElse(0);
+            int maxCountDigits = tableMap.values().stream()
+                    .mapToInt(cnt -> String.valueOf(cnt).length()).max().orElse(0);
             String fmt = "  Table[%-" + globalMaxNameLen + "s] Total=%" + maxCountDigits + "d";
             tableMap.forEach((table, cnt) -> log.info(String.format(fmt, table, cnt)));
         });
@@ -832,7 +833,7 @@ public class DataLoader {
                 return;
             }
             // Stable alphabetical order
-            tables.sort(String::compareTo);
+            tables.sort((left, right) -> left.compareTo(right));
 
             // Apply DumpConfig exclusions
             if (dumpConfig != null && dumpConfig.getExcludeTables() != null

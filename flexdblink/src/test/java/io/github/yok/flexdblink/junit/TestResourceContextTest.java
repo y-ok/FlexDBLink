@@ -1,5 +1,6 @@
 package io.github.yok.flexdblink.junit;
 
+import static io.github.yok.flexdblink.junit.TestMocks.mockNonNull;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -610,8 +611,8 @@ class TestResourceContextTest {
     @Test
     void springManagedConnection_正常ケース_DataSourceを指定する_Connectionが返ること() throws Exception {
         TestResourceContext trc = new TestResourceContext(tempDir, new Properties());
-        DataSource ds = mock(DataSource.class);
-        Connection conn = mock(Connection.class);
+        DataSource ds = mockNonNull(DataSource.class);
+        Connection conn = mockNonNull(Connection.class);
         try (MockedStatic<DataSourceUtils> mocked = mockStatic(DataSourceUtils.class)) {
             mocked.when(() -> DataSourceUtils.getConnection(ds)).thenReturn(conn);
             Optional<Connection> out = trc.springManagedConnection(Optional.of(ds));
