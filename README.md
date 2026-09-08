@@ -757,6 +757,12 @@ flexdblink.load.datasource.bbb=bbbRoutingDataSource
 | `CLOB` / `NCLOB` / `BLOB` | External file reference via `file:xxx` |
 | `NUMBER`, `VARCHAR2`, `CHAR`, `NVARCHAR2`, `NCHAR`, `RAW`, `BINARY_FLOAT`, `BINARY_DOUBLE` | Standard support |
 
+Oracle CLOB loading uses length-qualified character streams for nonempty values up to 32,766
+Java characters. Larger values retain locator binding to preserve JDBC batching. Empty CLOBs
+remain distinct from SQL NULL, and BLOB loading continues to use `setBytes`. The Oracle
+integration tests cover mixed batches with Japanese text, supplementary characters, CLOBs
+above the driver binding boundary, multi-megabyte CLOBs, and 512 KiB BLOBs.
+
 ### PostgreSQL
 
 | SQL Type | Format / Notes |
