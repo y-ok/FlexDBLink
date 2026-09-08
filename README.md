@@ -606,10 +606,16 @@ Simply annotate your test with `@LoadData` to automatically inject the dataset b
 
 Load preparation uses the existing transaction connection and reads metadata only
 for the selected tables. Each selected dataset file is parsed once per load;
-loading does not rewrite `table-ordering.txt`. Data files and schema metadata are
-refreshed for every load, while fixed configuration and DataSource bean mappings
-are reused until the next test class initialization. Each test still receives its
-own data load and the same transaction rollback behavior.
+loading does not rewrite `table-ordering.txt`. Data files are refreshed for every
+load. Column, primary-key, and foreign-key metadata are reused within the test class,
+keyed by the actual JDBC URL, user, catalog, schema, and exact lookup arguments.
+Fixed configuration and DataSource bean mappings are also reused within the class.
+Metadata snapshots retain no connections or live result sets and are cleared at
+class initialization and completion. Each test still receives its own data load
+and the same transaction rollback behavior.
+
+Metadata is automatically reused without additional annotation settings. Schema
+definitions must remain stable within the test class.
 
 This integrates with Spring Test transaction management (`@Transactional`), ensuring the DB state is reliably restored after each test method.
 

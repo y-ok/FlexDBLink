@@ -9,11 +9,13 @@ import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.core.DataLoader;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
+import io.github.yok.flexdblink.db.JdbcMetadataCache;
 import io.github.yok.flexdblink.util.DateTimeFormatUtil;
 import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.LogPathUtil;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.URL;
@@ -36,6 +38,7 @@ import java.util.Set;
 import javax.sql.DataSource;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.junit.jupiter.api.extension.AfterAllCallback;
 import org.junit.jupiter.api.extension.AfterTestExecutionCallback;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.BeforeTestExecutionCallback;
@@ -72,7 +75,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * closing.</li>
  * </ul>
  *
- * <h3>Directory layout</h3>
+ * <h2>Directory layout</h2>
  *
  * <pre>
  * Single DB: src/test/resources/{pkg}/{TestClass}/{scenario}/input/
@@ -82,11 +85,12 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * @author Yasuharu.Okawauchi
  */
 @Slf4j
-public class LoadDataExtension
-        implements BeforeAllCallback, BeforeTestExecutionCallback, AfterTestExecutionCallback {
+public class LoadDataExtension implements BeforeAllCallback, BeforeTestExecutionCallback,
+        AfterTestExecutionCallback, AfterAllCallback {
 
     // Shared context (classRoot / application*.properties, etc.)
     private TestResourceContext trc;
+    private final JdbcMetadataCache metadataCache = new JdbcMetadataCache();
 
     // Store namespace and keys
     private static final Namespace NS = Namespace.create(LoadDataExtension.class.getName(), "TX");
@@ -131,6 +135,7 @@ public class LoadDataExtension
         this.trc = trc;
         this.dataLoader = null;
         this.dataSourceMappings.clear();
+        this.metadataCache.clear();
     }
 
     /**
@@ -164,6 +169,16 @@ public class LoadDataExtension
         setTestResourceContext(TestResourceContext.init(context));
         log.info("Initialization completed. classRoot={}, loadedProperties={}", trc.getClassRoot(),
                 trc.getAppProps().size());
+    }
+
+    /**
+     * Releases metadata when the test class finishes, including failed executions.
+     *
+     * @param context completed test class context
+     */
+    @Override
+    public void afterAll(ExtensionContext context) {
+        metadataCache.clear();
     }
 
     /**
@@ -504,8 +519,8 @@ public class LoadDataExtension
         DbDialectHandlerFactory handlerFactory = new DbDialectHandlerFactory(dbUnitConfig,
                 dumpConfig, pathsConfig, dateTimeUtil, configFactory);
 
-        return new DataLoader(pathsConfig, connectionConfig, handlerFactory,
-                dbUnitConfig, dumpConfig);
+        return new DataLoader(pathsConfig, connectionConfig, handlerFactory, dbUnitConfig,
+                dumpConfig);
 
     }
 
@@ -652,12 +667,17 @@ public class LoadDataExtension
      * @return proxy connection that ignores {@code close()}.
      */
     Connection wrapConnectionNoClose(Connection original) {
+        Connection target = metadataCache.wrap(original);
         return (Connection) Proxy.newProxyInstance(original.getClass().getClassLoader(),
                 new Class<?>[] {Connection.class}, (proxy, method, args) -> {
                     if ("close".equals(method.getName())) {
                         return null;
                     }
-                    return method.invoke(original, args);
+                    try {
+                        return method.invoke(target, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
                 });
     }
 
@@ -668,8 +688,8 @@ public class LoadDataExtension
      * @return application context.
      */
     private ApplicationContext getApplicationContext(ExtensionContext context) {
-        return SpringExtension.getApplicationContext(
-                Objects.requireNonNull(context, "JUnit extension context"));
+        return SpringExtension
+                .getApplicationContext(Objects.requireNonNull(context, "JUnit extension context"));
     }
 
     /**
