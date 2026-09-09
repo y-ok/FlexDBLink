@@ -188,8 +188,9 @@ public class MySqlDialectHandlerTest {
         Statement stmt = mock(Statement.class);
         when(conn.createStatement()).thenReturn(stmt);
         handler.prepareConnection(conn);
-        verify(stmt).execute("SET time_zone = '+00:00'");
-        verify(stmt).execute("SET NAMES utf8mb4");
+        verify(stmt).execute(any(String.class));
+        verify(stmt).execute("SET time_zone = '+00:00', character_set_client = 'utf8mb4', "
+                + "character_set_results = 'utf8mb4', character_set_connection = 'utf8mb4'");
     }
 
     @Test

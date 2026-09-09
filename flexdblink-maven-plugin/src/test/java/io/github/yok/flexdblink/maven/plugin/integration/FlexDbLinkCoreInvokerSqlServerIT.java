@@ -35,10 +35,11 @@ class FlexDbLinkCoreInvokerSqlServerIT {
     @Container
     private static final MSSQLServerContainer SQLSERVER = createSqlServer();
 
-    @SuppressWarnings("resource")
     private static MSSQLServerContainer createSqlServer() {
-        return new MSSQLServerContainer("mcr.microsoft.com/mssql/server:2019-latest")
-                .acceptLicense();
+        MSSQLServerContainer container =
+                new MSSQLServerContainer("mcr.microsoft.com/mssql/server:2019-latest");
+        container.addEnv("ACCEPT_EULA", "Y");
+        return container;
     }
 
     private final CoreConfigAssembler assembler = new CoreConfigAssembler();

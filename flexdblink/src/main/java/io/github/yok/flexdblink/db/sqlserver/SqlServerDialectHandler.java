@@ -6,8 +6,8 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
-import io.github.yok.flexdblink.db.LoadMetadata;
 import io.github.yok.flexdblink.db.FlexibleDateTimeParsers;
+import io.github.yok.flexdblink.db.LoadMetadata;
 import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import io.github.yok.flexdblink.util.LobPathConstants;
 import java.io.BufferedReader;
@@ -287,8 +287,7 @@ public class SqlServerDialectHandler implements DbDialectHandler {
     @Override
     public void prepareConnection(Connection connection) throws SQLException {
         try (Statement st = connection.createStatement()) {
-            st.execute("SET LANGUAGE us_english");
-            st.execute("SET DATEFORMAT ymd");
+            st.execute("SET LANGUAGE us_english; SET DATEFORMAT ymd");
         }
     }
 
@@ -727,17 +726,17 @@ public class SqlServerDialectHandler implements DbDialectHandler {
      */
     @Override
     public Column[] getLobColumns(ITable table) throws DataSetException {
-        Column[] columns = tableColumnsMap.get(
-                table.getTableMetaData().getTableName().toLowerCase(Locale.ROOT));
+        Column[] columns = tableColumnsMap
+                .get(table.getTableMetaData().getTableName().toLowerCase(Locale.ROOT));
         List<String> names = new ArrayList<>();
         for (Column column : table.getTableMetaData().getColumns()) {
             names.add(column.getColumnName());
         }
         List<Column> result = new ArrayList<>();
         for (Column column : columns) {
-            if (names.contains(column.getColumnName()) && isLobType(
-                    column.getDataType().getSqlType(),
-                    normalizeTypeName(column.getDataType().getSqlTypeName()))) {
+            if (names.contains(column.getColumnName())
+                    && isLobType(column.getDataType().getSqlType(),
+                            normalizeTypeName(column.getDataType().getSqlTypeName()))) {
                 result.add(column);
             }
         }

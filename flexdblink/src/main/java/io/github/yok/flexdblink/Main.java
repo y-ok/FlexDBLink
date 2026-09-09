@@ -8,7 +8,6 @@ import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.core.DataDumper;
 import io.github.yok.flexdblink.core.DataLoader;
 import io.github.yok.flexdblink.core.SetupRunner;
-import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.util.ErrorHandler;
 import java.io.BufferedReader;
@@ -19,7 +18,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -169,21 +167,18 @@ public class Main implements CommandLineRunner {
         // Additional tweak: when --target is not specified (empty list), use all DB IDs from
         // application.yml
         if (targetDbIds.isEmpty()) {
-            targetDbIds = connectionConfig.getConnections().stream()
-                    .map(entry -> entry.getId()).collect(Collectors.toList());
+            targetDbIds = connectionConfig.getConnections().stream().map(entry -> entry.getId())
+                    .collect(Collectors.toList());
         }
 
         log.info("Mode: {}, Scenario: {}, Target DBs: {}", mode, scenario, targetDbIds);
-
-        Function<ConnectionConfig.Entry, DbDialectHandler> dialectHandlerProvider =
-                dialectFactory::create;
 
         // Execute
         try {
             if ("load".equals(mode)) {
                 log.info("Starting data load. Scenario [{}], Target DBs {}", scenario, targetDbIds);
 
-                new DataLoader(pathsConfig, connectionConfig, dialectHandlerProvider, dbUnitConfig,
+                new DataLoader(pathsConfig, connectionConfig, dialectFactory, dbUnitConfig,
                         dumpConfig).execute(scenario, targetDbIds);
 
                 log.info("Data load completed. Scenario [{}]", scenario);
@@ -191,7 +186,7 @@ public class Main implements CommandLineRunner {
             } else if ("setup".equals(mode)) {
                 log.info("Starting setup. Target DBs {}", targetDbIds);
 
-                new SetupRunner(connectionConfig, dialectHandlerProvider).execute(targetDbIds);
+                new SetupRunner(connectionConfig, dialectFactory).execute(targetDbIds);
 
                 log.info("Setup completed.");
 
@@ -199,7 +194,7 @@ public class Main implements CommandLineRunner {
                 log.info("Starting data dump. Scenario [{}], Target DBs [{}]", scenario,
                         targetDbIds);
                 new DataDumper(pathsConfig, connectionConfig, filePatternConfig, dumpConfig,
-                        dialectHandlerProvider).execute(scenario, targetDbIds);
+                        dialectFactory).execute(scenario, targetDbIds);
                 log.info("Data dump completed. Scenario [{}]", scenario);
             }
 

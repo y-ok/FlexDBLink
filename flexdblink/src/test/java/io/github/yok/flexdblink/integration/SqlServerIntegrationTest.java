@@ -104,6 +104,24 @@ public class SqlServerIntegrationTest {
     }
 
     @Test
+    void prepareConnection_正常ケース_異なるセッション設定を初期化する_言語と日付順序が従来と同じであること() throws Exception {
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("session_settings"), true, DB_NAME, pathsConfig, connectionConfig,
+                dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection conn = IntegrationTestSupport.openConnection(sqlserver);
+                Statement statement = conn.createStatement()) {
+            statement.execute("SET LANGUAGE British; SET DATEFORMAT dmy");
+            runtime.newDialectHandler().prepareConnection(conn);
+            try (ResultSet rows = statement.executeQuery("SELECT @@LANGUAGE, date_format "
+                    + "FROM sys.dm_exec_sessions WHERE session_id = @@SPID")) {
+                assertTrue(rows.next());
+                assertEquals("us_english", rows.getString(1));
+                assertEquals("ymd", rows.getString(2));
+            }
+        }
+    }
+
+    @Test
     public void execute_正常ケース_SQLServer型をロードする_全列値が登録されること() throws Exception {
         Path dataPath = tempDir.resolve("load_data");
         IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,

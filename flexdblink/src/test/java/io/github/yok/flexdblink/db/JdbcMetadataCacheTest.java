@@ -84,22 +84,19 @@ class JdbcMetadataCacheTest {
         when(first.getMetaData().getColumns(null, null, "T", null)).thenReturn(rows("FIRST"));
         when(second.getMetaData().getColumns(null, null, "T", null)).thenReturn(rows("SECOND"));
         JdbcMetadataCache cache = new JdbcMetadataCache();
-        assertEquals("FIRST", value(cache.wrap(first).getMetaData()
-                .getColumns(null, null, "T", null)));
-        assertEquals("SECOND", value(cache.wrap(second).getMetaData()
-                .getColumns(null, null, "T", null)));
+        assertEquals("FIRST",
+                value(cache.wrap(first).getMetaData().getColumns(null, null, "T", null)));
+        assertEquals("SECOND",
+                value(cache.wrap(second).getMetaData().getColumns(null, null, "T", null)));
     }
 
     @Test
     void clear_正常ケース_スキーマ変更後に破棄する_変更後の列とキーであること() throws Exception {
         Connection jdbc = connection("jdbc:test:one", "USER", null, null);
         DatabaseMetaData original = jdbc.getMetaData();
-        when(original.getColumns(null, "APP", "T", "%"))
-                .thenReturn(rows("OLD"), rows("NEW"));
-        when(original.getPrimaryKeys(null, "APP", "T"))
-                .thenReturn(rows("OLD_PK"), rows("NEW_PK"));
-        when(original.getImportedKeys(null, "APP", "T"))
-                .thenReturn(rows("OLD_FK"), rows("NEW_FK"));
+        when(original.getColumns(null, "APP", "T", "%")).thenReturn(rows("OLD"), rows("NEW"));
+        when(original.getPrimaryKeys(null, "APP", "T")).thenReturn(rows("OLD_PK"), rows("NEW_PK"));
+        when(original.getImportedKeys(null, "APP", "T")).thenReturn(rows("OLD_FK"), rows("NEW_FK"));
         when(original.getColumns(null, "APP", "t", "%")).thenReturn(rows("LOWER"));
         when(original.getColumns(null, "APP", "T", null)).thenReturn(rows("NULL_PATTERN"));
         JdbcMetadataCache cache = new JdbcMetadataCache();
@@ -138,13 +135,13 @@ class JdbcMetadataCacheTest {
         Connection jdbc = connection("jdbc:test:one", "USER", null, "APP");
         SQLException failure = new SQLException("unavailable");
         when(jdbc.getAutoCommit()).thenThrow(failure);
-        when(jdbc.getMetaData().getColumns(null, "APP", "T", "%"))
-                .thenThrow(failure).thenReturn(rows("RETRIED"));
+        when(jdbc.getMetaData().getColumns(null, "APP", "T", "%")).thenThrow(failure)
+                .thenReturn(rows("RETRIED"));
         Connection wrapped = new JdbcMetadataCache().wrap(jdbc);
         assertSame(failure, assertThrows(SQLException.class, wrapped::getAutoCommit));
         DatabaseMetaData metadata = wrapped.getMetaData();
-        assertSame(failure, assertThrows(SQLException.class,
-                () -> metadata.getColumns(null, "APP", "T", "%")));
+        assertSame(failure,
+                assertThrows(SQLException.class, () -> metadata.getColumns(null, "APP", "T", "%")));
         assertEquals("RETRIED", value(metadata.getColumns(null, "APP", "T", "%")));
         verify(jdbc.getMetaData(), times(2)).getColumns(null, "APP", "T", "%");
     }
@@ -155,13 +152,56 @@ class JdbcMetadataCacheTest {
         ResultSet broken = mock(ResultSet.class);
         SQLException failure = new SQLException("read failed");
         when(broken.getMetaData()).thenThrow(failure);
-        when(jdbc.getMetaData().getPrimaryKeys(null, "APP", "T"))
-                .thenReturn(broken, rows("RETRIED"));
+        when(jdbc.getMetaData().getPrimaryKeys(null, "APP", "T")).thenReturn(broken,
+                rows("RETRIED"));
         DatabaseMetaData metadata = new JdbcMetadataCache().wrap(jdbc).getMetaData();
-        assertSame(failure, assertThrows(SQLException.class,
-                () -> metadata.getPrimaryKeys(null, "APP", "T")));
+        assertSame(failure,
+                assertThrows(SQLException.class, () -> metadata.getPrimaryKeys(null, "APP", "T")));
         verify(broken).close();
         assertEquals("RETRIED", value(metadata.getPrimaryKeys(null, "APP", "T")));
+    }
+
+    @Test
+    void wrap_正常ケース_テーブルとスキーマを別接続から取得する_DB取得一回と独立したカーソルであること() throws Exception {
+        Connection first = connection("jdbc:test:one", "USER", "CAT", "APP");
+        Connection second = connection("jdbc:test:one", "USER", "CAT", "APP");
+        DatabaseMetaData original = first.getMetaData();
+        when(original.getTables("CAT", "APP", "%", new String[] {"TABLE"}))
+                .thenReturn(rows("TABLES"), rows("NEW_TABLES"));
+        when(original.getTables("CAT", "APP", "%", new String[] {"VIEW"}))
+                .thenReturn(rows("VIEWS"));
+        when(original.getTables("CAT", "APP", "%", null)).thenReturn(rows("ALL_TYPES"));
+        when(original.getSchemas()).thenReturn(rows("SCHEMAS"), rows("NEW_SCHEMAS"));
+        when(original.getSchemas("CAT", "APP")).thenReturn(rows("FILTERED"), rows("NEW_FILTERED"));
+        JdbcMetadataCache cache = new JdbcMetadataCache();
+        DatabaseMetaData a = cache.wrap(first).getMetaData();
+        String[] types = {"TABLE"};
+        assertEquals("TABLES", value(a.getTables("CAT", "APP", "%", types)));
+        verify(original).getTables("CAT", "APP", "%", new String[] {"TABLE"});
+        types[0] = "VIEW";
+        assertEquals("VIEWS", value(a.getTables("CAT", "APP", "%", types)));
+        assertEquals("ALL_TYPES", value(a.getTables("CAT", "APP", "%", null)));
+        assertEquals("SCHEMAS", value(a.getSchemas()));
+        assertEquals("FILTERED", value(a.getSchemas("CAT", "APP")));
+        DatabaseMetaData b = cache.wrap(second).getMetaData();
+        try (ResultSet one = b.getTables("CAT", "APP", "%", new String[] {"TABLE"});
+                ResultSet two = b.getTables("CAT", "APP", "%", new String[] {"TABLE"})) {
+            assertTrue(one.next());
+            assertEquals("TABLES", one.getString(1));
+            assertEquals("TABLES", value(two));
+            assertFalse(one.next());
+        }
+        assertEquals("SCHEMAS", value(b.getSchemas()));
+        assertEquals("FILTERED", value(b.getSchemas("CAT", "APP")));
+        verify(original).getSchemas();
+        verify(original).getSchemas("CAT", "APP");
+        verify(second.getMetaData(), never()).getTables(any(), any(), any(), any());
+        verify(second.getMetaData(), never()).getSchemas();
+        verify(second.getMetaData(), never()).getSchemas(any(), any());
+        cache.clear();
+        assertEquals("NEW_TABLES", value(a.getTables("CAT", "APP", "%", new String[] {"TABLE"})));
+        assertEquals("NEW_SCHEMAS", value(a.getSchemas()));
+        assertEquals("NEW_FILTERED", value(a.getSchemas("CAT", "APP")));
     }
 
     private Connection connection(String url, String user, String catalog, String schema)

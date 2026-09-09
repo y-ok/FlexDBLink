@@ -15,11 +15,9 @@ import java.util.Collections;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.dbunit.database.DatabaseConnection;
-import org.dbunit.dataset.Column;
 import org.dbunit.dataset.DefaultDataSet;
 import org.dbunit.dataset.IDataSet;
 import org.dbunit.dataset.ITable;
-import org.dbunit.dataset.filter.DefaultColumnFilter;
 import org.dbunit.operation.DatabaseOperation;
 
 /**
@@ -93,18 +91,7 @@ final class TransactionalDataLoader {
             }
             ITable base = parsed.getTable(table);
             ITable wrapped = new LobResolvingTableWrapper(base, directory, dialect);
-            Column[] lobColumns = new Column[0];
-            if (files.isCsv(table)) {
-                lobColumns = dialect.getLobColumns(base);
-            }
-            if (lobColumns.length > 0
-                    && !dialect.hasNotNullLobColumn(jdbc, schema, table, lobColumns)) {
-                insert.execute(db, new DefaultDataSet(
-                        DefaultColumnFilter.excludedColumnsTable(base, lobColumns)));
-                DatabaseOperation.UPDATE.execute(db, new DefaultDataSet(wrapped));
-            } else {
-                insert.execute(db, new DefaultDataSet(wrapped));
-            }
+            insert.execute(db, new DefaultDataSet(wrapped));
             log.info("[{}] Table[{}] loaded (target rows={}, loaded rows={})", entry.getId(),
                     table, base.getRowCount(), base.getRowCount());
         }

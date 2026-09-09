@@ -35,7 +35,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
-import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedConstruction;
@@ -208,10 +207,8 @@ class MainTest {
     void run_正常ケース_方言プロバイダがFactoryへ委譲する_ハンドラが返ること() {
         try (MockedConstruction<DataLoader> mocked =
                 mockConstruction(DataLoader.class, (loader, context) -> {
-                    @SuppressWarnings("unchecked")
-                    Function<ConnectionConfig.Entry, DbDialectHandler> dialectProvider =
-                            (Function<ConnectionConfig.Entry, DbDialectHandler>) context.arguments()
-                                    .get(2);
+                    DbDialectHandlerFactory dialectProvider =
+                            (DbDialectHandlerFactory) context.arguments().get(2);
                     ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
                     entry.setId("dbX");
                     DbDialectHandler handler = mock(DbDialectHandler.class);
@@ -230,10 +227,8 @@ class MainTest {
     void run_正常ケース_方言プロバイダにnullユーザーEntryを渡す_例外なくハンドラが返ること() {
         try (MockedConstruction<DataLoader> mocked =
                 mockConstruction(DataLoader.class, (loader, context) -> {
-                    @SuppressWarnings("unchecked")
-                    Function<ConnectionConfig.Entry, DbDialectHandler> dialectProvider =
-                            (Function<ConnectionConfig.Entry, DbDialectHandler>) context.arguments()
-                                    .get(2);
+                    DbDialectHandlerFactory dialectProvider =
+                            (DbDialectHandlerFactory) context.arguments().get(2);
                     ConnectionConfig.Entry entry = new ConnectionConfig.Entry();
                     entry.setId("db1");
                     entry.setUser(null);

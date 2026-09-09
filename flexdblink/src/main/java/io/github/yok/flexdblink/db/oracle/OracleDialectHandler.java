@@ -398,7 +398,6 @@ public class OracleDialectHandler implements DbDialectHandler {
      * <li>NLS_TIMESTAMP_FORMAT</li>
      * <li>NLS_NUMERIC_CHARACTERS</li>
      * <li>TIME_ZONE</li>
-     * <li>CURRENT_SCHEMA</li>
      * </ul>
      *
      * @param connection JDBC connection to initialize
@@ -409,14 +408,11 @@ public class OracleDialectHandler implements DbDialectHandler {
         String dateFormat = "YYYY-MM-DD HH24:MI:SS";
         String timestampFormat = "YYYY-MM-DD HH24:MI:SS.FF";
         String numericChars = ".,";
-        String schema = connection.getSchema();
         try (Statement stmt = connection.createStatement()) {
-            stmt.execute("ALTER SESSION SET NLS_DATE_FORMAT = '" + dateFormat + "'");
-            stmt.execute("ALTER SESSION SET NLS_TIMESTAMP_FORMAT = '" + timestampFormat + "'");
-            stmt.execute("ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '" + numericChars + "'");
-            stmt.execute("ALTER SESSION SET TIME_ZONE = '" + OracleTimeZoneSupport.SESSION_TIME_ZONE
-                    + "'");
-            stmt.execute("ALTER SESSION SET CURRENT_SCHEMA = " + schema);
+            stmt.execute("ALTER SESSION SET NLS_DATE_FORMAT = '" + dateFormat
+                    + "' NLS_TIMESTAMP_FORMAT = '" + timestampFormat
+                    + "' NLS_NUMERIC_CHARACTERS = '" + numericChars + "' TIME_ZONE = '"
+                    + OracleTimeZoneSupport.SESSION_TIME_ZONE + "'");
         }
     }
 

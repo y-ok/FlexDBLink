@@ -68,8 +68,8 @@ public class SqlServerDialectHandlerTest {
 
         handler.prepareConnection(connection);
 
-        verify(statement).execute("SET LANGUAGE us_english");
-        verify(statement).execute("SET DATEFORMAT ymd");
+        verify(statement).execute(any(String.class));
+        verify(statement).execute("SET LANGUAGE us_english; SET DATEFORMAT ymd");
     }
 
     @Test

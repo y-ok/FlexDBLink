@@ -607,12 +607,19 @@ Simply annotate your test with `@LoadData` to automatically inject the dataset b
 Load preparation uses the existing transaction connection and reads metadata only
 for the selected tables. Each selected dataset file is parsed once per load;
 loading does not rewrite `table-ordering.txt`. Data files are refreshed for every
-load. Column, primary-key, and foreign-key metadata are reused within the test class,
+load. Table, schema, column, primary-key, and foreign-key metadata are reused within the test class,
 keyed by the actual JDBC URL, user, catalog, schema, and exact lookup arguments.
 Fixed configuration and DataSource bean mappings are also reused within the class.
 Metadata snapshots retain no connections or live result sets and are cleared at
 class initialization and completion. Each test still receives its own data load
 and the same transaction rollback behavior.
+
+`@LoadData` replaces the selected tables with the specified scenario's dataset; it does not
+combine `pre` and scenario data. Each row is inserted with all supplied columns, including LOBs,
+without a subsequent LOB UPDATE. Foreign-key ordering and rollback still apply.
+
+Session initialization uses one JDBC execution per load. SQL Server sends its language and
+date-format statements together in that execution.
 
 Metadata is automatically reused without additional annotation settings. Schema
 definitions must remain stable within the test class.
@@ -768,9 +775,12 @@ flexdblink.load.datasource.bbb=bbbRoutingDataSource
 | `CLOB` / `NCLOB` / `BLOB` | External file reference via `file:xxx` |
 | `NUMBER`, `VARCHAR2`, `CHAR`, `NVARCHAR2`, `NCHAR`, `RAW`, `BINARY_FLOAT`, `BINARY_DOUBLE` | Standard support |
 
-Oracle CLOB loading uses length-qualified character streams for nonempty values up to 32,766
-Java characters. Larger values retain locator binding to preserve JDBC batching. Empty CLOBs
-remain distinct from SQL NULL, and BLOB loading continues to use `setBytes`. The Oracle
+Oracle CLOB loading uses `OraclePreparedStatement.setStringForClob` for nonempty values. The
+driver handles binding size and temporary LOB cleanup while preserving supplementary characters.
+Empty CLOBs use `SELECT EMPTY_CLOB() FROM DUAL`, fetched once when needed by the load's data type
+factory and reused across its columns and rows. The literal is outside the metadata cache,
+allocates no temporary LOB, and remains distinct from SQL NULL. BLOB loading continues to use
+`setBytes`. The Oracle
 integration tests cover mixed batches with Japanese text, supplementary characters, CLOBs
 above the driver binding boundary, multi-megabyte CLOBs, and 512 KiB BLOBs.
 

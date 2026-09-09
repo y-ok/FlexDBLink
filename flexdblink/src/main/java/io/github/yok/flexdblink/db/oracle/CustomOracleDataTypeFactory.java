@@ -1,15 +1,17 @@
 package io.github.yok.flexdblink.db.oracle;
 
-import java.io.StringReader;
 import java.sql.Clob;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.Locale;
 import lombok.extern.slf4j.Slf4j;
+import oracle.jdbc.OraclePreparedStatement;
 import org.dbunit.dataset.ITable;
 import org.dbunit.dataset.datatype.AbstractDataType;
 import org.dbunit.dataset.datatype.BlobDataType;
@@ -29,8 +31,7 @@ import org.dbunit.ext.oracle.OracleDataTypeFactory;
  * <li>Avoid {@link ClassCastException} caused by DBUnit’s default Oracle BLOB/CLOB implementation
  * attempting to cast to {@code oracle.jdbc.OracleConnection} when the connection is wrapped by a
  * pool (e.g., HikariCP’s {@code HikariProxyConnection}).</li>
- * <li>Insert BLOB/CLOB using <b>pure JDBC</b> only, without any Oracle-specific API (no
- * {@code oracle.sql.BLOB/CLOB}).</li>
+ * <li>Use JDBC binding without casting pooled connections to Oracle connection classes.</li>
  * <li>Keep mapping of INTERVAL YEAR TO MONTH / INTERVAL DAY TO SECOND to {@link DataType#VARCHAR},
  * same as the conventional behavior.</li>
  * </ul>
@@ -40,8 +41,8 @@ import org.dbunit.ext.oracle.OracleDataTypeFactory;
  * </p>
  * <ul>
  * <li><b>BLOB:</b> use {@link PreparedStatement#setBytes(int, byte[])} (no InputStream).</li>
- * <li><b>CLOB:</b> Small nonempty values use length-qualified character streams. Larger values
- * retain locator binding for batch execution; empty values remain distinct from SQL NULL.</li>
+ * <li><b>CLOB:</b> Nonempty values use Oracle's string binding API; empty values use an empty LOB
+ * literal fetched once for this factory's connection.</li>
  * <li>Extend {@link OracleDataTypeFactory} and replace only BLOB/CLOB with safe implementations;
  * delegate all other types to the parent.</li>
  * </ul>
@@ -59,6 +60,11 @@ import org.dbunit.ext.oracle.OracleDataTypeFactory;
  */
 @Slf4j
 public class CustomOracleDataTypeFactory extends OracleDataTypeFactory {
+    /**
+     * Empty LOB literal shared by columns during this factory's load, outside metadata snapshots.
+     */
+    private Clob emptyClob;
+
     private static final int ORACLE_TIMESTAMPLTZ_SQL_TYPE = -102;
     private static final DataType ORACLE_TIMESTAMPTZ_DATA_TYPE =
             new OracleTimestampWithTimeZoneDataType();
@@ -75,9 +81,9 @@ public class CustomOracleDataTypeFactory extends OracleDataTypeFactory {
             log.debug("Mapping Oracle BLOB -> SafeOracleBlobDataType (JDBC only, setBytes)");
             return new SafeOracleBlobDataType();
         }
-        // ---- Replace CLOB with a safe implementation (use JDBC-standard Clob) ----
+        // ---- Replace CLOB with string binding ----
         if (sqlType == Types.CLOB || "CLOB".equalsIgnoreCase(sqlTypeName)) {
-            log.debug("Mapping Oracle CLOB -> SafeOracleClobDataType (size-aware JDBC binding)");
+            log.debug("Mapping Oracle CLOB -> SafeOracleClobDataType (Oracle string binding)");
             return new SafeOracleClobDataType();
         }
         if (isTimestampWithTimeZoneType(sqlTypeName)) {
@@ -149,7 +155,7 @@ public class CustomOracleDataTypeFactory extends OracleDataTypeFactory {
     }
 
     /**
-     * {@link ClobDataType} derivative that sets CLOBs using pure JDBC without Oracle-specific APIs.
+     * {@link ClobDataType} derivative that binds CLOBs without retaining temporary LOB resources.
      *
      * <p>
      * <b>Accepted values</b>
@@ -164,27 +170,21 @@ public class CustomOracleDataTypeFactory extends OracleDataTypeFactory {
      * <b>Implementation details</b>
      * </p>
      * <ul>
-     * <li>Bind small nonempty values with a length-qualified character stream to avoid temporary
-     * LOB writes. Above Oracle JDBC's direct-binding limit, retain locator binding so large
-     * values can still be batched.</li>
-     * <li>Bind an empty JDBC CLOB for empty strings because Oracle treats empty character streams
-     * as SQL NULL. The statement must retain the LOB until batch execution.</li>
+     * <li>Use {@code setStringForClob} so the driver handles binding size and temporary LOB cleanup
+     * without splitting supplementary characters at stream buffer boundaries.</li>
+     * <li>Fetch an empty LOB literal lazily because empty readers become SQL NULL. The literal is
+     * shared within this factory's load and allocates no temporary LOB.</li>
      * </ul>
      */
-    private static final class SafeOracleClobDataType extends ClobDataType {
-
-        /**
-         * Maximum SQL character bind length before Oracle JDBC switches to stream binding.
-         */
-        private static final int MAX_DIRECT_BIND_CHARACTERS = 32766;
+    private final class SafeOracleClobDataType extends ClobDataType {
 
         /**
          * Binds a CLOB value while preserving the distinction between SQL NULL and an empty LOB.
          *
          * @param value CLOB content, {@code null}, or {@link ITable#NO_VALUE}
          * @param column one-based prepared statement parameter index
-         * @param statement target statement; streams remain readable until batch execution
-         * @throws SQLException if the driver cannot bind the value or create an empty CLOB
+         * @param statement target statement; the driver owns temporary LOB cleanup
+         * @throws SQLException if the driver cannot bind the value
          * @throws TypeCastException if the value cannot be converted to CLOB text
          */
         @Override
@@ -199,13 +199,29 @@ public class CustomOracleDataTypeFactory extends OracleDataTypeFactory {
             // Convert via ClobDataType to get String (throws TypeCastException on failure)
             String s = (String) typeCast(value);
 
-            if (s.isEmpty() || s.length() > MAX_DIRECT_BIND_CHARACTERS) {
-                Clob clob = statement.getConnection().createClob();
-                clob.setString(1, s);
-                statement.setClob(column, clob);
+            if (s.isEmpty()) {
+                bindEmptyClob(column, statement);
             } else {
-                statement.setCharacterStream(column, new StringReader(s), (long) s.length());
+                statement.unwrap(OraclePreparedStatement.class).setStringForClob(column, s);
             }
+        }
+
+        /**
+         * Binds an empty LOB without allocating a temporary LOB on the connection.
+         *
+         * @param column one-based prepared statement parameter index
+         * @param statement target statement
+         * @throws SQLException if the driver cannot bind the empty LOB
+         */
+        private void bindEmptyClob(int column, PreparedStatement statement) throws SQLException {
+            if (emptyClob == null) {
+                try (Statement query = statement.getConnection().createStatement();
+                        ResultSet result = query.executeQuery("SELECT EMPTY_CLOB() FROM DUAL")) {
+                    result.next();
+                    emptyClob = result.getClob(1);
+                }
+            }
+            statement.setClob(column, emptyClob);
         }
     }
 
