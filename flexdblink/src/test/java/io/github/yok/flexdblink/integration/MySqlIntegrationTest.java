@@ -101,6 +101,36 @@ public class MySqlIntegrationTest {
     }
 
     @Test
+    void prepareConnection_正常ケース_異なるセッション設定を初期化する_時差と文字コードと照合順序が従来と同じであること()
+            throws Exception {
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("session_settings"), true, DB_NAME, pathsConfig, connectionConfig,
+                dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection conn = IntegrationTestSupport.openConnection(mysql);
+                Statement statement = conn.createStatement()) {
+            statement.execute("SET NAMES utf8mb4");
+            String expectedCollation;
+            try (ResultSet rows = statement.executeQuery("SELECT @@collation_connection")) {
+                assertTrue(rows.next());
+                expectedCollation = rows.getString(1);
+            }
+            statement.execute("SET NAMES latin1");
+            statement.execute("SET time_zone = '+09:00'");
+            runtime.newDialectHandler().prepareConnection(conn);
+            try (ResultSet rows = statement.executeQuery("SELECT @@time_zone, "
+                    + "@@character_set_client, @@character_set_results, "
+                    + "@@character_set_connection, @@collation_connection")) {
+                assertTrue(rows.next());
+                assertEquals("+00:00", rows.getString(1));
+                assertEquals("utf8mb4", rows.getString(2));
+                assertEquals("utf8mb4", rows.getString(3));
+                assertEquals("utf8mb4", rows.getString(4));
+                assertEquals(expectedCollation, rows.getString(5));
+            }
+        }
+    }
+
+    @Test
     public void execute_正常ケース_MySQL型をロードする_全列値が登録されること() throws Exception {
         Path dataPath = tempDir.resolve("load_data");
         IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(dataPath,

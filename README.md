@@ -614,6 +614,9 @@ Metadata snapshots retain no connections or live result sets and are cleared at
 class initialization and completion. Each test still receives its own data load
 and the same transaction rollback behavior.
 
+Session initialization uses one JDBC execution per load. SQL Server sends its language and
+date-format statements together in that execution.
+
 Metadata is automatically reused without additional annotation settings. Schema
 definitions must remain stable within the test class.
 

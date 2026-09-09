@@ -318,8 +318,9 @@ public class MySqlDialectHandler implements DbDialectHandler {
     @Override
     public void prepareConnection(Connection connection) throws SQLException {
         try (Statement st = connection.createStatement()) {
-            st.execute("SET time_zone = '+00:00'");
-            st.execute("SET NAMES utf8mb4");
+            // SET NAMES assigns these three variables and resets the connection collation.
+            st.execute("SET time_zone = '+00:00', character_set_client = 'utf8mb4', "
+                    + "character_set_results = 'utf8mb4', character_set_connection = 'utf8mb4'");
         }
     }
 

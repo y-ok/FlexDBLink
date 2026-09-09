@@ -37,8 +37,10 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -272,11 +274,17 @@ class LoadDataPerformanceRegressionIT {
     }
 
     @Test
-    void executeWithConnection_正常ケース_現在のスキーマに投入する_冗長な再設定がなく設定SQLが五回未満であること() throws Exception {
+    void executeWithConnection_正常ケース_現在のスキーマに投入する_設定SQLが一回で四設定が反映されスキーマが不変であること() throws Exception {
         List<String> sessionSql = new ArrayList<>();
         try (Connection jdbc = open()) {
             jdbc.setAutoCommit(false);
             String originalSchema = jdbc.getSchema();
+            // Start with different values so unchanged defaults cannot satisfy the assertions.
+            try (Statement statement = jdbc.createStatement()) {
+                statement.execute("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY/MM/DD' "
+                        + "NLS_TIMESTAMP_FORMAT = 'YYYY/MM/DD HH24:MI:SS' "
+                        + "NLS_NUMERIC_CHARACTERS = ',.' TIME_ZONE = '+00:00'");
+            }
             Connection monitored = mock(Connection.class, delegatesTo(jdbc));
             doAnswer(invocation -> {
                 Statement delegate = jdbc.createStatement();
@@ -294,18 +302,36 @@ class LoadDataPerformanceRegressionIT {
                 loader.executeWithConnection(directory.toFile(), entry,
                         metadataCache.wrap(monitored));
                 assertLoadedBody(jdbc, "initial");
+                assertSessionSettings(jdbc);
                 assertEquals(originalSchema, jdbc.getSchema());
             } finally {
                 jdbc.rollback();
             }
         }
-        assertAll("Session preparation must omit redundant schema assignment",
+        assertAll("Session preparation must execute once without redundant schema assignment",
                 () -> assertFalse(
                         sessionSql.stream().anyMatch(sql -> sql.contains("CURRENT_SCHEMA")),
                         "The current schema must not be assigned to itself: " + sessionSql),
-                () -> assertTrue(sessionSql.size() < 5,
-                        "Session preparation must execute fewer than five SQL statements: "
+                () -> assertEquals(1, sessionSql.size(),
+                        "Session preparation must execute exactly one SQL statement: "
                                 + sessionSql));
+    }
+
+    private void assertSessionSettings(Connection jdbc) throws Exception {
+        Map<String, String> settings = new HashMap<>();
+        try (Statement statement = jdbc.createStatement();
+                ResultSet rows = statement
+                        .executeQuery("SELECT PARAMETER, VALUE FROM NLS_SESSION_PARAMETERS "
+                                + "WHERE PARAMETER IN ('NLS_DATE_FORMAT', 'NLS_TIMESTAMP_FORMAT', "
+                                + "'NLS_NUMERIC_CHARACTERS') "
+                                + "UNION ALL SELECT 'TIME_ZONE', SESSIONTIMEZONE FROM DUAL")) {
+            while (rows.next()) {
+                settings.put(rows.getString(1), rows.getString(2));
+            }
+        }
+        assertEquals(Map.of("NLS_DATE_FORMAT", "YYYY-MM-DD HH24:MI:SS", "NLS_TIMESTAMP_FORMAT",
+                "YYYY-MM-DD HH24:MI:SS.FF", "NLS_NUMERIC_CHARACTERS", ".,", "TIME_ZONE", "+09:00"),
+                settings);
     }
 
     private Connection open() throws Exception {

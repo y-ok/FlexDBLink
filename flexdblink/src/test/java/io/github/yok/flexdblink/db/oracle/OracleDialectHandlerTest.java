@@ -125,14 +125,11 @@ public class OracleDialectHandlerTest {
         OracleDialectHandler handler = createHandler();
         Connection conn = mock(Connection.class);
         Statement stmt = mock(Statement.class);
-        when(conn.getSchema()).thenReturn("APP");
         when(conn.createStatement()).thenReturn(stmt);
         handler.prepareConnection(conn);
-        verify(stmt).execute("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD HH24:MI:SS'");
-        verify(stmt).execute("ALTER SESSION SET NLS_TIMESTAMP_FORMAT = 'YYYY-MM-DD HH24:MI:SS.FF'");
-        verify(stmt).execute("ALTER SESSION SET NLS_NUMERIC_CHARACTERS = '.,'");
-        verify(stmt).execute("ALTER SESSION SET TIME_ZONE = '+09:00'");
-        verify(stmt).execute("ALTER SESSION SET CURRENT_SCHEMA = APP");
+        verify(stmt).execute("ALTER SESSION SET NLS_DATE_FORMAT = 'YYYY-MM-DD HH24:MI:SS' "
+                + "NLS_TIMESTAMP_FORMAT = 'YYYY-MM-DD HH24:MI:SS.FF' "
+                + "NLS_NUMERIC_CHARACTERS = '.,' TIME_ZONE = '+09:00'");
     }
 
     @Test
