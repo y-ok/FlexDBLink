@@ -7,10 +7,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
+import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -21,6 +28,7 @@ import java.sql.DatabaseMetaData;
 import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Time;
 import java.sql.Timestamp;
@@ -38,6 +46,9 @@ import javax.sql.DataSource;
 import org.apache.commons.io.FileUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 import org.springframework.jdbc.datasource.DataSourceUtils;
@@ -365,7 +376,7 @@ class FlexAssertTest {
             dataSourceUtils.when(() -> DataSourceUtils.getConnection(dataSource))
                     .thenReturn(connection);
             FlexAssert flexAssert = new FlexAssert(Collections.emptySet(), Collections.emptyMap(),
-                    (classRoot, entry, conn) -> {
+                    (classRoot, entry, conn, tables) -> {
                         captured[0] = entry;
                         return dialectHandler;
                     });
@@ -574,8 +585,8 @@ class FlexAssertTest {
         Files.writeString(csv, "ID,NULL_FROM_CSV,LOB_NULL\n1,,file:files/missing.dat\n",
                 StandardCharsets.UTF_8);
 
-        try (MockedStatic<DataSourceUtils> dataSourceUtils = Mockito.mockStatic(
-                DataSourceUtils.class)) {
+        try (MockedStatic<DataSourceUtils> dataSourceUtils =
+                Mockito.mockStatic(DataSourceUtils.class)) {
             dataSourceUtils.when(() -> DataSourceUtils.getConnection(dataSource))
                     .thenReturn(connection);
             createFlexAssert(dialectHandler).assertTable(DB_NAME, "FA_NULL_CASE");
@@ -596,8 +607,8 @@ class FlexAssertTest {
                         sqlTypes(Types.INTEGER, Types.DECIMAL), typeNames("INTEGER", "DECIMAL"),
                         row(1, "abc")));
 
-        try (MockedStatic<DataSourceUtils> dataSourceUtils = Mockito.mockStatic(
-                DataSourceUtils.class)) {
+        try (MockedStatic<DataSourceUtils> dataSourceUtils =
+                Mockito.mockStatic(DataSourceUtils.class)) {
             dataSourceUtils.when(() -> DataSourceUtils.getConnection(dataSource))
                     .thenReturn(connection);
             createFlexAssert().assertTable(DB_NAME, "FA_NON_NUMERIC");
@@ -615,14 +626,14 @@ class FlexAssertTest {
         DataSourceRegistry.register(DB_NAME, dataSource);
         Connection connection = mockConnection("APP_USER",
                 tableSpec("FA_TIMESTAMP_RAW", columns("ID", "CREATED_AT"),
-                        sqlTypes(Types.INTEGER, Types.TIMESTAMP),
-                        typeNames("INTEGER", "TIMESTAMP"), row(1, "14:05:30")));
+                        sqlTypes(Types.INTEGER, Types.TIMESTAMP), typeNames("INTEGER", "TIMESTAMP"),
+                        row(1, "14:05:30")));
 
         DbDialectHandler dialectHandler = createDialectHandlerStub();
         when(dialectHandler.isDateTimeTypeForDump(Types.TIMESTAMP, "TIMESTAMP")).thenReturn(false);
 
-        try (MockedStatic<DataSourceUtils> dataSourceUtils = Mockito.mockStatic(
-                DataSourceUtils.class)) {
+        try (MockedStatic<DataSourceUtils> dataSourceUtils =
+                Mockito.mockStatic(DataSourceUtils.class)) {
             dataSourceUtils.when(() -> DataSourceUtils.getConnection(dataSource))
                     .thenReturn(connection);
             createFlexAssert(dialectHandler).assertTable(DB_NAME, "FA_TIMESTAMP_RAW");
@@ -640,17 +651,139 @@ class FlexAssertTest {
         DataSourceRegistry.register(DB_NAME, dataSource);
         Connection connection = mockConnection("APP_USER",
                 tableSpec("FA_TIMESTAMP_NAME", columns("ID", "EVENT_TIMESTAMP"),
-                        sqlTypes(Types.INTEGER, Types.TIMESTAMP),
-                        typeNames("INTEGER", "TIMESTAMP"), row(1, "14:05:30")));
+                        sqlTypes(Types.INTEGER, Types.TIMESTAMP), typeNames("INTEGER", "TIMESTAMP"),
+                        row(1, "14:05:30")));
 
         DbDialectHandler dialectHandler = createDialectHandlerStub();
         when(dialectHandler.isDateTimeTypeForDump(Types.TIMESTAMP, "TIMESTAMP")).thenReturn(false);
 
-        try (MockedStatic<DataSourceUtils> dataSourceUtils = Mockito.mockStatic(
-                DataSourceUtils.class)) {
+        try (MockedStatic<DataSourceUtils> dataSourceUtils =
+                Mockito.mockStatic(DataSourceUtils.class)) {
             dataSourceUtils.when(() -> DataSourceUtils.getConnection(dataSource))
                     .thenReturn(connection);
             createFlexAssert(dialectHandler).assertTable(DB_NAME, "FA_TIMESTAMP_NAME");
+        }
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true,success", "false,success", "true,mismatch", "false,mismatch",
+            "true,initialization", "false,initialization"})
+    void assertTable_正常ケース_比較結果によらず既存接続を利用する_対象メタデータだけ初期化して接続解放であること(boolean allTables,
+            String outcome) throws Exception {
+        LoadDataExtension.CURRENT_TEST_CLASS.set(FlexAssertTest.class);
+        LoadDataExtension.CURRENT_SCENARIO.set("selected-metadata");
+        writeExpectedCsv(FlexAssertTest.class, "selected-metadata", DB_NAME, "FA_SELECTED",
+                "ID,NAME\n1,selected\n");
+        writeExpectedCsv(FlexAssertTest.class, "selected-metadata", DB_NAME, "FA_OTHER",
+                "ID,NAME\n1,other\n");
+        DriverManagerDataSource dataSource = createDriverManagerDataSource();
+        DataSourceRegistry.register(DB_NAME, dataSource);
+        String actual = "selected";
+        if (outcome.equals("mismatch")) {
+            actual = "different";
+        }
+        Connection connection = mockConnection("APP_USER",
+                tableSpec("FA_SELECTED", columns("ID", "NAME"),
+                        sqlTypes(Types.INTEGER, Types.VARCHAR), typeNames("INTEGER", "VARCHAR"),
+                        row(1, actual)),
+                tableSpec("FA_OTHER", columns("ID", "NAME"), sqlTypes(Types.INTEGER, Types.VARCHAR),
+                        typeNames("INTEGER", "VARCHAR"), row(1, "other")));
+        List<String> selected = List.of("FA_SELECTED");
+        if (allTables) {
+            selected = List.of("FA_SELECTED", "FA_OTHER");
+        }
+        DbDialectHandler handler = createDialectHandlerStub();
+        try (MockedStatic<DataSourceUtils> connections = Mockito.mockStatic(DataSourceUtils.class);
+                MockedConstruction<DbDialectHandlerFactory> factories =
+                        mockConstruction(DbDialectHandlerFactory.class, (factory, context) -> {
+                            if (outcome.equals("initialization")) {
+                                when(factory.create(any(), same(connection), any()))
+                                        .thenThrow(new SQLException("metadata unavailable"));
+                            } else {
+                                when(factory.create(any(), same(connection), any()))
+                                        .thenReturn(handler);
+                            }
+                        })) {
+            connections.when(() -> DataSourceUtils.getConnection(dataSource))
+                    .thenReturn(connection);
+            org.junit.jupiter.api.function.Executable assertion = () -> {
+                FlexAssert assertionHelper = FlexAssert.withDefaults();
+                if (allTables) {
+                    assertionHelper.assertTables(DB_NAME);
+                } else {
+                    assertionHelper.assertTable(DB_NAME, "FA_SELECTED");
+                }
+            };
+            if (outcome.equals("mismatch")) {
+                assertThrows(AssertionError.class, assertion);
+            } else if (outcome.equals("initialization")) {
+                RuntimeException error = assertThrows(RuntimeException.class, assertion);
+                assertEquals("metadata unavailable", error.getCause().getMessage());
+            } else {
+                org.junit.jupiter.api.Assertions.assertDoesNotThrow(assertion);
+            }
+            assertEquals(1, factories.constructed().size());
+            verify(factories.constructed().get(0)).create(any(), same(connection), eq(selected));
+            verify(factories.constructed().get(0), never()).create(any());
+            connections.verify(() -> DataSourceUtils.getConnection(dataSource));
+            connections.verify(() -> DataSourceUtils.releaseConnection(connection, dataSource));
+            verify(connection, never()).close();
+            verify(connection, never()).commit();
+            verify(connection, never()).rollback();
+        }
+    }
+
+    @Test
+    void assertTables_正常ケース_LOB参照を繰り返してファイルを更新する_比較内だけ再利用して更新後の値との一致であること() throws Exception {
+        LoadDataExtension.CURRENT_TEST_CLASS.set(FlexAssertTest.class);
+        LoadDataExtension.CURRENT_SCENARIO.set("lob-reuse");
+        for (String table : List.of("FA_LOB_A", "FA_LOB_B")) {
+            writeExpectedCsv(FlexAssertTest.class, "lob-reuse", DB_NAME, table,
+                    "ID,BODY,ALIAS,BINARY\n"
+                            + "1,file:files/a.txt,file:files/a.txt,file:files/body.dat\n"
+                            + "2,file:files/a.txt,file:files/a.txt,file:files/body.dat\n"
+                            + "3,file:files/b.txt,file:files/b.txt,file:files/body.dat\n"
+                            + "4,file:files/b.txt,file:files/b.txt,file:files/body.dat\n");
+        }
+        DriverManagerDataSource dataSource = createDriverManagerDataSource();
+        DataSourceRegistry.register(DB_NAME, dataSource);
+        DbDialectHandler handler = createDialectHandlerStub();
+        FlexAssert assertionHelper = createFlexAssert(handler);
+        try (MockedStatic<DataSourceUtils> connections =
+                Mockito.mockStatic(DataSourceUtils.class)) {
+            for (String value : List.of("initial", "updated")) {
+                writeExpectedTextFile(FlexAssertTest.class, "lob-reuse", DB_NAME, "files/a.txt",
+                        value);
+                writeExpectedTextFile(FlexAssertTest.class, "lob-reuse", DB_NAME, "files/b.txt",
+                        "next");
+                writeExpectedBinaryFile(FlexAssertTest.class, "lob-reuse", DB_NAME,
+                        "files/body.dat", new byte[] {1, 2});
+                List<TableSpec> tables = new ArrayList<>();
+                for (String table : List.of("FA_LOB_A", "FA_LOB_B")) {
+                    tables.add(tableSpec(table, columns("ID", "BODY", "ALIAS", "BINARY"),
+                            sqlTypes(Types.INTEGER, Types.CLOB, Types.CLOB, Types.BLOB),
+                            typeNames("INTEGER", "CLOB", "CLOB", "BLOB"),
+                            row(1, value, value, new byte[] {1, 2}),
+                            row(2, value, value, new byte[] {1, 2}),
+                            row(3, "next", "next", new byte[] {1, 2}),
+                            row(4, "next", "next", new byte[] {1, 2})));
+                }
+                Connection connection =
+                        mockConnection("APP_USER", tables.toArray(new TableSpec[0]));
+                connections.when(() -> DataSourceUtils.getConnection(dataSource))
+                        .thenReturn(connection);
+                assertionHelper.assertTables(DB_NAME);
+            }
+        }
+        for (String table : List.of("FA_LOB_A", "FA_LOB_B")) {
+            for (String column : List.of("BODY", "ALIAS")) {
+                verify(handler, times(2)).readLobFile(eq("files/a.txt"), eq(table), eq(column),
+                        any());
+                verify(handler, times(2)).readLobFile(eq("files/b.txt"), eq(table), eq(column),
+                        any());
+            }
+            verify(handler, times(2)).readLobFile(eq("files/body.dat"), eq(table), eq("BINARY"),
+                    any());
         }
     }
 
@@ -661,7 +794,7 @@ class FlexAssertTest {
 
     private FlexAssert createFlexAssert(DbDialectHandler dialectHandler) {
         return new FlexAssert(Collections.emptySet(), Collections.emptyMap(),
-                (classRoot, entry, conn) -> dialectHandler);
+                (classRoot, entry, conn, tables) -> dialectHandler);
     }
 
     private DbDialectHandler createDialectHandlerStub() throws Exception {

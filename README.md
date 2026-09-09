@@ -692,6 +692,11 @@ src/test/resources/<package>/<TestClassName>/<scenario>/expected/<dbName>/files/
 If a method-level `@LoadData` overrides the class-level annotation, `FlexAssert` also uses that
 method-level `scenario` when resolving `expected/<dbName>`.
 
+Assertions initialize dialect metadata using the existing Spring transaction connection and only
+the comparison tables. Connections are released through Spring after each assertion, keeping
+transaction-bound connections available for the test. Repeated LOB file references reuse the last
+normalized value per column within a table comparison. Expected files are reread for each assertion.
+
 ### DataSource Mapping (`flexdblink.properties`)
 
 `@LoadData` resolves the target database by **DataSource bean name**.
