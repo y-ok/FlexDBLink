@@ -210,6 +210,27 @@ public class DateTimeFormatUtilTest {
         assertNull(util.parseConfiguredTimestamp("bad-timestamp"));
     }
 
+    @Test
+    void parseConfiguredTimestamp_異常ケース_ミリ秒の後に余分な文字を付ける_nullであること() {
+        assertNull(createUtil().parseConfiguredTimestamp("2026-02-24 12:34:56.789extra"));
+    }
+
+    @Test
+    void parseConfiguredTimestamp_異常ケース_書式に一致する範囲外の日時を指定する_nullであること() {
+        assertNull(createUtil().parseConfiguredTimestamp("2026-13-24 12:34:56.789"));
+    }
+
+    @Test
+    void parseConfiguredTimestamp_正常ケース_同じ文字列に一致する二書式を指定する_ミリ秒用書式が優先であること() {
+        CsvDateTimeFormatProperties props = new CsvDateTimeFormatProperties();
+        props.setDate("yyyy-MM-dd");
+        props.setTime("HH:mm:ss");
+        props.setDateTime("yyyy-dd-MM HH:mm:ss");
+        props.setDateTimeWithMillis("yyyy-MM-dd HH:mm:ss");
+        assertEquals(LocalDateTime.of(2026, 3, 4, 12, 34, 56),
+                new DateTimeFormatUtil(props).parseConfiguredTimestamp("2026-03-04 12:34:56"));
+    }
+
     /**
      * Creates a {@link DateTimeFormatUtil} backed by mocked date/time format properties.
      *

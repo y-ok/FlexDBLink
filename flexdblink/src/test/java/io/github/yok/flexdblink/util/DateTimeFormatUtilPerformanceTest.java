@@ -12,8 +12,9 @@ import java.util.stream.Collectors;
 import jdk.jfr.Recording;
 import jdk.jfr.consumer.RecordedEvent;
 import jdk.jfr.consumer.RecordingFile;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 /**
  * Observes caught parsing exceptions through JFR without accessing implementation internals.
@@ -23,8 +24,9 @@ class DateTimeFormatUtilPerformanceTest {
     @TempDir
     Path directory;
 
-    @Test
-    void parseConfiguredTimestamp_正常ケース_ミリ秒なしの日時を変換する_内部の解析例外生成がゼロであること()
+    @ParameterizedTest
+    @ValueSource(strings = {"2026-09-10 12:34:56", "2026-09-10 12:34:56.000"})
+    void parseConfiguredTimestamp_正常ケース_設定書式の日時を変換する_内部の解析例外生成がゼロであること(String value)
             throws Exception {
         CsvDateTimeFormatProperties formats = new CsvDateTimeFormatProperties();
         formats.setDate("yyyy-MM-dd");
@@ -40,7 +42,7 @@ class DateTimeFormatUtilPerformanceTest {
             // Confirm that observation works even though the exception is caught.
             assertThrows(DateTimeParseException.class, () -> LocalDateTime.parse("invalid"));
             assertEquals(LocalDateTime.of(2026, 9, 10, 12, 34, 56),
-                    util.parseConfiguredTimestamp("2026-09-10 12:34:56"));
+                    util.parseConfiguredTimestamp(value));
             recording.stop();
             recording.dump(recordingFile);
         }

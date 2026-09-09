@@ -5,6 +5,7 @@ import java.sql.Connection;
 import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
+import java.text.ParsePosition;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -185,10 +186,15 @@ public class DateTimeFormatUtil implements DateTimeFormatSupport {
      */
     @Override
     public LocalDateTime parseConfiguredTimestamp(String value) {
-        try {
-            return LocalDateTime.parse(value, dateTimeMillisFormatter);
-        } catch (DateTimeParseException e) {
-            // fall through to dateTime format
+        // Preserve the configured format priority without an exception for a normal mismatch.
+        ParsePosition position = new ParsePosition(0);
+        dateTimeMillisFormatter.parseUnresolved(value, position);
+        if (position.getErrorIndex() < 0 && position.getIndex() == value.length()) {
+            try {
+                return LocalDateTime.parse(value, dateTimeMillisFormatter);
+            } catch (DateTimeParseException e) {
+                // A syntactic match can still contain invalid date/time fields.
+            }
         }
         try {
             return LocalDateTime.parse(value, dateTimeFormatter);
