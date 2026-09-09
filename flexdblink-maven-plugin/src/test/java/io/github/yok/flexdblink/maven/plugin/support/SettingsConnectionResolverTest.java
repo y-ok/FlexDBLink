@@ -17,8 +17,8 @@ import org.apache.maven.settings.crypto.SettingsDecrypter;
 import org.apache.maven.settings.crypto.SettingsDecryptionRequest;
 import org.apache.maven.settings.crypto.SettingsDecryptionResult;
 import org.apache.maven.shared.utils.xml.Xpp3Dom;
-import org.springframework.lang.NonNull;
 import org.junit.jupiter.api.Test;
+import org.springframework.lang.NonNull;
 
 class SettingsConnectionResolverTest {
 

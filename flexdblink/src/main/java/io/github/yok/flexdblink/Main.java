@@ -169,8 +169,8 @@ public class Main implements CommandLineRunner {
         // Additional tweak: when --target is not specified (empty list), use all DB IDs from
         // application.yml
         if (targetDbIds.isEmpty()) {
-            targetDbIds = connectionConfig.getConnections().stream()
-                    .map(entry -> entry.getId()).collect(Collectors.toList());
+            targetDbIds = connectionConfig.getConnections().stream().map(entry -> entry.getId())
+                    .collect(Collectors.toList());
         }
 
         log.info("Mode: {}, Scenario: {}, Target DBs: {}", mode, scenario, targetDbIds);
