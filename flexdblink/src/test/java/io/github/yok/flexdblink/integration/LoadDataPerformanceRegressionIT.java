@@ -1,8 +1,11 @@
 package io.github.yok.flexdblink.integration;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
@@ -23,14 +26,17 @@ import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.db.JdbcMetadataCache;
 import io.github.yok.flexdblink.util.DateTimeFormatUtil;
+import io.github.yok.flexdblink.util.ErrorHandler;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -38,6 +44,8 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.oracle.OracleContainer;
@@ -102,10 +110,11 @@ class LoadDataPerformanceRegressionIT {
         entry.setUser(ORACLE.getUsername());
     }
 
-    @Test
-    void executeWithConnection_正常ケース_大きいCLOBを同じ接続で投入してロールバックする_一時LOB数が開始時と同じであること()
+    @ParameterizedTest
+    @ValueSource(ints = {0, 32766, 32767, 1_000_000})
+    void executeWithConnection_正常ケース_CLOBを同じ接続で投入してロールバックする_一時LOB数が開始時と同じであること(int length)
             throws Exception {
-        String body = "x".repeat(1_000_000);
+        String body = "x".repeat(length);
         Files.writeString(directory.resolve("files/body.txt"), body);
         try (Connection jdbc = open()) {
             jdbc.setAutoCommit(false);
@@ -124,6 +133,110 @@ class LoadDataPerformanceRegressionIT {
             }
             assertEquals(List.of(baseline, baseline, baseline), remaining,
                     "Temporary CLOBs must be released after each load, including rollback.");
+        }
+    }
+
+    @Test
+    void executeWithConnection_正常ケース_親子テーブルに複数LOBを投入する_UPDATEなしで全内容の一致とロールバックであること()
+            throws Exception {
+        List<String> bodies = Arrays.asList(null, "", "日本語😀", "あ".repeat(32766),
+                "あ".repeat(32767), "日本語😀".repeat(300000));
+        String backup = "複製😀".repeat(10000);
+        byte[] binary = new byte[512 * 1024];
+        Arrays.fill(binary, (byte) 0xa5);
+        Files.writeString(directory.resolve("files/backup.txt"), backup);
+        Files.write(directory.resolve("files/payload.bin"), binary);
+        StringBuilder csv = new StringBuilder("ID,BODY,BACKUP,PAYLOAD,NOTE\n");
+        for (int row = 0; row < bodies.size(); row++) {
+            csv.append(row).append(',');
+            String body = bodies.get(row);
+            if (body == null) {
+                csv.append("null");
+            } else {
+                String name = "body" + row + ".txt";
+                Files.writeString(directory.resolve("files").resolve(name), body);
+                csv.append("file:").append(name);
+            }
+            csv.append(",file:backup.txt,file:payload.bin,note").append(row).append('\n');
+        }
+        List<String> preparedSql = new ArrayList<>();
+        try (Connection jdbc = open(); Statement statement = jdbc.createStatement()) {
+            for (String table : tables) {
+                statement.execute("ALTER TABLE " + table
+                        + " ADD (BACKUP CLOB, PAYLOAD BLOB, NOTE VARCHAR2(40))");
+                statement.execute("INSERT INTO " + table + " (ID, BODY) VALUES (99, 'original')");
+                Files.writeString(directory.resolve(table + ".csv"), csv);
+            }
+            statement.execute("ALTER TABLE " + tables.get(1) + " ADD FOREIGN KEY (ID) REFERENCES "
+                    + tables.get(0) + " (ID)");
+            jdbc.setAutoCommit(false);
+            Connection monitored = mock(Connection.class, delegatesTo(jdbc));
+            doAnswer(invocation -> {
+                String sql = invocation.getArgument(0);
+                preparedSql.add(sql.toUpperCase(Locale.ROOT));
+                return jdbc.prepareStatement(sql);
+            }).when(monitored).prepareStatement(anyString());
+            ErrorHandler.disableExitForCurrentThread();
+            try {
+                loader.executeWithConnection(directory.toFile(), entry,
+                        metadataCache.wrap(monitored));
+                for (String table : tables) {
+                    try (ResultSet rows = statement.executeQuery(
+                            "SELECT ID, BODY, BACKUP, PAYLOAD, NOTE FROM " + table + " ORDER BY ID")) {
+                        for (int row = 0; row < bodies.size(); row++) {
+                            assertTrue(rows.next());
+                            assertEquals(row, rows.getInt(1));
+                            assertEquals(bodies.get(row), rows.getString(2));
+                            assertEquals(backup, rows.getString(3));
+                            assertArrayEquals(binary, rows.getBytes(4));
+                            assertEquals("note" + row, rows.getString(5));
+                        }
+                        assertFalse(rows.next());
+                    }
+                }
+                assertEquals(2, preparedSql.stream().filter(sql -> sql.startsWith("INSERT")).count());
+                assertEquals(0, preparedSql.stream().filter(sql -> sql.startsWith("UPDATE")).count());
+            } finally {
+                ErrorHandler.restoreExitForCurrentThread();
+                jdbc.rollback();
+            }
+            for (String table : tables) {
+                try (ResultSet rows = statement.executeQuery("SELECT ID, BODY FROM " + table)) {
+                    assertTrue(rows.next());
+                    assertEquals(99, rows.getInt(1));
+                    assertEquals("original", rows.getString(2));
+                    assertFalse(rows.next());
+                }
+            }
+            assertEquals(0, temporaryLobCount(jdbc));
+        }
+    }
+
+    @Test
+    void executeWithConnection_異常ケース_CLOBのバッチ投入で主キーを重複させる_ロールバック後の一時LOB数が開始時と同じであること()
+            throws Exception {
+        Files.writeString(directory.resolve("files/body.txt"), "x".repeat(1_000_000));
+        for (String table : tables) {
+            Files.writeString(directory.resolve(table + ".csv"),
+                    "ID,BODY\n1,file:body.txt\n1,file:body.txt\n");
+        }
+        try (Connection jdbc = open()) {
+            jdbc.setAutoCommit(false);
+            long baseline = temporaryLobCount(jdbc);
+            ErrorHandler.disableExitForCurrentThread();
+            try {
+                IllegalStateException failure = assertThrows(IllegalStateException.class,
+                        () -> loader.executeWithConnection(directory.toFile(), entry,
+                                metadataCache.wrap(jdbc)));
+                SQLException sql =
+                        assertInstanceOf(SQLException.class, failure.getCause().getCause());
+                assertEquals(1, sql.getErrorCode());
+            } finally {
+                ErrorHandler.restoreExitForCurrentThread();
+                jdbc.rollback();
+            }
+            assertEmptyTables(jdbc);
+            assertEquals(baseline, temporaryLobCount(jdbc));
         }
     }
 

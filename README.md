@@ -768,9 +768,12 @@ flexdblink.load.datasource.bbb=bbbRoutingDataSource
 | `CLOB` / `NCLOB` / `BLOB` | External file reference via `file:xxx` |
 | `NUMBER`, `VARCHAR2`, `CHAR`, `NVARCHAR2`, `NCHAR`, `RAW`, `BINARY_FLOAT`, `BINARY_DOUBLE` | Standard support |
 
-Oracle CLOB loading uses length-qualified character streams for nonempty values up to 32,766
-Java characters. Larger values retain locator binding to preserve JDBC batching. Empty CLOBs
-remain distinct from SQL NULL, and BLOB loading continues to use `setBytes`. The Oracle
+Oracle CLOB loading uses `OraclePreparedStatement.setStringForClob` for nonempty values. The
+driver handles binding size and temporary LOB cleanup while preserving supplementary characters.
+Empty CLOBs use `SELECT EMPTY_CLOB() FROM DUAL`, fetched once when needed by the load's data type
+factory and reused across its columns and rows. The literal is outside the metadata cache,
+allocates no temporary LOB, and remains distinct from SQL NULL. BLOB loading continues to use
+`setBytes`. The Oracle
 integration tests cover mixed batches with Japanese text, supplementary characters, CLOBs
 above the driver binding boundary, multi-megabyte CLOBs, and 512 KiB BLOBs.
 

@@ -1,30 +1,32 @@
 package io.github.yok.flexdblink.db.oracle;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import java.io.Reader;
 import java.sql.Clob;
-import java.sql.SQLException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.sql.Timestamp;
 import java.sql.Types;
 import java.time.OffsetDateTime;
 import java.util.stream.Stream;
+import oracle.jdbc.OraclePreparedStatement;
 import org.dbunit.dataset.ITable;
 import org.dbunit.dataset.datatype.DataType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
-import org.mockito.ArgumentCaptor;
 
 class CustomOracleDataTypeFactoryTest {
 
@@ -166,70 +168,74 @@ class CustomOracleDataTypeFactoryTest {
     }
 
     @ParameterizedTest
-    @MethodSource("smallClobValues")
-    void setSqlValue_正常ケース_日本語と補助文字をバインドする_元の内容と指定した文字数であること(String expected)
-            throws Exception {
+    @MethodSource("clobValues")
+    void setSqlValue_正常ケース_日本語と大容量文字列をバインドする_元の内容であること(String expected) throws Exception {
         DataType type = new CustomOracleDataTypeFactory().createDataType(Types.CLOB, "CLOB");
         PreparedStatement statement = mock(PreparedStatement.class);
+        OraclePreparedStatement oracle = mock(OraclePreparedStatement.class);
+        when(statement.unwrap(OraclePreparedStatement.class)).thenReturn(oracle);
         type.setSqlValue(expected, 1, statement);
-        ArgumentCaptor<Reader> reader = ArgumentCaptor.forClass(Reader.class);
-        verify(statement).setCharacterStream(eq(1), reader.capture(), eq((long) expected.length()));
-        StringBuilder actual = new StringBuilder();
-        try (Reader input = reader.getValue()) {
-            char[] buffer = new char[8192];
-            int count;
-            while ((count = input.read(buffer)) != -1) {
-                actual.append(buffer, 0, count);
-            }
-        }
-        assertEquals(expected, actual.toString());
+        verify(oracle).setStringForClob(1, expected);
         verify(statement, never()).getConnection();
     }
 
-    private static Stream<String> smallClobValues() {
-        return Stream.of("日本語😀", "あ".repeat(32766));
-    }
-
-    @ParameterizedTest
-    @MethodSource("largeClobValues")
-    void setSqlValue_正常ケース_大容量文字列をバインドする_元の内容を持つバッチ用CLOBであること(String expected)
-            throws Exception {
-        DataType type = new CustomOracleDataTypeFactory().createDataType(Types.CLOB, "CLOB");
-        PreparedStatement statement = mock(PreparedStatement.class);
-        Connection connection = mock(Connection.class);
-        Clob clob = mock(Clob.class);
-        when(statement.getConnection()).thenReturn(connection);
-        when(connection.createClob()).thenReturn(clob);
-        type.setSqlValue(expected, 1, statement);
-        verify(clob).setString(1, expected);
-        verify(statement).setClob(1, clob);
-    }
-
-    private static Stream<String> largeClobValues() {
-        return Stream.of("あ".repeat(32767), "日本語😀".repeat(1048576));
+    private static Stream<String> clobValues() {
+        return Stream.of("日本語😀", "あ".repeat(32766), "あ".repeat(32767),
+                "日本語😀".repeat(1048576));
     }
 
     @Test
-    void setSqlValue_正常ケース_空文字をバインドする_NULLと異なる空CLOBであること() throws Exception {
-        DataType type = new CustomOracleDataTypeFactory().createDataType(Types.CLOB, "CLOB");
+    void setSqlValue_正常ケース_複数列に空文字を繰り返しバインドする_一度取得した空CLOBの再利用であること() throws Exception {
+        CustomOracleDataTypeFactory factory = new CustomOracleDataTypeFactory();
+        DataType first = factory.createDataType(Types.CLOB, "CLOB");
+        DataType second = factory.createDataType(Types.CLOB, "CLOB");
         PreparedStatement statement = mock(PreparedStatement.class);
         Connection connection = mock(Connection.class);
-        Clob clob = mock(Clob.class);
+        Statement query = mock(Statement.class);
+        ResultSet result = mock(ResultSet.class);
+        Clob empty = mock(Clob.class);
         when(statement.getConnection()).thenReturn(connection);
-        when(connection.createClob()).thenReturn(clob);
-        type.setSqlValue("", 1, statement);
-        verify(statement).setClob(1, clob);
+        when(connection.createStatement()).thenReturn(query);
+        when(query.executeQuery("SELECT EMPTY_CLOB() FROM DUAL")).thenReturn(result);
+        when(result.getClob(1)).thenReturn(empty);
+        first.setSqlValue("", 1, statement);
+        first.setSqlValue("", 1, statement);
+        second.setSqlValue("", 2, statement);
+        verify(query).executeQuery("SELECT EMPTY_CLOB() FROM DUAL");
+        verify(result).next();
+        verify(result).close();
+        verify(query).close();
+        verify(statement, times(2)).setClob(1, empty);
+        verify(statement).setClob(2, empty);
         verify(statement, never()).setNull(1, Types.CLOB);
+        verify(statement, never()).setNull(2, Types.CLOB);
     }
 
     @Test
-    void setSqlValue_異常ケース_ストリームのバインドが失敗する_元のSQLExceptionであること() throws Exception {
+    void setSqlValue_異常ケース_文字列のバインドが失敗する_元のSQLExceptionであること() throws Exception {
         DataType type = new CustomOracleDataTypeFactory().createDataType(Types.CLOB, "CLOB");
         PreparedStatement statement = mock(PreparedStatement.class);
+        OraclePreparedStatement oracle = mock(OraclePreparedStatement.class);
+        when(statement.unwrap(OraclePreparedStatement.class)).thenReturn(oracle);
         SQLException failure = new SQLException("bind failed");
-        doThrow(failure).when(statement).setCharacterStream(eq(1), any(Reader.class), eq(3L));
-        assertSame(failure, assertThrows(SQLException.class,
-                () -> type.setSqlValue("abc", 1, statement)));
+        doThrow(failure).when(oracle).setStringForClob(1, "abc");
+        assertSame(failure,
+                assertThrows(SQLException.class, () -> type.setSqlValue("abc", 1, statement)));
+    }
+
+    @Test
+    void setSqlValue_異常ケース_空CLOBの取得が失敗する_元のSQLExceptionとStatementの解放であること() throws Exception {
+        DataType type = new CustomOracleDataTypeFactory().createDataType(Types.CLOB, "CLOB");
+        PreparedStatement statement = mock(PreparedStatement.class);
+        Connection connection = mock(Connection.class);
+        Statement query = mock(Statement.class);
+        when(statement.getConnection()).thenReturn(connection);
+        when(connection.createStatement()).thenReturn(query);
+        SQLException failure = new SQLException("empty LOB query failed");
+        when(query.executeQuery("SELECT EMPTY_CLOB() FROM DUAL")).thenThrow(failure);
+        assertSame(failure,
+                assertThrows(SQLException.class, () -> type.setSqlValue("", 1, statement)));
+        verify(query).close();
     }
 
     @Test
