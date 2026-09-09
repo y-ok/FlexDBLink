@@ -607,7 +607,7 @@ Simply annotate your test with `@LoadData` to automatically inject the dataset b
 Load preparation uses the existing transaction connection and reads metadata only
 for the selected tables. Each selected dataset file is parsed once per load;
 loading does not rewrite `table-ordering.txt`. Data files are refreshed for every
-load. Column, primary-key, and foreign-key metadata are reused within the test class,
+load. Table, schema, column, primary-key, and foreign-key metadata are reused within the test class,
 keyed by the actual JDBC URL, user, catalog, schema, and exact lookup arguments.
 Fixed configuration and DataSource bean mappings are also reused within the class.
 Metadata snapshots retain no connections or live result sets and are cleared at

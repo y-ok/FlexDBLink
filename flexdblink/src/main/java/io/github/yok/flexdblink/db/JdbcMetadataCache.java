@@ -7,6 +7,7 @@ import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -16,7 +17,7 @@ import javax.sql.rowset.CachedRowSet;
 import javax.sql.rowset.RowSetProvider;
 
 /**
- * Caches JDBC column and key metadata for repeated data loads within one test class.
+ * Caches JDBC table, schema, column, and key metadata for data loads within one test class.
  *
  * <p>
  * Snapshots are disconnected from JDBC resources. Connections, statements, and live result sets are
@@ -28,7 +29,7 @@ import javax.sql.rowset.RowSetProvider;
  */
 public final class JdbcMetadataCache {
     private static final Set<String> CACHED_METHODS =
-            Set.of("getColumns", "getPrimaryKeys", "getImportedKeys");
+            Set.of("getColumns", "getPrimaryKeys", "getImportedKeys", "getTables", "getSchemas");
     private final Map<List<Object>, CachedRowSet> snapshots = new HashMap<>();
 
     /**
@@ -86,8 +87,17 @@ public final class JdbcMetadataCache {
         return (DatabaseMetaData) Proxy.newProxyInstance(JdbcMetadataCache.class.getClassLoader(),
                 new Class<?>[] {DatabaseMetaData.class}, (proxy, method, args) -> {
                     if (CACHED_METHODS.contains(method.getName())) {
-                        List<Object> key = Arrays.asList(identity, method.getName(),
-                                Arrays.asList(args.clone()));
+                        List<Object> parameters = new ArrayList<>();
+                        if (args != null) {
+                            for (Object argument : args) {
+                                if (argument instanceof String[]) {
+                                    parameters.add(Arrays.asList(((String[]) argument).clone()));
+                                } else {
+                                    parameters.add(argument);
+                                }
+                            }
+                        }
+                        List<Object> key = Arrays.asList(identity, method.getName(), parameters);
                         return readMetadata(metadata, method, args, key);
                     }
                     return invokeDelegate(metadata, method, args);
@@ -98,7 +108,7 @@ public final class JdbcMetadataCache {
      * Reads each successful lookup once and returns independent, disconnected cursors.
      *
      * @param metadata live metadata for cache misses only
-     * @param method requested column or key lookup
+     * @param method requested table, schema, column, or key lookup
      * @param args exact JDBC lookup arguments, preserving nulls and identifier case
      * @param key connection identity and lookup parameters
      * @return caller-owned cursor that can be closed without invalidating other readers
