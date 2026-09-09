@@ -38,8 +38,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import org.dbunit.database.DatabaseConnection;
-import org.dbunit.dataset.Column;
-import org.dbunit.dataset.datatype.DataType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.AdditionalAnswers;
@@ -65,7 +63,6 @@ class TransactionalDataLoaderTest {
         when(dialect.resolveSchema(any())).thenReturn("public");
         when(dialect.createDbUnitConnection(any(), eq("public")))
                 .thenReturn(new DatabaseConnection(connection, "public"));
-        when(dialect.getLobColumns(any(org.dbunit.dataset.ITable.class))).thenReturn(new Column[0]);
         when(dialect.convertCsvValueToDbType(anyString(), anyString(), anyString()))
                 .thenAnswer(call -> call.getArgument(2));
         return dialect;
@@ -131,16 +128,15 @@ class TransactionalDataLoaderTest {
             jdbc.setAutoCommit(false);
             Files.writeString(directory.resolve("SAMPLE.csv"), "ID,BODY\n1,file:body.txt\n");
             DbDialectHandler dialect = dialect(jdbc);
-            when(dialect.getLobColumns(any(org.dbunit.dataset.ITable.class)))
-                    .thenReturn(new Column[] {new Column("BODY", DataType.VARCHAR)});
             when(dialect.readLobFile(anyString(), anyString(), anyString(), any()))
                     .thenReturn("payload");
             DbDialectHandlerFactory factory = mock(DbDialectHandlerFactory.class);
             when(factory.create(any(), same(jdbc), anyList())).thenReturn(dialect);
             DataLoader loader = loader(factory, new DumpConfig());
             for (boolean required : List.of(false, true)) {
-                when(dialect.hasNotNullLobColumn(any(), anyString(), anyString(), any()))
-                        .thenReturn(required);
+                if (required) {
+                    sql.execute("ALTER TABLE SAMPLE ALTER COLUMN BODY SET NOT NULL");
+                }
                 loader.executeWithConnection(directory.toFile(), entry(), jdbc);
                 try (ResultSet rows = sql.executeQuery("SELECT BODY FROM SAMPLE")) {
                     assertTrue(rows.next());
@@ -148,6 +144,8 @@ class TransactionalDataLoaderTest {
                 }
                 jdbc.rollback();
             }
+            verify(dialect, never()).getLobColumns(any(org.dbunit.dataset.ITable.class));
+            verify(dialect, never()).hasNotNullLobColumn(any(), any(), any(), any());
             Path jsonDir = Files.createDirectory(directory.resolve("json"));
             Files.writeString(jsonDir.resolve("SAMPLE.json"), "[{\"ID\":2,\"BODY\":\"json\"}]");
             loader.executeWithConnection(jsonDir.toFile(), entry(), jdbc);

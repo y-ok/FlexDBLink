@@ -614,6 +614,10 @@ Metadata snapshots retain no connections or live result sets and are cleared at
 class initialization and completion. Each test still receives its own data load
 and the same transaction rollback behavior.
 
+`@LoadData` replaces the selected tables with the specified scenario's dataset; it does not
+combine `pre` and scenario data. Each row is inserted with all supplied columns, including LOBs,
+without a subsequent LOB UPDATE. Foreign-key ordering and rollback still apply.
+
 Session initialization uses one JDBC execution per load. SQL Server sends its language and
 date-format statements together in that execution.
 

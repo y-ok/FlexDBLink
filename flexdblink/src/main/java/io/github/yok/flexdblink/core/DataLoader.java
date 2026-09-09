@@ -745,10 +745,11 @@ public class DataLoader {
      * </p>
      *
      * <p>
-     * Load strategy is always equivalent to an "initial load": by default it performs
-     * {@code CLEAN_INSERT}. If LOB columns exist and all of them are NULL-allowed, it first
-     * performs {@code CLEAN_INSERT} for non-LOB columns, then applies {@code UPDATE} to reflect LOB
-     * values. Excluded tables are taken from {@link DumpConfig#excludeTables}.
+     * Load strategy is always equivalent to an "initial load": selected tables are cleared and
+     * replaced. The built-in dialect factory inserts all columns, including LOBs, in one step.
+     * The function-based dialect factory retains the legacy non-LOB INSERT followed by LOB
+     * UPDATE for nullable LOB columns. Excluded tables are taken from
+     * {@link DumpConfig#excludeTables}.
      * </p>
      *
      * @param dir target directory that contains table files (one file per table)
