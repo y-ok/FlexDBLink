@@ -606,10 +606,16 @@ Simply annotate your test with `@LoadData` to automatically inject the dataset b
 
 Load preparation uses the existing transaction connection and reads metadata only
 for the selected tables. Each selected dataset file is parsed once per load;
-loading does not rewrite `table-ordering.txt`. Data files and schema metadata are
-refreshed for every load, while fixed configuration and DataSource bean mappings
-are reused until the next test class initialization. Each test still receives its
-own data load and the same transaction rollback behavior.
+loading does not rewrite `table-ordering.txt`. Data files are refreshed for every
+load. Column, primary-key, and foreign-key metadata are reused within the test class,
+keyed by the actual JDBC URL, user, catalog, schema, and exact lookup arguments.
+Fixed configuration and DataSource bean mappings are also reused within the class.
+Metadata snapshots retain no connections or live result sets and are cleared at
+class initialization and completion. Each test still receives its own data load
+and the same transaction rollback behavior.
+
+Metadata is automatically reused without additional annotation settings. Schema
+definitions must remain stable within the test class.
 
 This integrates with Spring Test transaction management (`@Transactional`), ensuring the DB state is reliably restored after each test method.
 
@@ -686,6 +692,11 @@ src/test/resources/<package>/<TestClassName>/<scenario>/expected/<dbName>/files/
 If a method-level `@LoadData` overrides the class-level annotation, `FlexAssert` also uses that
 method-level `scenario` when resolving `expected/<dbName>`.
 
+Assertions initialize dialect metadata using the existing Spring transaction connection and only
+the comparison tables. Connections are released through Spring after each assertion, keeping
+transaction-bound connections available for the test. Repeated LOB file references reuse the last
+normalized value per column within a table comparison. Expected files are reread for each assertion.
+
 ### DataSource Mapping (`flexdblink.properties`)
 
 `@LoadData` resolves the target database by **DataSource bean name**.
@@ -756,6 +767,12 @@ flexdblink.load.datasource.bbb=bbbRoutingDataSource
 | `INTERVAL DAY TO SECOND` | `D H:M:S` |
 | `CLOB` / `NCLOB` / `BLOB` | External file reference via `file:xxx` |
 | `NUMBER`, `VARCHAR2`, `CHAR`, `NVARCHAR2`, `NCHAR`, `RAW`, `BINARY_FLOAT`, `BINARY_DOUBLE` | Standard support |
+
+Oracle CLOB loading uses length-qualified character streams for nonempty values up to 32,766
+Java characters. Larger values retain locator binding to preserve JDBC batching. Empty CLOBs
+remain distinct from SQL NULL, and BLOB loading continues to use `setBytes`. The Oracle
+integration tests cover mixed batches with Japanese text, supplementary characters, CLOBs
+above the driver binding boundary, multi-megabyte CLOBs, and 512 KiB BLOBs.
 
 ### PostgreSQL
 

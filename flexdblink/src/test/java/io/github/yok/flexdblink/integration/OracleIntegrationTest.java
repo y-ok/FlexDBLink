@@ -10,6 +10,8 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.FilePatternConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
+import io.github.yok.flexdblink.db.DbUnitConfigFactory;
+import io.github.yok.flexdblink.db.oracle.CustomOracleDataTypeFactory;
 import io.github.yok.flexdblink.util.ErrorHandler;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -18,6 +20,14 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.Map;
+import java.util.Arrays;
+import java.util.List;
+import org.dbunit.database.DatabaseConnection;
+import org.dbunit.dataset.Column;
+import org.dbunit.dataset.DefaultDataSet;
+import org.dbunit.dataset.DefaultTable;
+import org.dbunit.dataset.datatype.DataType;
+import org.dbunit.operation.DatabaseOperation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -89,6 +99,45 @@ class OracleIntegrationTest {
     @BeforeEach
     void setup_正常ケース_Oracleコンテナに対してFlywayを実行する_マイグレーションが完了すること() {
         IntegrationTestSupport.prepareDatabase(ORACLE, MIGRATION);
+    }
+
+    @Test
+    void execute_正常ケース_空と数MBのCLOBとBLOBをバッチ投入する_全内容の一致とロールバックであること()
+            throws Exception {
+        List<String> values = Arrays.asList(null, "", "日本語😀", "a".repeat(32766),
+                "a".repeat(32767), "日本語".repeat(350000));
+        byte[] binary = new byte[512 * 1024];
+        Arrays.fill(binary, (byte) 0xa5);
+        try (Connection jdbc = IntegrationTestSupport.openConnection(ORACLE);
+                Statement statement = jdbc.createStatement()) {
+            statement.execute("CREATE TABLE IT_CLOB_BINDING "
+                    + "(ID NUMBER PRIMARY KEY, BODY CLOB, PAYLOAD BLOB)");
+            jdbc.setAutoCommit(false);
+            DatabaseConnection db = new DatabaseConnection(jdbc, ORACLE.getUsername().toUpperCase());
+            new DbUnitConfigFactory().configure(db.getConfig(), new CustomOracleDataTypeFactory());
+            DefaultTable table = new DefaultTable("IT_CLOB_BINDING", new Column[] {
+                    new Column("ID", DataType.UNKNOWN), new Column("BODY", DataType.UNKNOWN),
+                    new Column("PAYLOAD", DataType.UNKNOWN)});
+            for (int i = 0; i < values.size(); i++) {
+                table.addRow(new Object[] {i, values.get(i), binary});
+            }
+            DatabaseOperation.INSERT.execute(db, new DefaultDataSet(table));
+            try (ResultSet rows = statement.executeQuery(
+                    "SELECT ID, BODY, PAYLOAD FROM IT_CLOB_BINDING ORDER BY ID")) {
+                for (int i = 0; i < values.size(); i++) {
+                    assertTrue(rows.next());
+                    assertEquals(i, rows.getInt(1));
+                    assertEquals(values.get(i), rows.getString(2));
+                    assertArrayEquals(binary, rows.getBytes(3));
+                }
+                org.junit.jupiter.api.Assertions.assertFalse(rows.next());
+            }
+            jdbc.rollback();
+            try (ResultSet rows = statement.executeQuery("SELECT COUNT(*) FROM IT_CLOB_BINDING")) {
+                assertTrue(rows.next());
+                assertEquals(0, rows.getInt(1));
+            }
+        }
     }
 
     @Test

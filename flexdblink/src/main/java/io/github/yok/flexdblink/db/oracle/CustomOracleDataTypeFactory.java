@@ -1,5 +1,6 @@
 package io.github.yok.flexdblink.db.oracle;
 
+import java.io.StringReader;
 import java.sql.Clob;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
@@ -39,8 +40,8 @@ import org.dbunit.ext.oracle.OracleDataTypeFactory;
  * </p>
  * <ul>
  * <li><b>BLOB:</b> use {@link PreparedStatement#setBytes(int, byte[])} (no InputStream).</li>
- * <li><b>CLOB:</b> {@link java.sql.Connection#createClob()} → {@link Clob#setString(long, String)}
- * → {@link PreparedStatement#setClob(int, Clob)} in that order.</li>
+ * <li><b>CLOB:</b> Small nonempty values use length-qualified character streams. Larger values
+ * retain locator binding for batch execution; empty values remain distinct from SQL NULL.</li>
  * <li>Extend {@link OracleDataTypeFactory} and replace only BLOB/CLOB with safe implementations;
  * delegate all other types to the parent.</li>
  * </ul>
@@ -76,7 +77,7 @@ public class CustomOracleDataTypeFactory extends OracleDataTypeFactory {
         }
         // ---- Replace CLOB with a safe implementation (use JDBC-standard Clob) ----
         if (sqlType == Types.CLOB || "CLOB".equalsIgnoreCase(sqlTypeName)) {
-            log.debug("Mapping Oracle CLOB -> SafeOracleClobDataType (JDBC only, createClob)");
+            log.debug("Mapping Oracle CLOB -> SafeOracleClobDataType (size-aware JDBC binding)");
             return new SafeOracleClobDataType();
         }
         if (isTimestampWithTimeZoneType(sqlTypeName)) {
@@ -163,15 +164,29 @@ public class CustomOracleDataTypeFactory extends OracleDataTypeFactory {
      * <b>Implementation details</b>
      * </p>
      * <ul>
-     * <li>Create an empty CLOB with {@link java.sql.Connection#createClob()}, set content via
-     * {@link Clob#setString(long, String)}, then bind with
-     * {@link PreparedStatement#setClob(int, Clob)}.</li>
-     * <li>Drivers differ in how they handle {@code free()}; for compatibility, this method does not
-     * call it explicitly. Cleanup is expected on Statement/Connection close.</li>
+     * <li>Bind small nonempty values with a length-qualified character stream to avoid temporary
+     * LOB writes. Above Oracle JDBC's direct-binding limit, retain locator binding so large
+     * values can still be batched.</li>
+     * <li>Bind an empty JDBC CLOB for empty strings because Oracle treats empty character streams
+     * as SQL NULL. The statement must retain the LOB until batch execution.</li>
      * </ul>
      */
     private static final class SafeOracleClobDataType extends ClobDataType {
 
+        /**
+         * Maximum SQL character bind length before Oracle JDBC switches to stream binding.
+         */
+        private static final int MAX_DIRECT_BIND_CHARACTERS = 32766;
+
+        /**
+         * Binds a CLOB value while preserving the distinction between SQL NULL and an empty LOB.
+         *
+         * @param value CLOB content, {@code null}, or {@link ITable#NO_VALUE}
+         * @param column one-based prepared statement parameter index
+         * @param statement target statement; streams remain readable until batch execution
+         * @throws SQLException if the driver cannot bind the value or create an empty CLOB
+         * @throws TypeCastException if the value cannot be converted to CLOB text
+         */
         @Override
         public void setSqlValue(Object value, int column, PreparedStatement statement)
                 throws SQLException, TypeCastException {
@@ -184,14 +199,12 @@ public class CustomOracleDataTypeFactory extends OracleDataTypeFactory {
             // Convert via ClobDataType to get String (throws TypeCastException on failure)
             String s = (String) typeCast(value);
 
-            // JDBC 4.0 standard: Connection#createClob → setString → setClob
-            Clob clob = statement.getConnection().createClob();
-            try {
+            if (s.isEmpty() || s.length() > MAX_DIRECT_BIND_CHARACTERS) {
+                Clob clob = statement.getConnection().createClob();
                 clob.setString(1, s);
                 statement.setClob(column, clob);
-            } finally {
-                // Most drivers clean up the Clob at Statement/Connection close.
-                // For maximum compatibility, do not call free() explicitly here.
+            } else {
+                statement.setCharacterStream(column, new StringReader(s), (long) s.length());
             }
         }
     }

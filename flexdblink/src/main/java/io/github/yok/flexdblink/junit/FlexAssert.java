@@ -8,7 +8,6 @@ import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
-import io.github.yok.flexdblink.db.LobResolvingTableWrapper;
 import io.github.yok.flexdblink.util.CsvUtils;
 import io.github.yok.flexdblink.util.DateTimeFormatUtil;
 import java.io.File;
@@ -22,13 +21,17 @@ import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.Statement;
 import java.sql.Types;
+import java.util.AbstractMap.SimpleImmutableEntry;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -49,12 +52,11 @@ import org.springframework.lang.NonNull;
  * <p>
  * Designed to work with {@link LoadData}. The scenario is automatically resolved from the
  * {@code @LoadData} annotation on the calling test class/method. LOB columns ({@code file:xxx}
- * references in CSV) are resolved via {@link LobResolvingTableWrapper} and compared using the
- * appropriate {@link DbDialectHandler} for each supported database (Oracle, PostgreSQL, MySQL, SQL
- * Server).
+ * references in CSV) are resolved and compared using the appropriate {@link DbDialectHandler}
+ * for each supported database (Oracle, PostgreSQL, MySQL, SQL Server).
  * </p>
  *
- * <h3>Usage</h3>
+ * <h2>Usage</h2>
  *
  * <pre>
  * // setup
@@ -74,11 +76,23 @@ public class FlexAssert {
     private final Map<String, Set<String>> tableExcludes;
     private final DialectHandlerResolver dialectHandlerResolver;
 
+    /**
+     * Creates an assertion using the active connection and selected table metadata.
+     *
+     * @param globalExcludes columns excluded from every table
+     * @param tableExcludes columns excluded from individual tables
+     */
     private FlexAssert(Set<String> globalExcludes, Map<String, Set<String>> tableExcludes) {
-        this(globalExcludes, tableExcludes,
-                (classRoot, entry, conn) -> createDialectHandler(classRoot, entry));
+        this(globalExcludes, tableExcludes, FlexAssert::createDialectHandler);
     }
 
+    /**
+     * Creates an assertion with the supplied dialect resolution strategy.
+     *
+     * @param globalExcludes columns excluded from every table
+     * @param tableExcludes columns excluded from individual tables
+     * @param dialectHandlerResolver resolver using the assertion connection and tables
+     */
     FlexAssert(Set<String> globalExcludes, Map<String, Set<String>> tableExcludes,
             DialectHandlerResolver dialectHandlerResolver) {
         this.globalExcludes = globalExcludes;
@@ -123,7 +137,7 @@ public class FlexAssert {
      * <p>
      * The scenario is resolved from the {@code @LoadData} annotation. Expected CSV directory:
      * {@code {classRoot}/{scenario}/expected/{dbName}/}. LOB references ({@code file:xxx}) in CSV
-     * are resolved via {@link LobResolvingTableWrapper}.
+     * are resolved by the dialect handler.
      * </p>
      *
      * @param dbName database logical ID
@@ -143,35 +157,39 @@ public class FlexAssert {
         try {
             DataSource ds = resolveDataSource(dbName);
             Connection conn = DataSourceUtils.getConnection(ds);
-            ConnectionConfig.Entry entry = buildConnectionEntry(ds, conn, dbName);
-            DbDialectHandler dialectHandler =
-                    dialectHandlerResolver.resolve(ctx.classRoot, entry, conn);
-            String schema = dialectHandler.resolveSchema(entry);
+            try {
+                ConnectionConfig.Entry entry = buildConnectionEntry(ds, conn, dbName);
+                IDataSet expectedDataSet = new CsvDataSet(expectedDir.toFile());
+                String[] tableNames = expectedDataSet.getTableNames();
+                DbDialectHandler dialectHandler = dialectHandlerResolver.resolve(ctx.classRoot,
+                        entry, conn, Arrays.asList(tableNames));
+                String schema = dialectHandler.resolveSchema(entry);
 
-            IDataSet expectedDataSet = new CsvDataSet(expectedDir.toFile());
-            String[] tableNames = expectedDataSet.getTableNames();
+                int passCount = 0;
+                int failCount = 0;
+                StringBuilder failures = new StringBuilder();
 
-            int passCount = 0;
-            int failCount = 0;
-            StringBuilder failures = new StringBuilder();
-
-            for (String tableName : tableNames) {
-                try {
-                    assertSingleTable(conn, schema, expectedDataSet, tableName,
-                            expectedDir.toFile(), dialectHandler);
-                    passCount++;
-                } catch (AssertionError | Exception e) {
-                    failCount++;
-                    failures.append("\n[").append(tableName).append("] ").append(e.getMessage());
+                for (String tableName : tableNames) {
+                    try {
+                        assertSingleTable(conn, schema, expectedDataSet, tableName,
+                                expectedDir.toFile(), dialectHandler);
+                        passCount++;
+                    } catch (AssertionError | Exception e) {
+                        failCount++;
+                        failures.append("\n[").append(tableName).append("] ")
+                                .append(e.getMessage());
+                    }
                 }
-            }
 
-            if (failCount > 0) {
-                throw new AssertionError(
-                        failCount + " of " + tableNames.length + " tables failed." + failures);
-            }
+                if (failCount > 0) {
+                    throw new AssertionError(
+                            failCount + " of " + tableNames.length + " tables failed." + failures);
+                }
 
-            log.info("All tables passed. ({} tables)", passCount);
+                log.info("All tables passed. ({} tables)", passCount);
+            } finally {
+                DataSourceUtils.releaseConnection(conn, ds);
+            }
 
         } catch (AssertionError e) {
             throw e;
@@ -187,7 +205,7 @@ public class FlexAssert {
      *
      * <p>
      * The scenario is resolved from the {@code @LoadData} annotation. LOB references
-     * ({@code file:xxx}) in CSV are resolved via {@link LobResolvingTableWrapper}.
+     * ({@code file:xxx}) in CSV are resolved by the dialect handler.
      * </p>
      *
      * @param dbName database logical ID
@@ -208,16 +226,20 @@ public class FlexAssert {
         try {
             DataSource ds = resolveDataSource(dbName);
             Connection conn = DataSourceUtils.getConnection(ds);
-            ConnectionConfig.Entry entry = buildConnectionEntry(ds, conn, dbName);
-            DbDialectHandler dialectHandler =
-                    dialectHandlerResolver.resolve(ctx.classRoot, entry, conn);
-            String schema = dialectHandler.resolveSchema(entry);
+            try {
+                ConnectionConfig.Entry entry = buildConnectionEntry(ds, conn, dbName);
+                DbDialectHandler dialectHandler = dialectHandlerResolver.resolve(ctx.classRoot,
+                        entry, conn, Collections.singletonList(tableName));
+                String schema = dialectHandler.resolveSchema(entry);
 
-            IDataSet expectedDataSet = new CsvDataSet(expectedDir.toFile());
-            assertSingleTable(conn, schema, expectedDataSet, tableName, expectedDir.toFile(),
-                    dialectHandler);
+                IDataSet expectedDataSet = new CsvDataSet(expectedDir.toFile());
+                assertSingleTable(conn, schema, expectedDataSet, tableName, expectedDir.toFile(),
+                        dialectHandler);
 
-            log.info("{}: OK", tableName);
+                log.info("{}: OK", tableName);
+            } finally {
+                DataSourceUtils.releaseConnection(conn, ds);
+            }
 
         } catch (AssertionError e) {
             throw e;
@@ -326,10 +348,13 @@ public class FlexAssert {
      *
      * @param classRoot test class resource root
      * @param entry connection entry for dialect detection
-     * @return dialect handler
+     * @param conn active assertion connection
+     * @param tables comparison tables whose metadata is required
+     * @return dialect handler scoped to this assertion
+     * @throws Exception when dialect resolution or metadata initialization fails
      */
     private static DbDialectHandler createDialectHandler(Path classRoot,
-            ConnectionConfig.Entry entry) {
+            ConnectionConfig.Entry entry, Connection conn, List<String> tables) throws Exception {
         CsvDateTimeFormatProperties dtProps = new CsvDateTimeFormatProperties();
         dtProps.setDate("yyyy-MM-dd");
         dtProps.setTime("HH:mm:ss");
@@ -344,6 +369,11 @@ public class FlexAssert {
                 .toAbsolutePath().normalize();
 
         PathsConfig pathsConfig = new PathsConfig() {
+            /**
+             * Returns the dump path required by dialect initialization.
+             *
+             * @return absolute dump directory
+             */
             @Override
             public String getDump() {
                 return dumpRoot.toString();
@@ -354,7 +384,7 @@ public class FlexAssert {
         DbUnitConfig dbUnitConfig = new DbUnitConfig();
         DbDialectHandlerFactory factory = new DbDialectHandlerFactory(dbUnitConfig, dumpConfig,
                 pathsConfig, dateTimeUtil, configFactory);
-        return factory.create(entry);
+        return factory.create(entry, conn, tables);
     }
 
     /**
@@ -540,12 +570,14 @@ public class FlexAssert {
             String[] columnNames, Map<String, ColumnMetadata> columnMetadataByName,
             File expectedBaseDir, DbDialectHandler dialectHandler) throws Exception {
         List<List<String>> rows = new ArrayList<>();
+        // Retain only the last LOB reference per column for this table comparison.
+        Map<String, Entry<String, String>> lobValues = new HashMap<>();
         for (int rowIndex = 0; rowIndex < expectedTable.getRowCount(); rowIndex++) {
             List<String> row = new ArrayList<>(columnNames.length);
             for (String columnName : columnNames) {
                 row.add(normalizeExpectedValue(expectedTable.getValue(rowIndex, columnName),
                         tableName, columnName, columnMetadataByName.get(columnName),
-                        expectedBaseDir, dialectHandler));
+                        expectedBaseDir, dialectHandler, lobValues));
             }
             rows.add(row);
         }
@@ -561,21 +593,28 @@ public class FlexAssert {
      * @param columnMetadata actual JDBC metadata
      * @param expectedBaseDir expected base directory
      * @param dialectHandler dialect handler
+     * @param lobValues last normalized LOB reference per column within this table comparison
      * @return normalized comparable text
      * @throws Exception when LOB resolution fails
      */
     private String normalizeExpectedValue(Object rawValue, String tableName, String columnName,
-            ColumnMetadata columnMetadata, File expectedBaseDir, DbDialectHandler dialectHandler)
-            throws Exception {
+            ColumnMetadata columnMetadata, File expectedBaseDir, DbDialectHandler dialectHandler,
+            Map<String, Entry<String, String>> lobValues) throws Exception {
         String stringValue = rawValue.toString();
         if (stringValue.isEmpty()) {
             return "";
         }
         if (stringValue.startsWith("file:")) {
+            Entry<String, String> cached = lobValues.get(columnName);
+            if (cached != null && cached.getKey().equals(stringValue)) {
+                return cached.getValue();
+            }
             Object resolved = dialectHandler.readLobFile(stringValue.substring("file:".length()),
                     tableName, columnName, expectedBaseDir);
-            return normalizeComparableValue(normalizeResolvedLobValue(resolved, columnMetadata),
+            String normalized = normalizeComparableValue(normalizeResolvedLobValue(resolved),
                     columnName, columnMetadata);
+            lobValues.put(columnName, new SimpleImmutableEntry<>(stringValue, normalized));
+            return normalized;
         }
         return normalizeComparableValue(stringValue, columnName, columnMetadata);
     }
@@ -584,10 +623,9 @@ public class FlexAssert {
      * Normalize a resolved LOB object into the same string representation as dump output.
      *
      * @param resolved resolved LOB content
-     * @param columnMetadata actual JDBC metadata
      * @return normalized comparable text
      */
-    private String normalizeResolvedLobValue(Object resolved, ColumnMetadata columnMetadata) {
+    private String normalizeResolvedLobValue(Object resolved) {
         if (resolved == null) {
             return "";
         }
@@ -793,9 +831,12 @@ public class FlexAssert {
          * @param classRoot class resource root
          * @param entry connection entry
          * @param conn active JDBC connection
+         * @param tables comparison tables whose metadata is required
          * @return dialect handler
+         * @throws Exception when dialect resolution or metadata initialization fails
          */
-        DbDialectHandler resolve(Path classRoot, ConnectionConfig.Entry entry, Connection conn);
+        DbDialectHandler resolve(Path classRoot, ConnectionConfig.Entry entry, Connection conn,
+                List<String> tables) throws Exception;
     }
 
     /**

@@ -72,8 +72,8 @@ public final class CachedColumnMetadataHandler implements IMetadataHandler {
     }
 
     /**
-     * Copies metadata rows without CachedRowSet's serialization-based deep copy. Independent
-     * row storage ensures closing one reader cannot invalidate another reader or the cache.
+     * Copies metadata rows without CachedRowSet's serialization-based deep copy. Independent row
+     * storage ensures closing one reader cannot invalidate another reader or the cache.
      *
      * @param snapshot load-scoped column metadata
      * @return independent metadata cursor

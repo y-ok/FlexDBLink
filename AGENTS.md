@@ -1,157 +1,157 @@
-# 背景
+# Background
 
-このファイルは、AI が本リポジトリで作業する際に常時参照するルールです。  
-目的は、品質・保守性・安全性を維持しつつ、判断基準を短く一貫した形で示すことです。
+This file defines the rules that AI agents must follow whenever working in this repository.
+Its purpose is to provide concise, consistent decision criteria while maintaining quality, maintainability, and safety.
 
-## 基本方針
+## General Principles
 
-### 品質と設計
+### Quality and Design
 
-- 動作だけでなく、品質・保守性・安全性を常に考慮する。
-- 現在のフェーズ（プロトタイプ / MVP / 本番）に応じて、適切な品質水準を選ぶ。
-- 問題は放置せず、修正するか、少なくとも明示的に記録する。
-- ボーイスカウトルールに従い、触れた箇所はより良い状態で残す。
-- DRY を守り、単一の信頼できる情報源を維持する。
-- 命名は意図が伝わるものにし、スタイルはプロジェクト全体で統一する。
-- 小さな不整合も放置せず修正する。
-- コメントは「なぜ」を補足し、「何を」はコードで表現する。
-- 機能追加時は既存コードの改善も検討する。
-- 大きな変更は小さな段階に分ける。
-- 未使用コードは積極的に削除する。
-- 技術的負債はコメントやドキュメントで明示する。
-- YAGNI を守る。
-- 可読性を優先し、わかりづらい実装のみ簡潔に補足する。
-- 三項演算子は使わない。
-- 防御的な実装はしない。
+- Always consider quality, maintainability, and safety, as well as functionality.
+- Choose an appropriate quality level for the current phase: prototype, MVP, or production.
+- Do not leave issues unaddressed; fix them or at least document them explicitly.
+- Follow the Boy Scout Rule: leave the areas you touch in a better state.
+- Follow DRY and maintain a single source of truth.
+- Use names that convey intent and keep the style consistent across the project.
+- Fix even minor inconsistencies.
+- Use comments to explain why; express what the code does through the code itself.
+- Consider improvements to existing code when adding features.
+- Break large changes into small steps.
+- Actively remove unused code.
+- Document technical debt in comments or documentation.
+- Apply YAGNI: do not turn hypothetical use cases into requirements or add settings or branches for them; implement only what the current request and existing behavior require.
+- Prioritize readability and add brief explanations only for code that is difficult to understand.
+- Do not use ternary operators.
+- Do not add defensive implementations.
 
-### エラー処理と信頼性
+### Error Handling and Reliability
 
-- 関連が薄く見えるエラーも放置せず解決する。
-- 例外を握りつぶさず、根本原因を修正する。
-- エラーは早期検出し、明確なメッセージを出す。
-- エラーケースもテスト対象に含める。
-- 外部 API / ネットワークは失敗を前提に設計する。
-- タイムアウトを適切に設定する。
-- 必要に応じてリトライ（指数バックオフ含む）を検討する。
-- 必要に応じてサーキットブレーカーパターンを活用する。
-- 一時障害に耐えられる設計にする。
-- 適切なログとメトリクスで可観測性を確保する。
+- Resolve errors even when they appear only loosely related to the task.
+- Do not swallow exceptions; fix their root causes.
+- Detect errors early and provide clear messages.
+- Include error cases in tests.
+- Design external API and network interactions with failure in mind.
+- Configure appropriate timeouts.
+- Consider retries, including exponential backoff, when needed.
+- Use circuit breakers when needed.
+- Design for resilience to transient failures.
+- Ensure observability through appropriate logging and metrics.
 
-### テストと検証
+### Testing and Verification
 
-- テストはスキップせず、問題があれば原因を特定して修正する。
-- 実装詳細ではなく振る舞いを検証する。
-- テスト間の依存をなくし、任意順で実行可能にする。
-- テストは高速かつ再現性を持たせる。
-- カバレッジは指標であり、質を優先する。
-- エラーやビルド失敗は成功するまで処置する。
+- Do not skip tests; identify and fix the causes of problems.
+- Test behavior rather than implementation details.
+- Eliminate dependencies between tests so they can run in any order.
+- Keep tests fast and reproducible.
+- Treat coverage as a metric and prioritize test quality.
+- Resolve errors and build failures until the checks succeed.
 
-### セキュリティ・性能・依存管理
+### Security, Performance, and Dependencies
 
-- 秘密情報は環境変数で扱い、ハードコードしない。
-- すべての外部入力を検証する。
-- 最小権限で動作させる。
-- 不要な依存は追加しない。
-- 依存はライセンス、サイズ、保守状況を確認してから追加する。
-- 依存はセキュリティ修正・バグ修正のため定期更新する。
-- セキュリティ監査ツールは定期的に実行する。
-- 最適化は推測ではなく計測に基づいて行う。
-- 初期段階から拡張性を意識する。
-- 必要になるまでリソース読み込みを遅延させる。
-- キャッシュは期限と無効化戦略を明確にする。
-- N+1 やオーバーフェッチを避ける。
+- Manage secrets through environment variables; do not hardcode them.
+- Validate all external input.
+- Operate with the minimum required privileges.
+- Do not add unnecessary dependencies.
+- Check licensing, size, and maintenance status before adding dependencies.
+- Update dependencies regularly for security and bug fixes.
+- Run security audit tools regularly.
+- Base optimizations on measurements, not assumptions.
+- Consider extensibility from the early stages.
+- Defer loading resources until they are needed.
+- Define cache lifetimes and invalidation strategies clearly.
+- Avoid N+1 queries and overfetching.
 
-### 開発運用
+### Development Practices
 
-- ビジネス要件と技術要件のバランスを取る。
-- 時間制約下でも最低限の品質基準は守る。
-- チームの技術レベルに合う実装を選ぶ。
-- すべてを完璧にはできない前提で、制約下の最適解を選ぶ。
-- プロトタイプでは簡潔さ、本番では堅牢性をより重視する。
-- 妥協点と理由は明文化する。
-- コンベンショナルコミットを使用する（`.gitmessage.txt` 参照）。
-- コミットは原子的にし、単一の変更に集中させる。
-- コミットメッセージは明確な英語で書く。
-- `main` へ直接コミットしない。
-- レビューはコードに対して行い、建設的提案として扱う。
-- 変更理由と影響を明確に説明する。
-- フィードバックは学習機会として扱う。
-- デバッグは再現手順確立、二分探索、最近の変更確認を基本とする。
-- 必要に応じてデバッガーやプロファイラーを使う。
-- 調査結果と解決策は記録し、再利用可能にする。
-- README には概要、セットアップ、利用方法を明確に書く。
-- ドキュメントはコード変更に追随させる。
-- 実例を優先する。
-- 重要な設計判断は ADR で記録する。
-- 学んだことは次の作業に活かし、定期的に改善する。
-- 新しいツールや手法は適切に評価して取り入れる。
-- チームや将来の開発者のために知識を文書化する。
+- Balance business and technical requirements.
+- Maintain minimum quality standards even under time constraints.
+- Choose implementations appropriate for the team's technical skills.
+- Choose the best solution within the constraints, recognizing that perfection is not always possible.
+- Prioritize simplicity in prototypes and robustness in production.
+- Document tradeoffs and their reasons.
+- Use Conventional Commits; see `.gitmessage.txt`.
+- Keep commits atomic and focused on a single change.
+- Write clear commit messages in English.
+- Do not commit directly to `main`.
+- Review code rather than people, and treat feedback as constructive suggestions.
+- Explain the reasons for changes and their impact clearly.
+- Treat feedback as an opportunity to learn.
+- Base debugging on reproducible steps, bisection, and inspection of recent changes.
+- Use debuggers and profilers when needed.
+- Record findings and solutions so they can be reused.
+- Clearly describe the overview, setup, and usage in the README.
+- Keep documentation aligned with code changes.
+- Prefer practical examples.
+- Record important design decisions in ADRs.
+- Apply lessons learned to subsequent work and improve regularly.
+- Evaluate new tools and techniques appropriately before adopting them.
+- Document knowledge for the team and future developers.
 
-## 禁止事項
+## Prohibitions
 
-- 許可なくファイルやフォルダを削除しない。
-- `AGENTS.md` と同等の領域にあるファイル / フォルダのみアクセス対象とする。
-- テストコードで `setAccessible` を使わない。
-- private メソッドを直接テストしない。public API 経由で C0 / C1 100% を目指す。
-- public API 経由でカバーできない場合は、プロダクションコードの構造を見直す。
+- Do not delete files or directories without permission.
+- Access only files and directories within the repository scope containing this `AGENTS.md`.
+- Do not use `setAccessible` in test code.
+- Do not test private methods directly. Aim for 100% C0 / C1 through public APIs.
+- If public APIs cannot provide the required coverage, reconsider the production code structure.
 
-## プロジェクト固有ルール
+## Project-Specific Rules
 
-### コミュニケーション
+### Communication
 
-- 対話は日本語で行う。
-- ただし、プロジェクト内のコメント、JavaDoc、README、コミットメッセージ、PR 説明などの成果物テキストは英語で統一する。
+- Communicate with the user in Japanese.
+- Write project artifacts, including comments, JavaDoc, README files, AGENTS.md, commit messages, and PR descriptions, in English.
 
-### 実装規約
+### Implementation Conventions
 
-- Java 11、Spring Boot 2.7.18 に準拠する。
-- `pom.xml` に定義済みの OSS ライブラリを活用する。
-- 改修時は未使用の field / local variable / import を残さない。
-- `The value of the field xxx is not used` を含む未使用警告は 0 件にして完了とする。
+- Follow Java 11 and Spring Boot 2.7.18 requirements.
+- Use the OSS libraries already defined in `pom.xml`.
+- Do not leave unused fields, local variables, or imports after making changes.
+- Complete the work only when there are zero unused warnings, including `The value of the field xxx is not used`.
 
-### テスト・ビルド
+### Testing and Builds
 
 - Before running tests, check prior results from the conversation, user reports, local logs / reports, or CI, and identify any subsequent changes that affect the tested behavior.
 - Reuse successful results, including measured C0 / C1, when the current changes and relevant test conditions have already been validated. A new turn or missing results in the current conversation alone is not a reason to rerun tests.
 - Run `mvn clean test` for unvalidated logic or build / test configuration changes. Rerun only when subsequent changes, failures, or a specific unresolved concern justify it, or when explicitly requested by the user.
 - Do not run tests solely to create a branch, stage changes, or commit already validated changes. Skip tests for documentation-only changes and formatting-only changes that do not affect behavior or test code.
-- テスト実行前に、変更を「ロジック変更 / 設定変更 / 体裁修正のみ」に分類して明示する。
-- テスト実行前に、実行理由を 1 行で明示する。理由を明示できない場合は実行しない。
-- テスト / ビルドが失敗した場合は、原因を特定し、成功するまで処置する。
-- C0、C1 が 100% でない場合は、必要なテストケースを追加する。
-- `mvn clean test` を実行した作業は、完了報告時に C0 / C1（INSTRUCTION / BRANCH）の実測値（% と covered / total）を必ず記載する。
-- 実測値未記載のまま完了扱いにしない。
-- 追加 / 修正 / 削除を行った作業でテストが失敗した場合は、分析して処置する。
-- JUnit 5、mockit を使用する。
+- Before running tests, explicitly classify the changes as logic changes, configuration changes, or formatting-only changes.
+- Before running tests, state the reason in one line. Do not run tests if you cannot state a reason.
+- If tests or builds fail, identify the cause and resolve it until they succeed.
+- If C0 or C1 is below 100%, add the necessary test cases.
+- For any task that runs `mvn clean test`, include measured C0 / C1 (INSTRUCTION / BRANCH) in the completion report, with both percentages and covered / total counts.
+- Do not mark the task complete without reporting those measurements.
+- If tests fail during work that adds, modifies, or removes code, analyze and resolve the failures.
+- Use JUnit 5 and mockit.
 
-### テストメソッド命名
+### Test Method Naming
 
-- テストメソッド名は `<メソッド名>_xxxケース_<検証内容>_<規格値>` とする。
-- `xxx` には `正常` または `異常` を入れる。
-- 規格値は必ず「〜であること」で統一する。
-- 検証内容は、具体条件を動詞（〜する）で簡潔に表現する。
-- 規格値は、名詞または結果表現で締める。
-- 「〜する状態であること」は避け、可能な限り「〜が返る」「〜が設定される」「〜が再スローされる」などを名詞化して表現する。
-- 検証内容は可能なら「〜すること」を付けずに記述し、補足が必要な場合はテスト内コメントで補う。
+- Preserve the existing Japanese test method naming convention: `<methodName>_<caseType><caseSuffix>_<verification>_<expectedResult>`. The case suffix is the Japanese word for "case".
+- Use the Japanese labels for "normal" or "abnormal" as the case type.
+- End every expected-result segment with the Japanese phrase romanized as "de aru koto". Romanization here explains the rule; continue writing these segments in Japanese script.
+- Express the specific conditions concisely in the verification segment using an action verb.
+- End the expected-result segment with a noun or an outcome expression before the required ending.
+- Avoid wording equivalent to "is in a state of doing". Prefer outcome expressions such as "is returned", "is set", or "is rethrown", nominalized in Japanese.
+- Where possible, avoid nominalizing the action in the verification segment; put any necessary explanation in test comments.
 
-### リリース
+### Releases
 
-- リリースタグは `pom.xml` の `<version>` と一致させる。
-- タグ作成前に差分確認で `pom.xml` を必ず確認する。
-- 対象コミットの CI（`ci.yml`）が全ジョブ成功してからタグを作成する。
-- CI が失敗中または実行中の状態ではタグを作成しない。
-- C0 / C1（INSTRUCTION / BRANCH）100% を `jacoco.xml` または CI ログで確認し、未達ならリリースしない。
-- `main` への push 完了後に注釈付きタグを作成し、そのタグ push で `release.yml` を起動する。
-- リリース完了条件は、`release.yml` 成功、GitHub Release 作成、想定 Assets 登録完了の 3 点確認とする。
+- Match release tags to the `<version>` in `pom.xml`.
+- Always inspect `pom.xml` in the diff before creating a tag.
+- Create a tag only after every job in `ci.yml` has succeeded for the target commit.
+- Do not create tags while CI is failing or still running.
+- Verify 100% C0 / C1 (INSTRUCTION / BRANCH) in `jacoco.xml` or CI logs. Do not release if either is below 100%.
+- After pushing `main`, create an annotated tag and push it to trigger `release.yml`.
+- A release is complete only after confirming all three conditions: `release.yml` succeeds, the GitHub Release exists, and all expected assets are registered.
 
 ### JavaDoc
 
-- JavaDoc はすべて `/** ... */` 形式で記載する。
-- テストコードを除き、private メソッドを含む全メソッドに簡潔な説明を付ける。
-- 引数と戻り値には `@param` / `@return` を使い、意味や条件を具体的に記載する。
-- 仕様、判定基準、例外、副作用の補足が必要な場合は、本文や `@throws` を使って明記する。
+- Write all JavaDoc using the `/** ... */` format.
+- Add a concise description to every method, including private methods, except in test code.
+- Use `@param` and `@return` to describe parameters and return values, including their specific meaning and conditions.
+- Document specifications, decision criteria, exceptions, and side effects in the body or with `@throws` when clarification is needed.
 
-## このファイルの改善方針
+## Improving This File
 
-- 現状の問題は、ルールの総量が増え、コンテキスト負荷が高くなっていること。
-- そのため、今後も内容は維持しつつ、重複削減・章立て整理・表現統一を優先して更新する。
+- The growing volume of rules currently increases the context burden.
+- Preserve the content while prioritizing less duplication, clearer organization, and consistent wording in future updates.
