@@ -29,11 +29,6 @@ import org.dbunit.dataset.IDataSet;
  * The first matching file according to this order is used, and all others are skipped.
  * </p>
  *
- * <p>
- * Currently only CSV parsing is implemented. Parsers for JSON, YAML, and XML will be added in later
- * steps.
- * </p>
- *
  * @author Yasuharu.Okawauchi
  */
 @Slf4j
@@ -65,6 +60,9 @@ public class DataLoaderFactory {
             if (matches != null && matches.length > 0) {
                 File candidate = matches[0];
                 log.debug("Resolved dataset file: {}", candidate.getName());
+                if (format == DataFormat.XML) {
+                    return new XmlDataParser().parseFile(candidate);
+                }
                 return createParser(format).parse(scenarioDir);
             }
         }

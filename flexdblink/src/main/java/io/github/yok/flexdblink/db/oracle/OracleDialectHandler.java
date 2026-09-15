@@ -8,6 +8,8 @@ import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.db.FlexibleDateTimeParsers;
 import io.github.yok.flexdblink.db.LoadMetadata;
+import io.github.yok.flexdblink.parser.CsvDataParser;
+import io.github.yok.flexdblink.util.CsvUtils;
 import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import io.github.yok.flexdblink.util.LobPathConstants;
 import java.io.BufferedReader;
@@ -72,7 +74,6 @@ import org.dbunit.dataset.DataSetException;
 import org.dbunit.dataset.IDataSet;
 import org.dbunit.dataset.ITable;
 import org.dbunit.dataset.ITableMetaData;
-import org.dbunit.dataset.csv.CsvDataSet;
 import org.dbunit.dataset.datatype.DataType;
 import org.dbunit.dataset.datatype.IDataTypeFactory;
 
@@ -428,12 +429,15 @@ public class OracleDialectHandler implements DbDialectHandler {
     @Override
     public Object convertCsvValueToDbType(String table, String column, String csvValue)
             throws DataSetException {
-        String str = trimToNull(csvValue);
-        if (str == null) {
+        if (csvValue == null) {
             return null;
         }
         ResolvedColumnSpec resolved = resolveColumnSpec(table, column);
         int sqlType = resolved.sqlType;
+        String str = CsvUtils.trimNonTextValue(csvValue, sqlType);
+        if (str.isEmpty()) {
+            return null;
+        }
         try {
             switch (sqlType) {
                 case Types.DECIMAL:
@@ -1218,7 +1222,7 @@ public class OracleDialectHandler implements DbDialectHandler {
             log.debug("CSV file does not exist: {}", csv);
             return new Column[0];
         }
-        CSVFormat fmt = CSVFormat.DEFAULT.builder().setHeader(new String[0])
+        CSVFormat fmt = CsvUtils.FORMAT.builder().setHeader(new String[0])
                 .setSkipHeaderRecord(true).get();
         List<String> headers;
         boolean[] lobFlags;
@@ -1228,14 +1232,14 @@ public class OracleDialectHandler implements DbDialectHandler {
             lobFlags = new boolean[headers.size()];
             for (CSVRecord record : parser) {
                 for (int i = 0; i < headers.size(); i++) {
-                    if (!lobFlags[i] && record.get(i).startsWith("file:")) {
+                    if (!lobFlags[i] && record.get(i) != null && record.get(i).startsWith("file:")) {
                         lobFlags[i] = true;
                     }
                 }
             }
             log.debug("CSV headers: {}", headers);
         }
-        CsvDataSet tmp = new CsvDataSet(csvDirPath.toFile());
+        IDataSet tmp = new CsvDataParser().parseFile(csv.toFile());
         Column[] allCols = tmp.getTable(tableName).getTableMetaData().getColumns();
         Map<String, Integer> headerIndex = new HashMap<>();
         for (int i = 0; i < headers.size(); i++) {

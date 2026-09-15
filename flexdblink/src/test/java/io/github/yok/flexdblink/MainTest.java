@@ -1,7 +1,10 @@
 package io.github.yok.flexdblink;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -30,13 +33,25 @@ import io.github.yok.flexdblink.db.DbUnitConfigFactory;
 import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import io.github.yok.flexdblink.util.ErrorHandler;
 import java.io.ByteArrayInputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedConstruction;
 import org.mockito.MockedStatic;
 import org.springframework.boot.SpringApplication;
@@ -45,6 +60,9 @@ import org.springframework.boot.SpringApplication;
  * Unit tests for {@link Main}.
  */
 class MainTest {
+
+    @TempDir
+    Path tempDir;
 
     private PathsConfig pathsConfig;
     private DbUnitConfig dbUnitConfig;
@@ -104,22 +122,10 @@ class MainTest {
     }
 
     @Test
-    void run_異常ケース_シナリオ未指定時にErrorHandlerが呼ばれること() {
-        Main sut = new Main(mock(PathsConfig.class), mock(DbUnitConfig.class),
-                mock(ConnectionConfig.class), mock(FilePatternConfig.class), mock(DumpConfig.class),
-                new TestDbDialectHandlerFactory());
-
-        try (MockedStatic<ErrorHandler> mocked = mockStatic(ErrorHandler.class)) {
-            mocked.when(() -> ErrorHandler.errorAndExit(anyString())).thenAnswer(inv -> {
-                throw new IllegalStateException("exit");
-            });
-
-            // dumpモードでシナリオ省略 → 1引数版が呼ばれる
-            assertThrows(IllegalStateException.class, () -> sut.run("--dump"));
-
-            mocked.verify(
-                    () -> ErrorHandler.errorAndExit(eq("Scenario name is required in dump mode.")));
-        }
+    void run_異常ケース_ダンプのシナリオを指定しない_シナリオ必須の例外通知であること() {
+        IllegalStateException failure =
+                assertThrows(IllegalStateException.class, () -> main.run("--dump"));
+        assertEquals("Scenario name is required in dump mode.", failure.getMessage());
     }
 
     @Test
@@ -151,6 +157,92 @@ class MainTest {
 
             DataLoader loader = mocked.constructed().get(0);
             verify(loader).execute(eq(null), eq(List.of("db1")));
+        }
+    }
+
+    @ParameterizedTest(name = "{0} / {1} / targetFirst={2}")
+    @CsvSource({"--load,--target,false", "--load,-t,false", "-l,--target,false", "-l,-t,false",
+            "--load,--target,true", "--load,-t,true", "-l,--target,true", "-l,-t,true"})
+    void run_正常ケース_シナリオを省略して対象DBを指定する_指定DBだけがロード対象であること(String loadOption, String targetOption,
+            boolean targetFirst) {
+        ConnectionConfig.Entry first = new ConnectionConfig.Entry();
+        first.setId("DB1");
+        ConnectionConfig.Entry second = new ConnectionConfig.Entry();
+        second.setId("DB2");
+        connectionConfig.setConnections(List.of(first, second));
+        try (MockedConstruction<DataLoader> construction = mockConstruction(DataLoader.class)) {
+            if (targetFirst) {
+                main.run(targetOption, "DB2", loadOption);
+            } else {
+                main.run(loadOption, targetOption, "DB2");
+            }
+
+            ArgumentCaptor<List<String>> targets = ArgumentCaptor.captor();
+            ArgumentCaptor<String> scenario = ArgumentCaptor.forClass(String.class);
+            verify(construction.constructed().get(0)).execute(scenario.capture(),
+                    targets.capture());
+            assertAll(() -> assertEquals(List.of("DB2"), targets.getValue(),
+                    "Omitting the scenario must not expand the load to unselected databases."),
+                    () -> assertNull(scenario.getValue(),
+                            "An omitted scenario must use the loader's configured initial dataset."));
+        }
+    }
+
+    @Test
+    void run_異常ケース_通常設定でロードが失敗する_呼び出し元への例外通知であること() {
+        // Keep the real ErrorHandler in its production mode; no test-only exception flag.
+        ErrorHandler.restoreExitForCurrentThread();
+        IllegalStateException cause = new IllegalStateException("load failed");
+        try (MockedConstruction<DataLoader> construction = mockConstruction(DataLoader.class,
+                (loader, context) -> doThrow(cause).when(loader).execute(anyString(), anyList()))) {
+            RuntimeException failure =
+                    assertThrows(RuntimeException.class, () -> main.run("--load", "pre"),
+                            "A failed load must not be reported to the caller as successful.");
+            assertSame(cause,
+                    org.apache.commons.lang3.exception.ExceptionUtils.getRootCause(failure));
+            assertEquals(1, construction.constructed().size());
+        } finally {
+            ErrorHandler.restoreExitForCurrentThread();
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = {"--load", "--dump", "--setup"})
+    void main_異常ケース_通常設定でDB接続を失敗させる_プロセス終了コードが非ゼロであること(String mode) throws Exception {
+        Path config = tempDir.resolve("failure.properties");
+        Files.writeString(config, "data-path=" + tempDir.toAbsolutePath() + "\n"
+                + "connections[0].id=DB1\n" + "connections[0].driver-class=org.postgresql.Driver\n"
+                + "connections[0].url=jdbc:postgresql://127.0.0.1:1/unavailable?connectTimeout=1\n"
+                + "connections[0].user=test\nconnections[0].password=\n");
+        Path testClasses =
+                Path.of(MainTest.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+        // Exclude test configurations so the child starts the actual production application.
+        String classpath = Arrays
+                .stream(System.getProperty("surefire.test.class.path").split(File.pathSeparator))
+                .filter(entry -> !Path.of(entry).equals(testClasses))
+                .collect(Collectors.joining(File.pathSeparator));
+        List<String> command = new ArrayList<>(
+                List.of(Path.of(System.getProperty("java.home"), "bin", "java").toString(),
+                        "-Dspring.config.additional-location=" + config.toUri(), "-cp", classpath,
+                        Main.class.getName(), mode));
+        if (!"--setup".equals(mode)) {
+            command.add("pre");
+        }
+        command.addAll(List.of("--target", "DB1"));
+        Path output = tempDir.resolve("process.log");
+        Process process = new ProcessBuilder(command).redirectErrorStream(true)
+                .redirectOutput(output.toFile()).start();
+        try {
+            assertTrue(process.waitFor(30, TimeUnit.SECONDS), "CLI process exceeded its timeout.");
+            String log = Files.readString(output);
+            assertTrue(log.contains("Application started. Args:"),
+                    "The child must reach Main.run before failing: " + log);
+            assertTrue(log.contains("org.postgresql.util.PSQLException"),
+                    "The child must reproduce the intended DB connection failure: " + log);
+            assertNotEquals(0, process.exitValue(),
+                    "A failed CLI operation must return a nonzero process exit code.\n" + log);
+        } finally {
+            process.destroyForcibly();
         }
     }
 
@@ -244,22 +336,15 @@ class MainTest {
     }
 
     @Test
-    void run_異常ケース_DataLoader実行時に例外が発生する_ErrorHandlerが呼ばれること() {
+    void run_異常ケース_DataLoader実行時に例外が発生する_原因を保持した例外通知であること() {
+        RuntimeException cause = new RuntimeException("boom");
         try (MockedConstruction<DataLoader> mocked = mockConstruction(DataLoader.class,
-                (loader, context) -> doThrow(new RuntimeException("boom")).when(loader)
-                        .execute(anyString(), anyList()));
-                MockedStatic<ErrorHandler> eh = mockStatic(ErrorHandler.class)) {
-
-            eh.when(() -> ErrorHandler.errorAndExit(anyString(), any(Throwable.class)))
-                    .thenAnswer(inv -> {
-                        throw new IllegalStateException("exit");
-                    });
-
-            assertThrows(IllegalStateException.class, () -> main.run("--load", "myscenario"));
-
-            DataLoader loader = mocked.constructed().get(0);
-            verify(loader).execute(eq("myscenario"), eq(List.of("db1")));
-            eh.verify(() -> ErrorHandler.errorAndExit(anyString(), any(Throwable.class)));
+                (loader, context) -> doThrow(cause).when(loader).execute(anyString(), anyList()))) {
+            IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> main.run("--load", "myscenario"));
+            assertEquals("Fatal error: boom", failure.getMessage());
+            assertSame(cause, failure.getCause());
+            verify(mocked.constructed().get(0)).execute(eq("myscenario"), eq(List.of("db1")));
         }
     }
 
@@ -303,7 +388,7 @@ class MainTest {
     }
 
     @Test
-    void run_異常ケース_load実行で例外が発生する_ErrorHandlerからIllegalStateExceptionが送出されること() {
+    void run_異常ケース_load実行で例外が発生する_呼び出し元への例外通知であること() {
         ErrorHandler.disableExitForCurrentThread();
         try (MockedConstruction<DataLoader> mocked = mockConstruction(DataLoader.class,
                 (loader, context) -> doThrow(new RuntimeException("boom2")).when(loader)
@@ -319,7 +404,7 @@ class MainTest {
     }
 
     @Test
-    void run_異常ケース_dump実行で例外が発生する_ErrorHandlerからIllegalStateExceptionが送出されること() {
+    void run_異常ケース_dump実行で例外が発生する_呼び出し元への例外通知であること() {
         ErrorHandler.disableExitForCurrentThread();
         try (MockedConstruction<DataDumper> mocked = mockConstruction(DataDumper.class,
                 (dumper, context) -> doThrow(new RuntimeException("dumpBoom")).when(dumper)
@@ -335,13 +420,29 @@ class MainTest {
     }
 
     @Test
-    void run_異常ケース_dumpモードでシナリオ未指定かつダンプ処理で例外が発生する_例外を再送出せず処理終了すること() {
+    void run_異常ケース_通常設定でダンプが失敗する_呼び出し元への例外通知であること() {
+        ErrorHandler.restoreExitForCurrentThread();
         try (MockedConstruction<DataDumper> mocked = mockConstruction(DataDumper.class,
                 (dumper, context) -> doThrow(new RuntimeException("dump-fail")).when(dumper)
                         .execute(any(), anyList()))) {
-            assertDoesNotThrow(() -> main.run("--dump"));
+            assertThrows(RuntimeException.class, () -> main.run("--dump", "scenario"));
             DataDumper dumper = mocked.constructed().get(0);
-            verify(dumper).execute(eq(null), eq(List.of("db1")));
+            verify(dumper).execute(eq("scenario"), eq(List.of("db1")));
+        } finally {
+            ErrorHandler.restoreExitForCurrentThread();
+        }
+    }
+
+    @Test
+    void run_異常ケース_ダンプのシナリオを省略して対象DBを指定する_シナリオ必須の例外通知であること() {
+        ErrorHandler.restoreExitForCurrentThread();
+        try (MockedConstruction<DataDumper> construction = mockConstruction(DataDumper.class)) {
+            RuntimeException failure = assertThrows(RuntimeException.class,
+                    () -> main.run("--dump", "--target", "DB2"));
+            assertEquals("Scenario name is required in dump mode.", failure.getMessage());
+            assertTrue(construction.constructed().isEmpty());
+        } finally {
+            ErrorHandler.restoreExitForCurrentThread();
         }
     }
 
@@ -499,7 +600,7 @@ class MainTest {
     }
 
     @Test
-    void run_異常ケース_setup実行で例外が発生する_ErrorHandlerからIllegalStateExceptionが送出されること() {
+    void run_異常ケース_setup実行で例外が発生する_呼び出し元への例外通知であること() {
         ErrorHandler.disableExitForCurrentThread();
         try (MockedConstruction<SetupRunner> mocked = mockConstruction(SetupRunner.class,
                 (runner, ctx) -> doThrow(new RuntimeException("setupBoom")).when(runner)

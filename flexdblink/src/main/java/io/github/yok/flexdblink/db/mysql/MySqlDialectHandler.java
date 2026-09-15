@@ -6,8 +6,10 @@ import io.github.yok.flexdblink.config.DumpConfig;
 import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
-import io.github.yok.flexdblink.db.LoadMetadata;
 import io.github.yok.flexdblink.db.FlexibleDateTimeParsers;
+import io.github.yok.flexdblink.db.LoadMetadata;
+import io.github.yok.flexdblink.parser.CsvDataParser;
+import io.github.yok.flexdblink.util.CsvUtils;
 import io.github.yok.flexdblink.util.DateTimeFormatSupport;
 import io.github.yok.flexdblink.util.LobPathConstants;
 import java.io.BufferedReader;
@@ -63,7 +65,6 @@ import org.dbunit.dataset.Column;
 import org.dbunit.dataset.DataSetException;
 import org.dbunit.dataset.IDataSet;
 import org.dbunit.dataset.ITableMetaData;
-import org.dbunit.dataset.csv.CsvDataSet;
 import org.dbunit.dataset.datatype.DataType;
 import org.dbunit.dataset.datatype.IDataTypeFactory;
 import org.slf4j.LoggerFactory;
@@ -352,14 +353,16 @@ public class MySqlDialectHandler implements DbDialectHandler {
         if (value == null) {
             return null;
         }
-        String str = value.trim();
-        if (str.isEmpty()) {
-            return null;
-        }
-
         ResolvedColumnSpec resolved = resolveColumnSpec(table, column);
         String typeName = normalizeTypeName(resolved.typeName);
         int sqlType = resolved.sqlType;
+        String str = CsvUtils.trimNonTextValue(value, sqlType);
+        if (str.isEmpty()) {
+            if (CsvUtils.isCharacterType(sqlType)) {
+                return str;
+            }
+            return null;
+        }
 
         if (startsWithFileReference(str)) {
             return loadLobFromFile(str.substring("file:".length()), table, column, sqlType,
@@ -891,8 +894,8 @@ public class MySqlDialectHandler implements DbDialectHandler {
             return new Column[0];
         }
 
-        CSVFormat fmt = CSVFormat.DEFAULT.builder().setHeader(new String[0])
-                .setSkipHeaderRecord(true).get();
+        CSVFormat fmt =
+                CsvUtils.FORMAT.builder().setHeader(new String[0]).setSkipHeaderRecord(true).get();
 
         List<String> headers;
         boolean[] lobFlags;
@@ -910,7 +913,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
             }
         }
 
-        CsvDataSet tmp = new CsvDataSet(csvDirPath.toFile());
+        IDataSet tmp = new CsvDataParser().parseFile(csv.toFile());
         Column[] allCols = tmp.getTable(tableName).getTableMetaData().getColumns();
 
         Map<String, Integer> headerIndex = new HashMap<>();
@@ -1155,7 +1158,7 @@ public class MySqlDialectHandler implements DbDialectHandler {
      * @return true if file reference
      */
     private boolean startsWithFileReference(String s) {
-        return s.startsWith("file:");
+        return s != null && s.startsWith("file:");
     }
 
     /**

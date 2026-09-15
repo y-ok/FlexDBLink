@@ -18,7 +18,8 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
  * <li>Logs the error using SLF4J.</li>
  * <li>Writes a concise message to {@code System.err}.</li>
  * <li>Does not terminate the JVM by itself (callers decide how to end the process).</li>
- * <li>In tests, callers can switch behavior to throwing an exception via thread-local flags.</li>
+ * <li>Always throws an exception so callers can roll back or report a failed process.</li>
+ * <li>Tests can suppress the additional stderr echo via the existing thread-local flag.</li>
  * </ul>
  *
  * @author Yasuharu.Okawauchi
@@ -36,15 +37,15 @@ public class ErrorHandler {
     public ErrorHandler() {}
 
     /**
-     * Switch to "throw exception instead of ending the process" for the current thread (useful for
-     * tests).
+     * Suppresses the additional stderr echo for the current thread. Exception propagation remains
+     * enabled. The method name is retained for compatibility with existing callers.
      */
     public static void disableExitForCurrentThread() {
         EXIT_DISABLED.set(Boolean.TRUE);
     }
 
     /**
-     * Restore normal behavior for the current thread.
+     * Restores the normal stderr echo for the current thread. Exceptions are always propagated.
      */
     public static void restoreExitForCurrentThread() {
         EXIT_DISABLED.remove();
@@ -55,35 +56,29 @@ public class ErrorHandler {
      * {@code System.err}.
      *
      * <p>
-     * If "exit is disabled" for the current thread, this method throws an exception instead (useful
-     * for tests).
+     * Always throws after logging. The stderr echo can be suppressed for tests.
      * </p>
      *
      * @param message message to log
      * @param cause root cause
+     * @throws IllegalStateException always, preserving the supplied message and cause
      */
     public static void errorAndExit(String message, Throwable cause) {
         log.error("{}\n{}", message, ExceptionUtils.getStackTrace(cause));
-        if (Boolean.TRUE.equals(EXIT_DISABLED.get())) {
-            throw new IllegalStateException(message, cause);
+        if (!Boolean.TRUE.equals(EXIT_DISABLED.get())) {
+            System.err.println("ERROR: " + message + "\n" + cause.getMessage());
         }
-        System.err.println("ERROR: " + message + "\n" + cause.getMessage());
+        throw new IllegalStateException(message, cause);
     }
 
     /**
-     * Logs the given message at error level and prints a concise message to {@code System.err}.
-     *
-     * <p>
-     * If "exit is disabled" for the current thread, this method throws an exception instead (useful
-     * for tests).
-     * </p>
+     * Logs the given message at error level and notifies the caller with an exception.
      *
      * @param message message to log
+     * @throws IllegalStateException always, preserving the supplied message
      */
     public static void errorAndExit(String message) {
         log.error(message);
-        if (Boolean.TRUE.equals(EXIT_DISABLED.get())) {
-            throw new IllegalStateException(message);
-        }
+        throw new IllegalStateException(message);
     }
 }

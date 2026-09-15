@@ -1,12 +1,19 @@
 package io.github.yok.flexdblink.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
 import io.github.yok.flexdblink.db.DbDialectHandler;
+import io.github.yok.flexdblink.parser.CsvDataParser;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -24,6 +31,9 @@ import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class CsvTableExporterTest {
 
@@ -60,7 +70,7 @@ class CsvTableExporterTest {
         new CsvTableExporter().export(conn, "1TABLE", csvFile, dialectHandler);
 
         try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8,
-                CSVFormat.DEFAULT.builder().setHeader("1ID").setSkipHeaderRecord(true).get())) {
+                CSVFormat.RFC4180.builder().setHeader("1ID").setSkipHeaderRecord(true).get())) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals(1, records.size());
             assertEquals("", records.get(0).get("1ID"));
@@ -97,7 +107,7 @@ class CsvTableExporterTest {
         new CsvTableExporter().export(conn, "1TABLE", csvFile, dialectHandler);
 
         try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8,
-                CSVFormat.DEFAULT.builder().setHeader("1ID").setSkipHeaderRecord(true).get())) {
+                CSVFormat.RFC4180.builder().setHeader("1ID").setSkipHeaderRecord(true).get())) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals(1, records.size());
             assertEquals("012A", records.get(0).get("1ID"));
@@ -137,7 +147,7 @@ class CsvTableExporterTest {
         new CsvTableExporter().export(conn, "TNUM", csvFile, dialectHandler);
 
         try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8,
-                CSVFormat.DEFAULT.builder().setHeader("A", "B").setSkipHeaderRecord(true).get())) {
+                CSVFormat.RFC4180.builder().setHeader("A", "B").setSkipHeaderRecord(true).get())) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals(2, records.size());
             assertEquals("2", records.get(0).get("A"));
@@ -175,7 +185,7 @@ class CsvTableExporterTest {
         new CsvTableExporter().export(conn, "TSTR", csvFile, dialectHandler);
 
         try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8,
-                CSVFormat.DEFAULT.builder().setHeader("CODE").setSkipHeaderRecord(true).get())) {
+                CSVFormat.RFC4180.builder().setHeader("CODE").setSkipHeaderRecord(true).get())) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals(2, records.size());
             assertEquals("a", records.get(0).get("CODE"));
@@ -193,7 +203,7 @@ class CsvTableExporterTest {
         new CsvTableExporter().export(conn, "TRAW", csvFile, dialectHandler);
 
         try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8,
-                CSVFormat.DEFAULT.builder().setHeader("RAW_COL").setSkipHeaderRecord(true).get())) {
+                CSVFormat.RFC4180.builder().setHeader("RAW_COL").setSkipHeaderRecord(true).get())) {
             assertEquals("012A", parser.getRecords().get(0).get("RAW_COL"));
         }
     }
@@ -227,7 +237,7 @@ class CsvTableExporterTest {
         new CsvTableExporter().export(conn, "TEQ", csvFile, dialectHandler);
 
         try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8,
-                CSVFormat.DEFAULT.builder().setHeader("ID").setSkipHeaderRecord(true).get())) {
+                CSVFormat.RFC4180.builder().setHeader("ID").setSkipHeaderRecord(true).get())) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals(2, records.size());
             assertEquals("A", records.get(0).get("ID"));
@@ -267,7 +277,7 @@ class CsvTableExporterTest {
         File csvFile = tempDir.resolve("TRAW_NULL.csv").toFile();
         new CsvTableExporter().export(conn, "TRAW_NULL", csvFile, dialectHandler);
 
-        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, CSVFormat.DEFAULT
+        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, CSVFormat.RFC4180
                 .builder().setHeader("RAW_COL", "TXT_COL").setSkipHeaderRecord(true).get())) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("0A", records.get(0).get("RAW_COL"));
@@ -285,7 +295,7 @@ class CsvTableExporterTest {
         new CsvTableExporter().export(conn, "TLVB", csvFile, dialectHandler);
 
         try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8,
-                CSVFormat.DEFAULT.builder().setHeader("B").setSkipHeaderRecord(true).get())) {
+                CSVFormat.RFC4180.builder().setHeader("B").setSkipHeaderRecord(true).get())) {
             assertEquals("0F", parser.getRecords().get(0).get("B"));
         }
     }
@@ -300,7 +310,7 @@ class CsvTableExporterTest {
         new CsvTableExporter().export(conn, "TVB", csvFile, dialectHandler);
 
         try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8,
-                CSVFormat.DEFAULT.builder().setHeader("B").setSkipHeaderRecord(true).get())) {
+                CSVFormat.RFC4180.builder().setHeader("B").setSkipHeaderRecord(true).get())) {
             assertEquals("0C", parser.getRecords().get(0).get("B"));
         }
     }
@@ -343,7 +353,7 @@ class CsvTableExporterTest {
         File csvFile = tempDir.resolve("TDTIME.csv").toFile();
         new CsvTableExporter().export(conn, "TDTIME", csvFile, dialectHandler);
 
-        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, CSVFormat.DEFAULT
+        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, CSVFormat.RFC4180
                 .builder().setHeader("D_COL", "T_COL").setSkipHeaderRecord(true).get())) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("D_FMT", records.get(0).get("D_COL"));
@@ -381,7 +391,7 @@ class CsvTableExporterTest {
         new CsvTableExporter().export(conn, "TNULL", csvFile, dialectHandler);
 
         try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8,
-                CSVFormat.DEFAULT.builder().setHeader("TS_COL").setSkipHeaderRecord(true).get())) {
+                CSVFormat.RFC4180.builder().setHeader("TS_COL").setSkipHeaderRecord(true).get())) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("", records.get(0).get("TS_COL"));
         }
@@ -415,7 +425,7 @@ class CsvTableExporterTest {
         File csvFile = tempDir.resolve("TCHAR_SPACE.csv").toFile();
         new CsvTableExporter().export(conn, "TCHAR_SPACE", csvFile, dialectHandler);
 
-        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, CSVFormat.DEFAULT
+        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, CSVFormat.RFC4180
                 .builder().setHeader("CHAR_COL").setSkipHeaderRecord(true).get())) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("abc", records.get(0).get("CHAR_COL"));
@@ -450,7 +460,7 @@ class CsvTableExporterTest {
         File csvFile = tempDir.resolve("TCHAR_TAB.csv").toFile();
         new CsvTableExporter().export(conn, "TCHAR_TAB", csvFile, dialectHandler);
 
-        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, CSVFormat.DEFAULT
+        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, CSVFormat.RFC4180
                 .builder().setHeader("CHAR_COL").setSkipHeaderRecord(true).get())) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("abc\t", records.get(0).get("CHAR_COL"));
@@ -485,11 +495,100 @@ class CsvTableExporterTest {
         File csvFile = tempDir.resolve("TNCHAR_SPACE.csv").toFile();
         new CsvTableExporter().export(conn, "TNCHAR_SPACE", csvFile, dialectHandler);
 
-        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, CSVFormat.DEFAULT
+        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, CSVFormat.RFC4180
                 .builder().setHeader("NCHAR_COL").setSkipHeaderRecord(true).get())) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("abc", records.get(0).get("NCHAR_COL"));
         }
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"", "null", "a,b", "a\"b", "C:\\temp\\new", "line1\nline2"})
+    void export_正常ケース_NULLと空文字と特殊文字を再読込する_元の値が保持される結果であること(String value)
+            throws Exception {
+        Connection conn = buildSingleColConn("APP", "TEXT_VALUES", "VALUE", Types.VARCHAR,
+                "VARCHAR", value, null);
+        File csvFile = tempDir.resolve("TEXT_VALUES.csv").toFile();
+
+        new CsvTableExporter().export(conn, "TEXT_VALUES", csvFile, createDialectHandlerMock());
+
+        org.dbunit.dataset.ITable table = new CsvDataParser().parseFile(csvFile)
+                .getTable("TEXT_VALUES");
+        assertEquals(1, table.getRowCount());
+        assertEquals(value, table.getValue(0, "VALUE"));
+    }
+
+    @Test
+    void export_正常ケース_空テーブルを指定する_大文字のヘッダーのみ出力される結果であること() throws Exception {
+        Connection conn = buildSingleColConn("APP", "EMPTY_TABLE", "value", Types.VARCHAR,
+                "VARCHAR", null, null);
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery("SELECT * FROM \"EMPTY_TABLE\"");
+        when(rs.next()).thenReturn(false);
+        File csvFile = tempDir.resolve("EMPTY_TABLE.csv").toFile();
+
+        new CsvTableExporter().export(conn, "EMPTY_TABLE", csvFile, createDialectHandlerMock());
+
+        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8,
+                CSVFormat.RFC4180)) {
+            List<CSVRecord> records = parser.getRecords();
+            assertEquals(1, records.size());
+            assertEquals(List.of("VALUE"), records.get(0).toList());
+        }
+        verify(rs).close();
+        verify(stmt).close();
+        verify(conn, never()).close();
+    }
+
+    @Test
+    void export_正常ケース_同じ列ラベルを指定する_各列の値が列順に出力される結果であること() throws Exception {
+        Connection conn = buildSingleColConn("APP", "DUPLICATE_LABELS", "value", Types.VARCHAR,
+                "VARCHAR", "first", null);
+        ResultSet rs = conn.createStatement().executeQuery("SELECT * FROM \"DUPLICATE_LABELS\"");
+        ResultSetMetaData metadata = rs.getMetaData();
+        when(metadata.getColumnCount()).thenReturn(2);
+        when(metadata.getColumnLabel(2)).thenReturn("value");
+        when(metadata.getColumnType(2)).thenReturn(Types.VARCHAR);
+        when(metadata.getColumnTypeName(2)).thenReturn("VARCHAR");
+        when(rs.getObject(2)).thenReturn("second");
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+        File csvFile = tempDir.resolve("DUPLICATE_LABELS.csv").toFile();
+
+        new CsvTableExporter().export(conn, "DUPLICATE_LABELS", csvFile, dialectHandler);
+
+        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8,
+                CSVFormat.RFC4180)) {
+            List<CSVRecord> records = parser.getRecords();
+            assertEquals(2, records.size());
+            assertEquals(List.of("VALUE", "VALUE"), records.get(0).toList());
+            assertEquals(List.of("first", "second"), records.get(1).toList());
+        }
+        verify(dialectHandler).formatDbValueForCsv("value", "first");
+        verify(dialectHandler).formatDbValueForCsv("value", "second");
+    }
+
+    @Test
+    void export_異常ケース_値変換で例外が発生する_JDBCリソースが解放され元の例外が再送出される結果であること()
+            throws Exception {
+        Connection conn = buildSingleColConn("APP", "FORMAT_ERROR", "VALUE", Types.VARCHAR,
+                "VARCHAR", "text", null);
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery("SELECT * FROM \"FORMAT_ERROR\"");
+        DbDialectHandler dialectHandler = createDialectHandlerMock();
+        SQLException failure = new SQLException("Formatting failed");
+        when(dialectHandler.formatDbValueForCsv("VALUE", "text")).thenThrow(failure);
+        File csvFile = tempDir.resolve("FORMAT_ERROR.csv").toFile();
+
+        SQLException actual = assertThrows(SQLException.class,
+                () -> new CsvTableExporter().export(conn, "FORMAT_ERROR", csvFile,
+                        dialectHandler));
+
+        assertSame(failure, actual);
+        verify(rs).close();
+        verify(stmt).close();
+        verify(conn, never()).close();
+        assertFalse(csvFile.exists());
     }
 
     /**

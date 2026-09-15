@@ -1,5 +1,6 @@
 package io.github.yok.flexdblink.integration;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -19,6 +20,7 @@ import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -27,6 +29,7 @@ import java.util.stream.Stream;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -123,6 +126,41 @@ class MainMultiDbIntegrationTest {
         return container;
     }
 
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(DbKind.class)
+    void run_正常ケース_シナリオを省略して対象DBを指定する_対象DBだけに初期データを適用した結果であること(DbKind target) throws Exception {
+        prepareTargetDatabases(List.of(DbKind.values()));
+        Path dataPath = tempDir.resolve("target_without_scenario");
+        Map<DbKind, String> tables = new LinkedHashMap<>();
+        for (DbKind kind : DbKind.values()) {
+            try (Connection jdbc = IntegrationTestSupport.openConnection(containerFor(kind));
+                    Statement sql = jdbc.createStatement()) {
+                String table = IntegrationTestSupport.createNamedTable(jdbc, "target_selection",
+                        "id VARCHAR(30) PRIMARY KEY, name VARCHAR(100)");
+                tables.put(kind, table);
+                sql.execute("INSERT INTO " + table + " VALUES ('original', 'baseline')");
+                Path initial =
+                        Files.createDirectories(dataPath.resolve("load/pre").resolve(kind.id()));
+                Files.writeString(initial.resolve(table + ".csv"), "ID,NAME\nnew,from-pre\n");
+            }
+        }
+
+        buildMain(dataPath).run("--load", "--target", target.id());
+
+        assertAll(tables.entrySet().stream().map(entry -> () -> {
+            List<String> expected = List.of("original:baseline");
+            if (entry.getKey() == target) {
+                expected = List.of("new:from-pre");
+            }
+            try (Connection jdbc =
+                    IntegrationTestSupport.openConnection(containerFor(entry.getKey()))) {
+                assertEquals(expected,
+                        IntegrationTestSupport.readNamedRows(jdbc, entry.getValue(), "id", "name"),
+                        "Only the selected DB may be replaced from pre: " + entry.getKey());
+            }
+        }));
+    }
+
     static Stream<Arguments> run_正常ケース_マルチDB接続でsetupLoadDumpを実行する_対象DBのみ処理が完了すること_データ() {
         return Stream.of(Arguments.of("oracle_only", List.of(DbKind.ORACLE)),
                 Arguments.of("postgresql_only", List.of(DbKind.POSTGRESQL)),
@@ -142,9 +180,8 @@ class MainMultiDbIntegrationTest {
         copyLoadFixturesForTargets(dataPath, targets);
 
         Main main = buildMain(dataPath);
-        String targetCsv =
-                targets.stream().map(target -> target.id()).reduce((a, b) -> a + "," + b)
-                        .orElseThrow();
+        String targetCsv = targets.stream().map(target -> target.id()).reduce((a, b) -> a + "," + b)
+                .orElseThrow();
 
         try {
             main.run("--setup", "--target", targetCsv);

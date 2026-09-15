@@ -80,11 +80,7 @@ public final class TableOrderingFile {
     public static void ensure(File dir) {
         File orderFile = new File(dir, FILE_NAME);
 
-        File[] dataFiles = dir.listFiles((d, name) -> {
-            String ext = FilenameUtils.getExtension(name).toLowerCase(Locale.ROOT);
-            return DataFormat.CSV.matches(ext) || DataFormat.JSON.matches(ext)
-                    || DataFormat.YAML.matches(ext) || DataFormat.XML.matches(ext);
-        });
+        File[] dataFiles = dir.listFiles(TableOrderingFile::isDatasetFile);
         int fileCount = ArrayUtils.getLength(dataFiles);
 
         FileUtils.deleteQuietly(orderFile);
@@ -104,6 +100,17 @@ public final class TableOrderingFile {
             log.error("Failed to create table-ordering.txt: {}", e.getMessage(), e);
             ErrorHandler.errorAndExit("Failed to create table-ordering.txt", e);
         }
+    }
+
+    /**
+     * Checks whether a file name has an extension recognized by a supported data format.
+     *
+     * @param file directory entry whose name is checked
+     * @return true if the extension matches a supported format, ignoring case
+     */
+    private static boolean isDatasetFile(File file) {
+        String extension = FilenameUtils.getExtension(file.getName()).toLowerCase(Locale.ROOT);
+        return Arrays.stream(DataFormat.values()).anyMatch(format -> format.matches(extension));
     }
 
     /**

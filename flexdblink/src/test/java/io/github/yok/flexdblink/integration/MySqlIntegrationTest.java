@@ -16,9 +16,13 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ContextConfiguration;
@@ -101,8 +105,54 @@ public class MySqlIntegrationTest {
     }
 
     @Test
-    void prepareConnection_正常ケース_異なるセッション設定を初期化する_時差と文字コードと照合順序が従来と同じであること()
+    public void execute_正常ケース_NULLと文字列をダンプして再ロードする_元の値が保持される結果であること() throws Exception {
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("text_round_trip_data"), false, DB_NAME, pathsConfig,
+                connectionConfig, dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection jdbc = IntegrationTestSupport.openConnection(mysql)) {
+            IntegrationTestSupport.assertCsvRoundTripPreservesText(runtime, jdbc);
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(IntegrationTestSupport.PrimaryKeyCase.class)
+    public void execute_正常ケース_主キー条件を変えて重複シナリオをロードする_重複行と追加行の保持であること(
+            IntegrationTestSupport.PrimaryKeyCase keyCase) throws Exception {
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("scenario_duplicate_data"), false, DB_NAME, pathsConfig,
+                connectionConfig, dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection jdbc = IntegrationTestSupport.openConnection(mysql)) {
+            IntegrationTestSupport.assertScenarioRetainsSharedRows(runtime, jdbc, keyCase);
+        }
+    }
+
+    @ParameterizedTest(name = "{0} / {1}")
+    @MethodSource("io.github.yok.flexdblink.integration.IntegrationTestSupport#malformedInputCases")
+    public void executeWithConnection_異常ケース_各ロード経路で不正ファイルを指定する_例外通知と既存行の保持であること(
+            IntegrationTestSupport.LoaderRoute route, IntegrationTestSupport.MalformedFormat format)
             throws Exception {
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("invalid_dataset_data"), false, DB_NAME, pathsConfig,
+                connectionConfig, dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection jdbc = IntegrationTestSupport.openConnection(mysql)) {
+            IntegrationTestSupport.assertMalformedInputPreservesRows(runtime, jdbc, route, format);
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(IntegrationTestSupport.FailureOperation.class)
+    public void execute_異常ケース_通常設定で実処理を失敗させる_例外通知と既存行の保持であること(
+            IntegrationTestSupport.FailureOperation operation) throws Exception {
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("production_failure_data"), false, DB_NAME, pathsConfig,
+                connectionConfig, dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection jdbc = IntegrationTestSupport.openConnection(mysql)) {
+            IntegrationTestSupport.assertProductionFailureIsReported(runtime, jdbc, operation);
+        }
+    }
+
+    @Test
+    void prepareConnection_正常ケース_異なるセッション設定を初期化する_時差と文字コードと照合順序が従来と同じであること() throws Exception {
         IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
                 tempDir.resolve("session_settings"), true, DB_NAME, pathsConfig, connectionConfig,
                 dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
@@ -117,9 +167,9 @@ public class MySqlIntegrationTest {
             statement.execute("SET NAMES latin1");
             statement.execute("SET time_zone = '+09:00'");
             runtime.newDialectHandler().prepareConnection(conn);
-            try (ResultSet rows = statement.executeQuery("SELECT @@time_zone, "
-                    + "@@character_set_client, @@character_set_results, "
-                    + "@@character_set_connection, @@collation_connection")) {
+            try (ResultSet rows = statement.executeQuery(
+                    "SELECT @@time_zone, " + "@@character_set_client, @@character_set_results, "
+                            + "@@character_set_connection, @@collation_connection")) {
                 assertTrue(rows.next());
                 assertEquals("+00:00", rows.getString(1));
                 assertEquals("utf8mb4", rows.getString(2));
@@ -232,13 +282,15 @@ public class MySqlIntegrationTest {
         Path dbDir = IntegrationTestSupport.executeDump(runtime, "dump_null_empty_case");
         Path filesDir = dbDir.resolve("files");
 
-        String mainCsv =
-                Files.readString(dbDir.resolve("IT_TYPED_MAIN.csv"), StandardCharsets.UTF_8);
-        String mainRow = mainCsv.lines().filter(line -> line.startsWith("99,")).findFirst()
-                .orElseThrow(() -> new IllegalStateException(
-                        "ID=99 row not found in IT_TYPED_MAIN.csv"));
-        assertTrue(mainRow.contains(
-                ",file:main_empty_99.txt,,file:main_tiny_empty_99.bin,file:main_medium_empty_99.bin,file:main_long_empty_99.bin,file:main_empty_99.bin,empty"));
+        Map<String, String> mainRow = IntegrationTestSupport
+                .readCsvRowById(dbDir.resolve("IT_TYPED_MAIN.csv"), "ID", "99");
+        assertEquals("file:main_empty_99.txt", mainRow.get("CLOB_COL"));
+        assertEquals(null, mainRow.get("NCLOB_COL"));
+        assertEquals("file:main_tiny_empty_99.bin", mainRow.get("TINYBLOB_COL"));
+        assertEquals("file:main_medium_empty_99.bin", mainRow.get("MEDIUMBLOB_COL"));
+        assertEquals("file:main_long_empty_99.bin", mainRow.get("LONGBLOB_COL"));
+        assertEquals("file:main_empty_99.bin", mainRow.get("BLOB_COL"));
+        assertEquals("empty", mainRow.get("LOB_KIND"));
 
         Path emptyClobFile = filesDir.resolve("main_empty_99.txt");
         Path emptyTinyBlobFile = filesDir.resolve("main_tiny_empty_99.bin");
@@ -257,11 +309,15 @@ public class MySqlIntegrationTest {
         assertEquals(0L, Files.size(emptyBlobFile));
         assertTrue(Files.notExists(filesDir.resolve("main_n_empty_99.txt")));
 
-        String auxCsv = Files.readString(dbDir.resolve("IT_TYPED_AUX.csv"), StandardCharsets.UTF_8);
-        String auxRow =
-                auxCsv.lines().filter(line -> line.startsWith("99,")).findFirst().orElseThrow(
-                        () -> new IllegalStateException("ID=99 row not found in IT_TYPED_AUX.csv"));
-        assertTrue(auxRow.contains("99,99,,,,file:aux_empty_99.txt,,empty"));
+        Map<String, String> auxRow = IntegrationTestSupport
+                .readCsvRowById(dbDir.resolve("IT_TYPED_AUX.csv"), "ID", "99");
+        assertEquals("99", auxRow.get("MAIN_ID"));
+        assertEquals(null, auxRow.get("LABEL"));
+        assertEquals(null, auxRow.get("PAYLOAD_XML"));
+        assertEquals(null, auxRow.get("PAYLOAD_JSON"));
+        assertEquals("file:aux_empty_99.txt", auxRow.get("PAYLOAD_CLOB"));
+        assertEquals(null, auxRow.get("PAYLOAD_BLOB"));
+        assertEquals("empty", auxRow.get("LOB_KIND"));
 
         Path emptyAuxClobFile = filesDir.resolve("aux_empty_99.txt");
         assertTrue(Files.exists(emptyAuxClobFile));

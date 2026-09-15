@@ -9,12 +9,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import org.apache.commons.io.FilenameUtils;
-import org.dbunit.dataset.Column;
-import org.dbunit.dataset.DefaultDataSet;
-import org.dbunit.dataset.DefaultTable;
 import org.dbunit.dataset.IDataSet;
-import org.dbunit.dataset.csv.CsvParserImpl;
-import org.dbunit.dataset.datatype.DataType;
 
 /**
  * Indexes one load directory once and parses only the selected file for each table. The index
@@ -86,7 +81,7 @@ public final class DatasetFiles {
         File file = files.get(table.toLowerCase(Locale.ROOT));
         String extension = FilenameUtils.getExtension(file.getName()).toLowerCase(Locale.ROOT);
         if (DataFormat.CSV.matches(extension)) {
-            return parseCsv(file, table);
+            return new CsvDataParser().parseFile(file);
         }
         if (DataFormat.JSON.matches(extension)) {
             return json.parseFile(file);
@@ -97,31 +92,4 @@ public final class DatasetFiles {
         return new XmlDataParser().parseFile(file);
     }
 
-    /**
-     * Uses DBUnit's CSV parser and null/header conventions without an ordering file.
-     *
-     * @param file selected CSV file
-     * @param table table name
-     * @return parsed dataset
-     * @throws Exception if CSV parsing fails
-     */
-    private IDataSet parseCsv(File file, String table) throws Exception {
-        List<?> rows = new CsvParserImpl().parse(file);
-        List<?> header = (List<?>) rows.get(0);
-        Column[] columns = new Column[header.size()];
-        for (int i = 0; i < columns.length; i++) {
-            columns[i] = new Column(((String) header.get(i)).trim(), DataType.UNKNOWN);
-        }
-        DefaultTable parsed = new DefaultTable(table, columns);
-        for (int row = 1; row < rows.size(); row++) {
-            Object[] values = ((List<?>) rows.get(row)).toArray();
-            for (int col = 0; col < values.length; col++) {
-                if ("null".equals(values[col])) {
-                    values[col] = null;
-                }
-            }
-            parsed.addRow(values);
-        }
-        return new DefaultDataSet(parsed);
-    }
 }

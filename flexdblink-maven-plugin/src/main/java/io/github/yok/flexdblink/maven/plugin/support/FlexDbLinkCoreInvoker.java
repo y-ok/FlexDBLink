@@ -11,9 +11,9 @@ import java.util.List;
  * Invokes existing FlexDBLink core classes from the Maven plugin.
  *
  * <p>
- * This adapter creates the existing loader and dumper entry points and temporarily disables
- * {@code ErrorHandler}'s process exit behavior so Maven can surface failures as plugin exceptions
- * instead of terminating the build JVM.
+ * This adapter creates the existing loader and dumper entry points and temporarily suppresses
+ * {@code ErrorHandler}'s additional stderr echo. Failures propagate to Maven as plugin exceptions
+ * while the calling thread's error output setting is restored after each operation.
  * </p>
  *
  * @author Yasuharu.Okawauchi

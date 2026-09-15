@@ -118,12 +118,18 @@ public class Main implements CommandLineRunner {
                 case "--load":
                 case "-l":
                     mode = "load";
-                    scenario = (i + 1 < args.length ? args[++i] : null);
+                    scenario = null;
+                    if (i + 1 < args.length && !args[i + 1].startsWith("-")) {
+                        scenario = args[++i];
+                    }
                     break;
                 case "--dump":
                 case "-d":
                     mode = "dump";
-                    scenario = (i + 1 < args.length ? args[++i] : null);
+                    scenario = null;
+                    if (i + 1 < args.length && !args[i + 1].startsWith("-")) {
+                        scenario = args[++i];
+                    }
                     break;
                 case "--setup":
                 case "-s":
@@ -147,7 +153,7 @@ public class Main implements CommandLineRunner {
             scenario = dbUnitConfig.getPreDirName();
         }
         if ("dump".equals(mode) && (scenario == null || scenario.isEmpty())) {
-            ErrorHandler.errorAndExit("Scenario name is required in dump mode.");
+            throw new IllegalStateException("Scenario name is required in dump mode.");
         }
         if ("load".equals(mode) && dbUnitConfig.isConfirmBeforeLoad()) {
             System.out.printf("Load data? Scenario=[%s], Target DBs=%s [y/N]: ", scenario,
@@ -200,7 +206,7 @@ public class Main implements CommandLineRunner {
 
         } catch (Exception e) {
             log.error("Fatal error occurred (mode={}): {}", mode, e.getMessage(), e);
-            ErrorHandler.errorAndExit("Fatal error: " + e.getMessage(), e);
+            throw new IllegalStateException("Fatal error: " + e.getMessage(), e);
         }
     }
 }

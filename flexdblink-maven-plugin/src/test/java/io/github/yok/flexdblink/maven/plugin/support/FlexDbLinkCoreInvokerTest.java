@@ -2,11 +2,15 @@ package io.github.yok.flexdblink.maven.plugin.support;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.maven.plugin.config.CoreConfigBundle;
 import io.github.yok.flexdblink.maven.plugin.config.PluginConfig;
 import io.github.yok.flexdblink.util.ErrorHandler;
+import java.io.PrintStream;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -32,10 +36,22 @@ class FlexDbLinkCoreInvokerTest {
     }
 
     @Test
-    void load_異常ケース_nullBundleで実行する_ErrorHandlerが復元されること() {
-        assertThrows(NullPointerException.class, () -> target.load(null, null, List.of()));
+    void load_異常ケース_nullBundleで実行する_例外通知とエラー出力設定の復元であること() {
+        PrintStream previous = System.err;
+        PrintStream stderr = mock(PrintStream.class);
+        RuntimeException cause = new RuntimeException("failure");
+        try {
+            System.setErr(stderr);
+            assertThrows(NullPointerException.class, () -> target.load(null, null, List.of()));
 
-        assertDoesNotThrow(() -> ErrorHandler.errorAndExit("restore-check"));
+            IllegalStateException failure = assertThrows(IllegalStateException.class,
+                    () -> ErrorHandler.errorAndExit("restore-check", cause));
+            assertSame(cause, failure.getCause());
+            verify(stderr).println("ERROR: restore-check\nfailure");
+        } finally {
+            System.setErr(previous);
+            ErrorHandler.restoreExitForCurrentThread();
+        }
     }
 
     @Test

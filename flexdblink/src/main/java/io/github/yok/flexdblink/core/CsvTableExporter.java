@@ -6,13 +6,12 @@ import java.io.File;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
 import java.sql.Statement;
-import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.codec.binary.Hex;
 
 /**
  * Exports a single database table to a UTF-8 CSV file.
@@ -45,64 +44,62 @@ class CsvTableExporter {
     void export(Connection conn, String table, File csvFile, DbDialectHandler dialectHandler)
             throws Exception {
 
-        // --- 1) Fetch primary key columns ---
         List<String> pkColumns = CsvUtils.fetchPrimaryKeyColumns(conn, conn.getSchema(), table);
-
-        // --- 2) Single SELECT * query: headers and data from the same ResultSet ---
         String quotedTable = dialectHandler.quoteIdentifier(table);
         String sql = "SELECT * FROM " + quotedTable;
         log.debug("Table[{}] SQL: {}", table, sql);
 
-        String[] headerArray;
-        List<List<String>> rows = new ArrayList<>();
+        String[] headers;
+        List<List<String>> rows;
 
         try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
-            ResultSetMetaData md = rs.getMetaData();
-            int colCount = md.getColumnCount();
-
-            // Extract headers from metadata
-            headerArray = new String[colCount];
-            for (int i = 1; i <= colCount; i++) {
-                headerArray[i - 1] = md.getColumnLabel(i).toUpperCase(Locale.ROOT);
-            }
-
-            // Read all rows
-            while (rs.next()) {
-                List<String> row = new ArrayList<>(colCount);
-                for (int i = 1; i <= colCount; i++) {
-                    int sqlType = md.getColumnType(i);
-                    String typeNm = md.getColumnTypeName(i);
-                    String columnName = md.getColumnLabel(i);
-                    Object val = rs.getObject(i);
-                    String cell;
-                    if (dialectHandler.isBinaryTypeForDump(sqlType, typeNm)) {
-                        byte[] bytes = rs.getBytes(i);
-                        cell = (bytes == null) ? "" : Hex.encodeHexString(bytes).toUpperCase();
-                    } else if (dialectHandler.isDateTimeTypeForDump(sqlType, typeNm)) {
-                        Object temporalValue =
-                                CsvUtils.resolveTemporalValue(rs, i, val, sqlType, typeNm);
-                        cell = (temporalValue == null) ? ""
-                                : dialectHandler.formatDateTimeColumn(columnName, temporalValue,
-                                        conn);
-                    } else if (val == null) {
-                        cell = "";
-                    } else if (sqlType == Types.CHAR || sqlType == Types.NCHAR) {
-                        cell = CsvUtils.trimTrailingSpaces(
-                                dialectHandler.formatDbValueForCsv(columnName, val));
-                    } else {
-                        cell = dialectHandler.formatDbValueForCsv(columnName, val);
-                    }
-                    row.add(cell);
-                }
-                rows.add(row);
-            }
+            ResultSetMetaData metadata = rs.getMetaData();
+            headers = readHeaders(metadata);
+            rows = readRows(rs, metadata, headers.length, dialectHandler, conn);
         }
 
-        // --- 3) Sort in-memory ---
-        List<Integer> sortIdx = CsvUtils.buildSortIndices(headerArray, pkColumns);
+        List<Integer> sortIdx = CsvUtils.buildSortIndices(headers, pkColumns);
         rows.sort(CsvUtils.rowComparator(sortIdx));
+        CsvUtils.writeCsvUtf8(csvFile, headers, rows);
+    }
 
-        // --- 4) Write sorted data to CSV ---
-        CsvUtils.writeCsvUtf8(csvFile, headerArray, rows);
+    /**
+     * Reads uppercase CSV headers in result-set column order.
+     *
+     * @param metadata column metadata from the query result
+     * @return uppercase column labels, including when the result contains no rows
+     * @throws SQLException on metadata access error
+     */
+    private String[] readHeaders(ResultSetMetaData metadata) throws SQLException {
+        String[] headers = new String[metadata.getColumnCount()];
+        for (int i = 1; i <= headers.length; i++) {
+            headers[i - 1] = metadata.getColumnLabel(i).toUpperCase(Locale.ROOT);
+        }
+        return headers;
+    }
+
+    /**
+     * Reads and formats all rows using the shared CSV conversion rules.
+     *
+     * @param rs result set positioned before the first row
+     * @param metadata column metadata from the query result
+     * @param columnCount number of columns to read per row
+     * @param dialectHandler DB dialect handler used for value formatting
+     * @param conn JDBC connection passed to datetime formatting
+     * @return formatted rows in query order, preserving SQL NULL values
+     * @throws Exception on SQL or formatting error
+     */
+    private List<List<String>> readRows(ResultSet rs, ResultSetMetaData metadata, int columnCount,
+            DbDialectHandler dialectHandler, Connection conn) throws Exception {
+        List<List<String>> rows = new ArrayList<>();
+        while (rs.next()) {
+            List<String> row = new ArrayList<>(columnCount);
+            for (int i = 1; i <= columnCount; i++) {
+                row.add(CsvUtils.formatColumnValue(rs, i, metadata.getColumnLabel(i),
+                        dialectHandler, conn));
+            }
+            rows.add(row);
+        }
+        return rows;
     }
 }

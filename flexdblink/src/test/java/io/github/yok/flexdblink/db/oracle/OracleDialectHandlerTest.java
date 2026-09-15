@@ -64,10 +64,12 @@ import org.dbunit.dataset.DataSetException;
 import org.dbunit.dataset.IDataSet;
 import org.dbunit.dataset.ITable;
 import org.dbunit.dataset.ITableMetaData;
-import org.dbunit.dataset.csv.CsvDataSet;
+import io.github.yok.flexdblink.parser.CsvDataParser;
 import org.dbunit.dataset.datatype.DataType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockedConstruction;
 import org.mockito.Mockito;
 
@@ -670,7 +672,7 @@ public class OracleDialectHandlerTest {
         Path csvDir = tempDir.resolve("csv");
         Files.createDirectories(csvDir);
         Files.writeString(csvDir.resolve("TBL.csv"),
-                "ID,BLOB_COL,CLOB_COL,TXT\n1,file:a.bin,file:a.txt,x\n", StandardCharsets.UTF_8);
+                "ID,BLOB_COL,CLOB_COL,TXT\n0,,,x\n1,file:a.bin,file:a.txt,x\n", StandardCharsets.UTF_8);
 
         ITable table = mock(ITable.class);
         ITableMetaData meta = mock(ITableMetaData.class);
@@ -679,8 +681,10 @@ public class OracleDialectHandlerTest {
                 new Column("BLOB_COL", DataType.BLOB), new Column("CLOB_COL", DataType.CLOB),
                 new Column("TXT", DataType.VARCHAR)});
 
-        try (MockedConstruction<CsvDataSet> ignored = mockConstruction(CsvDataSet.class,
-                (mock, context) -> when(mock.getTable("TBL")).thenReturn(table))) {
+        IDataSet dataSet = mock(IDataSet.class);
+        when(dataSet.getTable("TBL")).thenReturn(table);
+        try (MockedConstruction<CsvDataParser> ignored = mockConstruction(CsvDataParser.class,
+                (mock, context) -> when(mock.parseFile(any())).thenReturn(dataSet))) {
             Column[] actual = handler.getLobColumns(csvDir, "TBL");
             assertEquals(2, actual.length);
             assertEquals("BLOB_COL", actual[0].getColumnName());
@@ -703,8 +707,10 @@ public class OracleDialectHandlerTest {
         when(meta.getColumns()).thenReturn(new Column[] {new Column("ID", DataType.INTEGER),
                 new Column("TXT", DataType.VARCHAR)});
 
-        try (MockedConstruction<CsvDataSet> ignored = Mockito.mockConstruction(CsvDataSet.class,
-                (mock, context) -> when(mock.getTable("TBL")).thenReturn(table))) {
+        IDataSet dataSet = mock(IDataSet.class);
+        when(dataSet.getTable("TBL")).thenReturn(table);
+        try (MockedConstruction<CsvDataParser> ignored = Mockito.mockConstruction(CsvDataParser.class,
+                (mock, context) -> when(mock.parseFile(any())).thenReturn(dataSet))) {
 
             Column[] actual = handler.getLobColumns(csvDir, "TBL");
             assertEquals(0, actual.length);
@@ -737,8 +743,10 @@ public class OracleDialectHandlerTest {
         when(table.getTableMetaData()).thenReturn(meta);
         when(meta.getColumns()).thenReturn(new Column[] {idCol, lob1, lob2, extra});
 
-        try (MockedConstruction<CsvDataSet> ignored = Mockito.mockConstruction(CsvDataSet.class,
-                (mock, context) -> when(mock.getTable("TBL")).thenReturn(table))) {
+        IDataSet dataSet = mock(IDataSet.class);
+        when(dataSet.getTable("TBL")).thenReturn(table);
+        try (MockedConstruction<CsvDataParser> ignored = Mockito.mockConstruction(CsvDataParser.class,
+                (mock, context) -> when(mock.parseFile(any())).thenReturn(dataSet))) {
             Column[] actual = handler.getLobColumns(csvDir, "TBL");
             assertEquals(2, actual.length);
             assertEquals("LOB1", actual[0].getColumnName());
@@ -893,13 +901,15 @@ public class OracleDialectHandlerTest {
         assertNull(actual);
     }
 
-    @Test
-    public void convertCsvValueToDbType_正常ケース_空白を指定する_nullが返ること() throws Exception {
+    @ParameterizedTest(name = "value=[{0}]")
+    @ValueSource(strings = {" A ", "A ", " A", "   ", "\tA\r\n", "\t\n", "日本語 😀", "null"})
+    public void convertCsvValueToDbType_正常ケース_空白を含む文字列を変換する_元の文字列が保持される結果であること(String value)
+            throws Exception {
         OracleDialectHandler handler =
                 createHandlerWithMeta("TBL", new ColumnDef("C1", DataType.VARCHAR));
 
-        Object actual = handler.convertCsvValueToDbType("TBL", "C1", "   ");
-        assertNull(actual);
+        assertEquals(value, handler.convertCsvValueToDbType("TBL", "C1", value),
+                "Whitespace in VARCHAR2 data must be preserved, including whitespace-only values.");
     }
 
     @Test

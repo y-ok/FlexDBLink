@@ -35,13 +35,20 @@ import org.apache.commons.lang3.StringUtils;
  *
  * <p>
  * This class currently provides a helper to write CSV files in UTF-8 using Apache Commons CSV with
- * minimal quoting. Records are separated using the platform's default line separator, and the
- * backslash character ({@code \}) is used as the escape character.
+ * quoting of non-null values. NULL is an unquoted empty field; an empty string is quoted. Quotes
+ * are doubled, and records use the platform's default line separator.
  * </p>
  *
  * @author Yasuharu.Okawauchi
  */
 public final class CsvUtils {
+
+    /**
+     * Shared CSV syntax with RFC 4180 quoting and PostgreSQL-style NULL/empty distinction. Empty
+     * records are retained so a one-column NULL row can be read back.
+     */
+    public static final CSVFormat FORMAT = CSVFormat.RFC4180.builder()
+            .setQuoteMode(QuoteMode.ALL_NON_NULL).setRecordSeparator(System.lineSeparator()).get();
 
     /**
      * Prevents instantiation of this utility class.
@@ -79,30 +86,84 @@ public final class CsvUtils {
      * Returns a {@link Comparator} that sorts rows of CSV cells by the specified column indices.
      *
      * <p>
-     * Each sort key is first tried as an integer; if parsing fails, lexicographic ordering is used.
-     * Leading/trailing whitespace is trimmed before comparison.
+     * 32-bit integers sort before other strings, which sort lexicographically. Equal numeric values
+     * use their text as a tie-breaker. NULL sorts before empty strings. Leading/trailing whitespace
+     * is trimmed before comparison.
      * </p>
      *
      * @param sortIdx zero-based column indices to sort by, in priority order
      * @return comparator for in-memory row sorting
      */
     public static Comparator<List<String>> rowComparator(List<Integer> sortIdx) {
+        Comparator<String> keyComparator =
+                Comparator
+                        .nullsFirst(
+                                Comparator
+                                        .comparing(CsvUtils::parseSortInteger,
+                                                Comparator.nullsLast(
+                                                        Comparator.<Integer>naturalOrder()))
+                                        .thenComparing(Comparator.naturalOrder()));
         return (a, b) -> {
             for (int idx : sortIdx) {
-                String sa = StringUtils.trimToEmpty(a.get(idx));
-                String sb = StringUtils.trimToEmpty(b.get(idx));
-                int cmp;
-                try {
-                    cmp = Integer.compare(Integer.parseInt(sa), Integer.parseInt(sb));
-                } catch (NumberFormatException ex) {
-                    cmp = sa.compareTo(sb);
-                }
+                String sa = StringUtils.trim(a.get(idx));
+                String sb = StringUtils.trim(b.get(idx));
+                int cmp = keyComparator.compare(sa, sb);
                 if (cmp != 0) {
                     return cmp;
                 }
             }
             return 0;
         };
+    }
+
+    /**
+     * Classifies a sort key independently so mixed keys have a consistent ordering.
+     *
+     * @param value trimmed sort key
+     * @return integer value, or null for a non-integer key
+     */
+    private static Integer parseSortInteger(String value) {
+        try {
+            return Integer.valueOf(value);
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Preserves significant character data while trimming values that require type conversion.
+     *
+     * @param value non-null CSV value
+     * @param sqlType target JDBC type
+     * @return original character data or trimmed non-character data
+     */
+    public static String trimNonTextValue(String value, int sqlType) {
+        if (isCharacterType(sqlType)) {
+            return value;
+        }
+        return value.trim();
+    }
+
+    /**
+     * Identifies character columns whose empty strings and whitespace are meaningful data.
+     *
+     * @param sqlType target JDBC type
+     * @return true for character and character LOB types
+     */
+    public static boolean isCharacterType(int sqlType) {
+        switch (sqlType) {
+            case Types.CHAR:
+            case Types.VARCHAR:
+            case Types.LONGVARCHAR:
+            case Types.NCHAR:
+            case Types.NVARCHAR:
+            case Types.LONGNVARCHAR:
+            case Types.CLOB:
+            case Types.NCLOB:
+                return true;
+            default:
+                return false;
+        }
     }
 
     /**
@@ -222,12 +283,32 @@ public final class CsvUtils {
      * @param columnName column name to format
      * @param dialectHandler DB dialect handler
      * @param conn JDBC connection (passed to datetime formatting)
-     * @return formatted string suitable for CSV comparison
+     * @return formatted string suitable for CSV comparison, or null for SQL NULL
      * @throws Exception on SQL or formatting error
      */
     public static String formatColumnValue(ResultSet rs, String columnName,
             DbDialectHandler dialectHandler, Connection conn) throws Exception {
-        int colIndex = rs.findColumn(columnName);
+        return formatColumnValue(rs, rs.findColumn(columnName), columnName, dialectHandler, conn);
+    }
+
+    /**
+     * Formats a column by position using the shared CSV conversion rules.
+     *
+     * <p>
+     * Positional access preserves distinct columns even when their labels are identical.
+     * The supplied column name is passed unchanged to dialect-specific formatters.
+     * </p>
+     *
+     * @param rs result set positioned on the current row
+     * @param colIndex one-based column index to read
+     * @param columnName column name passed to dialect-specific formatters
+     * @param dialectHandler DB dialect handler
+     * @param conn JDBC connection passed to datetime formatting
+     * @return formatted string, or null for SQL NULL
+     * @throws Exception on SQL or formatting error
+     */
+    public static String formatColumnValue(ResultSet rs, int colIndex, String columnName,
+            DbDialectHandler dialectHandler, Connection conn) throws Exception {
         ResultSetMetaData md = rs.getMetaData();
         int sqlType = md.getColumnType(colIndex);
         String typeName = md.getColumnTypeName(colIndex);
@@ -235,14 +316,18 @@ public final class CsvUtils {
 
         if (dialectHandler.isBinaryTypeForDump(sqlType, typeName)) {
             byte[] bytes = rs.getBytes(colIndex);
-            return (bytes == null) ? ""
-                    : org.apache.commons.codec.binary.Hex.encodeHexString(bytes).toUpperCase();
+            if (bytes == null) {
+                return null;
+            }
+            return org.apache.commons.codec.binary.Hex.encodeHexString(bytes).toUpperCase();
         } else if (dialectHandler.isDateTimeTypeForDump(sqlType, typeName)) {
             Object temporalValue = resolveTemporalValue(rs, colIndex, val, sqlType, typeName);
-            return (temporalValue == null) ? ""
-                    : dialectHandler.formatDateTimeColumn(columnName, temporalValue, conn);
+            if (temporalValue == null) {
+                return null;
+            }
+            return dialectHandler.formatDateTimeColumn(columnName, temporalValue, conn);
         } else if (val == null) {
-            return "";
+            return null;
         } else if (sqlType == Types.CHAR || sqlType == Types.NCHAR) {
             return trimTrailingSpaces(dialectHandler.formatDbValueForCsv(columnName, val));
         } else {
@@ -258,8 +343,9 @@ public final class CsvUtils {
      * </p>
      * <ul>
      * <li>Header row provided by {@code headers}</li>
-     * <li>Quote mode: {@link QuoteMode#MINIMAL}</li>
-     * <li>Escape character: backslash ({@code \})</li>
+     * <li>Quote mode: {@link QuoteMode#ALL_NON_NULL}</li>
+     * <li>NULL: unquoted empty field; empty string: {@code ""}</li>
+     * <li>Embedded quotes are doubled; backslashes are literal</li>
      * <li>Record separator: {@link System#lineSeparator()}</li>
      * </ul>
      *
@@ -270,9 +356,7 @@ public final class CsvUtils {
      */
     public static void writeCsvUtf8(File csvFile, String[] headers, List<List<String>> rows)
             throws IOException {
-        CSVFormat fmt =
-                CSVFormat.DEFAULT.builder().setHeader(headers).setQuoteMode(QuoteMode.MINIMAL)
-                        .setEscape('\\').setRecordSeparator(System.lineSeparator()).get();
+        CSVFormat fmt = FORMAT.builder().setHeader(headers).get();
         try (Writer w =
                 new OutputStreamWriter(new FileOutputStream(csvFile), StandardCharsets.UTF_8);
                 CSVPrinter printer = new CSVPrinter(w, fmt)) {

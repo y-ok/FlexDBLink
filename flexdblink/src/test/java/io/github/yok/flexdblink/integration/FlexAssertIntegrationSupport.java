@@ -1,7 +1,5 @@
 package io.github.yok.flexdblink.integration;
 
-import java.util.Objects;
-
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import io.github.yok.flexdblink.junit.DataSourceRegistry;
 import io.github.yok.flexdblink.junit.FlexAssert;
@@ -11,6 +9,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Objects;
 import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;

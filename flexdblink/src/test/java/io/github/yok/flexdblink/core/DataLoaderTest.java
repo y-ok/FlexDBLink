@@ -450,7 +450,7 @@ class DataLoaderTest {
     }
 
     @Test
-    void deployWithConnection_正常ケース_データセット解決失敗をスキップする_DBUnit接続がクローズされること() throws Exception {
+    void executeWithConnection_異常ケース_データセット解析を失敗させる_原因を保持した例外通知であること() throws Exception {
         PathsConfig pathsConfig = new PathsConfig();
         pathsConfig.setDataPath(tempDir.toString());
         DumpConfig dumpConfig = new DumpConfig();
@@ -472,11 +472,17 @@ class DataLoaderTest {
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
 
+        RuntimeException cause = new RuntimeException("parse failed");
+        ErrorHandler.disableExitForCurrentThread();
         try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
             factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
-                    .thenThrow(new RuntimeException("skip"));
+                    .thenThrow(cause);
 
-            deployWithConnection(loader, dir.toFile(), "db1", entry, jdbc, dialectHandler, "err");
+            RuntimeException failure = assertThrows(RuntimeException.class,
+                    () -> loader.executeWithConnection(dir.toFile(), entry, jdbc));
+            assertSame(cause, failure.getCause());
+        } finally {
+            ErrorHandler.restoreExitForCurrentThread();
         }
 
         verify(dialectHandler).prepareConnection(jdbc);
@@ -936,9 +942,12 @@ class DataLoaderTest {
         Path dir = tempDir.resolve("exec_with_conn_ok");
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
+        loader.setOperationExecutor(mock(DataLoader.OperationExecutor.class));
+        when(dialect.getLobColumns(any(), eq("T1"))).thenReturn(new Column[0]);
+        IDataSet dataset = buildSimpleDataSet("T1", 1, "ID", "1").dataSet;
         try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
             factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
-                    .thenThrow(new RuntimeException("skip"));
+                    .thenReturn(dataset);
             loader.executeWithConnection(dir.toFile(), entry, jdbc);
         }
         verify(dialect).prepareConnection(jdbc);
@@ -1570,9 +1579,12 @@ class DataLoaderTest {
         Path dir = tempDir.resolve("with_conn_null_dump");
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
+        loader.setOperationExecutor(mock(DataLoader.OperationExecutor.class));
+        when(dialect.getLobColumns(any(), eq("T1"))).thenReturn(new Column[0]);
+        IDataSet dataset = buildSimpleDataSet("T1", 1, "ID", "1").dataSet;
         try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
             factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
-                    .thenThrow(new RuntimeException("skip"));
+                    .thenReturn(dataset);
             deployWithConnection(loader, dir.toFile(), "db1", entry, mock(Connection.class),
                     dialect, "fatal");
         }
@@ -1638,9 +1650,12 @@ class DataLoaderTest {
         Path dir = tempDir.resolve("with_conn_dump_null");
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
+        loader.setOperationExecutor(mock(DataLoader.OperationExecutor.class));
+        when(dialect.getLobColumns(any(), eq("T1"))).thenReturn(new Column[0]);
+        IDataSet dataset = buildSimpleDataSet("T1", 1, "ID", "1").dataSet;
         try (MockedStatic<DataLoaderFactory> factory = mockStatic(DataLoaderFactory.class)) {
             factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
-                    .thenThrow(new RuntimeException("skip"));
+                    .thenReturn(dataset);
             deployWithConnection(loader, dir.toFile(), "db1", entry, mock(Connection.class),
                     dialect, "fatal");
         }
@@ -1932,7 +1947,9 @@ class DataLoaderTest {
         Files.createDirectories(dir);
         Files.writeString(dir.resolve("T1.csv"), "ID\n1\n", StandardCharsets.UTF_8);
         Files.writeString(dir.resolve("T2.csv"), "ID\n1\n", StandardCharsets.UTF_8);
+        when(dialect.getLobColumns(any(), eq("T2"))).thenReturn(new Column[0]);
         SimpleDataSetWrapper ds1 = buildSimpleDataSet("T1", 1, "ID", "1");
+        SimpleDataSetWrapper ds2 = buildSimpleDataSet("T2", 1, "ID", "1");
         DatabaseOperation clean = mock(DatabaseOperation.class);
         DatabaseOperation update = mock(DatabaseOperation.class);
         DatabaseOperation insert = mock(DatabaseOperation.class);
@@ -1944,7 +1961,7 @@ class DataLoaderTest {
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T1"))
                         .thenReturn(ds1.dataSet);
                 factory.when(() -> DataLoaderFactory.create(dir.toFile(), "T2"))
-                        .thenThrow(new RuntimeException("skip T2"));
+                        .thenReturn(ds2.dataSet);
                 resolver.when(
                         () -> TableDependencyResolver.resolveLoadOrder(any(), any(), any(), any()))
                         .thenThrow(new SQLException("FK resolution failed"));
@@ -1952,7 +1969,7 @@ class DataLoaderTest {
                         dialect, "fatal");
             }
         });
-        verify(clean).execute(eq(dbConn), any());
+        verify(clean, times(2)).execute(eq(dbConn), any());
     }
 
     @Test

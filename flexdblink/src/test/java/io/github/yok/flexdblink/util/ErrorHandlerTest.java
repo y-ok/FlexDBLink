@@ -3,9 +3,6 @@ package io.github.yok.flexdblink.util;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import java.io.ByteArrayOutputStream;
-import java.io.PrintStream;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 class ErrorHandlerTest {
@@ -29,22 +26,28 @@ class ErrorHandlerTest {
     }
 
     @Test
-    void errorAndExit_正常ケース_exit有効でThrowableありを指定する_標準エラーへ出力されること() {
-        PrintStream originalErr = System.err;
-        ByteArrayOutputStream err = new ByteArrayOutputStream();
+    void errorAndExit_異常ケース_通常設定で原因例外を渡す_原因を保持した例外通知であること() {
+        ErrorHandler.restoreExitForCurrentThread();
+        RuntimeException cause = new RuntimeException("root");
         try {
-            System.setErr(new PrintStream(err));
-            ErrorHandler.errorAndExit("boom", new RuntimeException("root"));
+            RuntimeException failure = assertThrows(RuntimeException.class,
+                    () -> ErrorHandler.errorAndExit("boom", cause));
+            assertEquals("boom", failure.getMessage());
+            assertSame(cause, failure.getCause());
         } finally {
-            System.setErr(originalErr);
+            ErrorHandler.restoreExitForCurrentThread();
         }
-        String message = err.toString();
-        Assertions.assertTrue(message.contains("ERROR: boom"));
-        Assertions.assertTrue(message.contains("root"));
     }
 
     @Test
-    void errorAndExit_正常ケース_exit有効でメッセージのみを指定する_例外が送出されないこと() {
-        ErrorHandler.errorAndExit("boom2");
+    void errorAndExit_異常ケース_通常設定でメッセージを渡す_呼び出し元への例外通知であること() {
+        ErrorHandler.restoreExitForCurrentThread();
+        try {
+            RuntimeException failure =
+                    assertThrows(RuntimeException.class, () -> ErrorHandler.errorAndExit("boom2"));
+            assertEquals("boom2", failure.getMessage());
+        } finally {
+            ErrorHandler.restoreExitForCurrentThread();
+        }
     }
 }

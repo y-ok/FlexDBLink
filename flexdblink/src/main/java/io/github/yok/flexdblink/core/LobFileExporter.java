@@ -5,11 +5,13 @@ import io.github.yok.flexdblink.config.FilePatternConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.util.CsvUtils;
 import java.io.File;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
 import java.util.ArrayList;
@@ -27,7 +29,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
-import org.apache.commons.csv.QuoteMode;
 import org.apache.commons.lang3.StringUtils;
 
 /**
@@ -50,6 +51,11 @@ class LobFileExporter {
 
     private final FilePatternConfig filePatternConfig;
 
+    /**
+     * Creates an exporter using the configured LOB filename patterns.
+     *
+     * @param filePatternConfig filename patterns by table and column
+     */
     LobFileExporter(FilePatternConfig filePatternConfig) {
         this.filePatternConfig = filePatternConfig;
     }
@@ -70,139 +76,247 @@ class LobFileExporter {
      */
     DumpResult export(Connection conn, String table, File dbDir, File filesDir, String schema,
             DbDialectHandler dialectHandler) throws Exception {
-        int fileCount = 0;
-
-        // --- Read CSV ---
         File csvFile = new File(dbDir, table + ".csv");
         if (!csvFile.exists()) {
             log.warn("CSV file not found: {}", csvFile.getAbsolutePath());
             return new DumpResult(0, 0);
         }
 
-        // 1) Parse header row
-        CSVFormat headerFmt = CSVFormat.DEFAULT.builder().setSkipHeaderRecord(false).setTrim(false)
-                .setQuote('"').setQuoteMode(QuoteMode.MINIMAL).get();
+        List<String> headers = readHeaders(csvFile);
+        List<List<String>> csvData = readCsvData(csvFile, headers);
+        logFilePatterns(table);
+
+        int fileCount = updateCsvData(conn, table, filesDir, dialectHandler, headers, csvData);
+
+        List<String> pkColumns = CsvUtils.fetchPrimaryKeyColumns(conn, schema, table);
+        String[] headerArray = headers.toArray(new String[0]);
+        List<Integer> sortIndices = CsvUtils.buildSortIndices(headerArray, pkColumns);
+        csvData.sort(CsvUtils.rowComparator(sortIndices));
+        CsvUtils.writeCsvUtf8(csvFile, headerArray, csvData);
+
+        return new DumpResult(csvData.size(), fileCount);
+    }
+
+    /**
+     * Reads CSV headers, removing surrounding whitespace and quote characters.
+     *
+     * @param csvFile source CSV file
+     * @return normalized headers in their original order, retaining duplicates
+     * @throws IOException on CSV read error
+     */
+    private List<String> readHeaders(File csvFile) throws IOException {
         List<String> headers = new ArrayList<>();
-        try (CSVParser p = CSVParser.parse(csvFile, StandardCharsets.UTF_8, headerFmt)) {
-            CSVRecord hr = p.iterator().next();
-            for (String h : hr) {
-                headers.add(StringUtils.strip(h.trim(), "\""));
+        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, CsvUtils.FORMAT)) {
+            CSVRecord headerRecord = parser.iterator().next();
+            for (String header : headerRecord) {
+                headers.add(StringUtils.strip(header.trim(), "\""));
             }
         }
+        return headers;
+    }
 
-        // 2) Parse data rows
-        CSVFormat dataFmt = CSVFormat.DEFAULT.builder().setHeader(headers.toArray(new String[0]))
-                .setSkipHeaderRecord(true).setTrim(false).setQuote('"')
-                .setQuoteMode(QuoteMode.MINIMAL).setEscape('\\').get();
+    /**
+     * Reads CSV rows using header names to preserve existing duplicate-header lookup behavior.
+     *
+     * @param csvFile source CSV file
+     * @param headers normalized column names in CSV order
+     * @return mutable rows ready for replacement with database values
+     * @throws IOException on CSV read error
+     */
+    private List<List<String>> readCsvData(File csvFile, List<String> headers) throws IOException {
+        CSVFormat format = CsvUtils.FORMAT.builder().setHeader(headers.toArray(new String[0]))
+                .setSkipHeaderRecord(true).get();
         List<CSVRecord> records;
-        try (CSVParser p = CSVParser.parse(csvFile, StandardCharsets.UTF_8, dataFmt)) {
-            records = p.getRecords();
+        try (CSVParser parser = CSVParser.parse(csvFile, StandardCharsets.UTF_8, format)) {
+            records = parser.getRecords();
         }
 
-        // 3) Copy to memory
         List<List<String>> csvData = new ArrayList<>();
-        for (CSVRecord rec : records) {
+        for (CSVRecord record : records) {
             List<String> row = new ArrayList<>();
-            for (String h : headers) {
-                row.add(rec.get(h));
+            for (String header : headers) {
+                row.add(record.get(header));
             }
             csvData.add(row);
         }
+        return csvData;
+    }
 
-        // 4) Log BLOB/CLOB patterns
+    /**
+     * Logs the filename patterns configured for a table.
+     *
+     * @param table table whose patterns are logged
+     */
+    private void logFilePatterns(String table) {
         Map<String, String> tablePatterns = filePatternConfig.getPatternsForTable(table);
         String joined = tablePatterns.entrySet().stream()
                 .map(e -> e.getKey() + " : " + e.getValue()).collect(Collectors.joining(", "));
         log.debug("BLOB/CLOB output filename patterns: [{}]", joined);
+    }
 
-        // 5) Scan DB + write files + replace cells
+    /**
+     * Replaces CSV cells from the query result and writes configured non-null LOB values.
+     *
+     * <p>
+     * Temporal formatting takes precedence over filename patterns. Other columns with a pattern are
+     * written as files; LOB columns without a pattern cause an error even when their value is null.
+     * Columns absent from the CSV are ignored, and duplicate headers use the first index.
+     * </p>
+     *
+     * @param conn JDBC connection used to read the table and format temporal values
+     * @param table table to query and resolve filename patterns for
+     * @param filesDir directory receiving LOB files
+     * @param dialectHandler DB dialect handler for SQL, value formatting, and file writes
+     * @param headers CSV headers used to locate replacement cells
+     * @param csvData mutable CSV rows, updated in query order before sorting
+     * @return number of completed LOB file writes, including repeated writes to the same path
+     * @throws Exception on SQL, formatting, file I/O, or missing LOB pattern error
+     */
+    private int updateCsvData(Connection conn, String table, File filesDir,
+            DbDialectHandler dialectHandler, List<String> headers, List<List<String>> csvData)
+            throws Exception {
+        int fileCount = 0;
         String quotedTable = dialectHandler.quoteIdentifier(table);
         try (Statement stmt = conn.createStatement();
                 ResultSet rs = stmt.executeQuery("SELECT * FROM " + quotedTable)) {
 
-            ResultSetMetaData md = rs.getMetaData();
-            int colCount = md.getColumnCount();
+            ResultSetMetaData metadata = rs.getMetaData();
+            int columnCount = metadata.getColumnCount();
 
             int rowIndex = 0;
             while (rs.next()) {
                 List<String> row = csvData.get(rowIndex++);
 
-                for (int i = 1; i <= colCount; i++) {
-                    String col = md.getColumnLabel(i).toUpperCase(Locale.ROOT);
-                    int type = md.getColumnType(i);
-                    String typeName = md.getColumnTypeName(i);
-                    int idx = headers.indexOf(col);
-                    if (idx < 0) {
+                for (int columnIndex = 1; columnIndex <= columnCount; columnIndex++) {
+                    String columnName =
+                            metadata.getColumnLabel(columnIndex).toUpperCase(Locale.ROOT);
+                    int sqlType = metadata.getColumnType(columnIndex);
+                    String typeName = metadata.getColumnTypeName(columnIndex);
+                    int csvColumnIndex = headers.indexOf(columnName);
+                    if (csvColumnIndex < 0) {
                         continue;
                     }
 
-                    Object raw = rs.getObject(i);
-                    String cell;
-                    Optional<String> patternOpt = filePatternConfig.getPattern(table, col);
+                    Object rawValue = rs.getObject(columnIndex);
+                    Optional<String> filenamePattern =
+                            filePatternConfig.getPattern(table, columnName);
 
-                    // DATE/TIMESTAMP and dialect-specific temporal types
-                    if (dialectHandler.shouldUseRawTemporalValueForDump(col, type, typeName)) {
-                        cell = dialectHandler.normalizeRawTemporalValueForDump(col,
-                                rs.getString(i));
-
-                    } else if (dialectHandler.isDateTimeTypeForDump(type, typeName)) {
-                        Object temporalValue =
-                                CsvUtils.resolveTemporalValue(rs, i, raw, type, typeName);
-                        cell = (temporalValue == null) ? ""
-                                : dialectHandler.formatDateTimeColumn(col, temporalValue, conn);
-
-                        // BLOB/CLOB types with pattern
-                    } else if (patternOpt.isPresent()) {
-                        if (raw == null) {
-                            cell = "";
-                        } else {
-                            String pattern = patternOpt.get();
-                            Map<String, Object> keyMap = buildKeyMap(rs, pattern);
-                            String fname = applyPlaceholders(pattern, keyMap);
-                            Path outPath = filesDir.toPath().resolve(fname);
-                            dialectHandler.writeLobFile(table, col, raw, outPath);
-                            fileCount++;
-                            cell = "file:" + fname;
-                        }
-
-                        // BLOB/CLOB types without pattern → error
-                    } else if (isLobSqlType(type)) {
-                        throw new IllegalStateException("No definition for \"" + table + "\" / \""
-                                + col + "\" in file-patterns.");
-
-                        // RAW/BINARY family
-                    } else if (dialectHandler.isBinaryTypeForDump(type, typeName)) {
-                        byte[] bytes = rs.getBytes(i);
-                        cell = (bytes == null) ? ""
-                                : BaseEncoding.base16().upperCase().encode(bytes);
-
-                        // Others
-                    } else if (raw == null) {
-                        cell = "";
-                    } else if (type == Types.CHAR || type == Types.NCHAR) {
-                        cell = CsvUtils
-                                .trimTrailingSpaces(dialectHandler.formatDbValueForCsv(col, raw));
-                    } else {
-                        cell = dialectHandler.formatDbValueForCsv(col, raw);
+                    if (dialectHandler.shouldUseRawTemporalValueForDump(columnName, sqlType,
+                            typeName)) {
+                        row.set(csvColumnIndex, formatRawTemporalValue(rs.getString(columnIndex),
+                                columnName, dialectHandler));
+                        continue;
                     }
 
-                    row.set(idx, cell);
+                    if (dialectHandler.isDateTimeTypeForDump(sqlType, typeName)) {
+                        Object temporalValue = CsvUtils.resolveTemporalValue(rs, columnIndex,
+                                rawValue, sqlType, typeName);
+                        row.set(csvColumnIndex, formatTemporalValue(temporalValue, columnName, conn,
+                                dialectHandler));
+                        continue;
+                    }
+
+                    if (filenamePattern.isPresent()) {
+                        String cell = null;
+                        if (rawValue != null) {
+                            String pattern = filenamePattern.get();
+                            Map<String, Object> keyMap = buildKeyMap(rs, pattern);
+                            String filename = applyPlaceholders(pattern, keyMap);
+                            Path outputPath = filesDir.toPath().resolve(filename);
+                            dialectHandler.writeLobFile(table, columnName, rawValue, outputPath);
+                            fileCount++;
+                            cell = "file:" + filename;
+                        }
+                        row.set(csvColumnIndex, cell);
+                        continue;
+                    }
+
+                    if (isLobSqlType(sqlType)) {
+                        throw new IllegalStateException("No definition for \"" + table + "\" / \""
+                                + columnName + "\" in file-patterns.");
+                    }
+
+                    if (dialectHandler.isBinaryTypeForDump(sqlType, typeName)) {
+                        row.set(csvColumnIndex, formatBinaryValue(rs.getBytes(columnIndex)));
+                        continue;
+                    }
+
+                    row.set(csvColumnIndex,
+                            formatScalarValue(rawValue, columnName, sqlType, dialectHandler));
                 }
             }
         }
 
-        // 6) Compute sort-key indices
-        List<String> pkColumns = CsvUtils.fetchPrimaryKeyColumns(conn, schema, table);
-        List<Integer> sortIdx =
-                CsvUtils.buildSortIndices(headers.toArray(new String[0]), pkColumns);
+        return fileCount;
+    }
 
-        // 7) Sort csvData ascending
-        csvData.sort(CsvUtils.rowComparator(sortIdx));
+    /**
+     * Normalizes a raw temporal string while preserving SQL NULL.
+     *
+     * @param value temporal string read from the database, or null
+     * @param columnName uppercase column label
+     * @param dialectHandler DB-specific temporal normalizer
+     * @return normalized string, or null for SQL NULL
+     */
+    private String formatRawTemporalValue(String value, String columnName,
+            DbDialectHandler dialectHandler) {
+        if (value == null) {
+            return null;
+        }
+        return dialectHandler.normalizeRawTemporalValueForDump(columnName, value);
+    }
 
-        // 8) Overwrite CSV
-        CsvUtils.writeCsvUtf8(csvFile, headers.toArray(new String[0]), csvData);
+    /**
+     * Formats a resolved temporal value while preserving SQL NULL.
+     *
+     * @param value typed temporal value or raw fallback, or null
+     * @param columnName uppercase column label
+     * @param conn JDBC connection passed to the formatter
+     * @param dialectHandler DB-specific temporal formatter
+     * @return formatted temporal value, or null for SQL NULL
+     * @throws SQLException on temporal formatting error
+     */
+    private String formatTemporalValue(Object value, String columnName, Connection conn,
+            DbDialectHandler dialectHandler) throws SQLException {
+        if (value == null) {
+            return null;
+        }
+        return dialectHandler.formatDateTimeColumn(columnName, value, conn);
+    }
 
-        return new DumpResult(csvData.size(), fileCount);
+    /**
+     * Encodes binary data as uppercase hexadecimal while preserving SQL NULL.
+     *
+     * @param bytes binary column value, or null
+     * @return uppercase hexadecimal string, or null for SQL NULL
+     */
+    private String formatBinaryValue(byte[] bytes) {
+        if (bytes == null) {
+            return null;
+        }
+        return BaseEncoding.base16().upperCase().encode(bytes);
+    }
+
+    /**
+     * Formats an ordinary column, trimming trailing spaces only for CHAR and NCHAR.
+     *
+     * @param value raw column value, or null
+     * @param columnName uppercase column label
+     * @param sqlType JDBC type used to identify fixed-width character columns
+     * @param dialectHandler DB-specific value formatter
+     * @return formatted value, or null for SQL NULL
+     * @throws SQLException on value formatting error
+     */
+    private String formatScalarValue(Object value, String columnName, int sqlType,
+            DbDialectHandler dialectHandler) throws SQLException {
+        if (value == null) {
+            return null;
+        }
+        String formattedValue = dialectHandler.formatDbValueForCsv(columnName, value);
+        if (sqlType == Types.CHAR || sqlType == Types.NCHAR) {
+            return CsvUtils.trimTrailingSpaces(formattedValue);
+        }
+        return formattedValue;
     }
 
     /**
@@ -223,9 +337,9 @@ class LobFileExporter {
      * @param rs JDBC result set (current row)
      * @param rawPattern file name pattern (e.g., {@code "tbl_{COL1}_{COL2}.bin"})
      * @return map of placeholder name → column value
-     * @throws java.sql.SQLException on column access error
+     * @throws SQLException on column access error
      */
-    Map<String, Object> buildKeyMap(ResultSet rs, String rawPattern) throws java.sql.SQLException {
+    Map<String, Object> buildKeyMap(ResultSet rs, String rawPattern) throws SQLException {
         Map<String, Object> keyMap = new HashMap<>();
         Matcher m = Pattern.compile("\\{(.+?)\\}").matcher(rawPattern);
         while (m.find()) {

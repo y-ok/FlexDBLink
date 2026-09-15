@@ -141,8 +141,8 @@ class LoadDataPerformanceRegressionIT {
     @Test
     void executeWithConnection_正常ケース_親子テーブルに複数LOBを投入する_UPDATEなしで全内容の一致とロールバックであること()
             throws Exception {
-        List<String> bodies = Arrays.asList(null, "", "日本語😀", "あ".repeat(32766),
-                "あ".repeat(32767), "日本語😀".repeat(300000));
+        List<String> bodies = Arrays.asList(null, "", "日本語😀", "あ".repeat(32766), "あ".repeat(32767),
+                "日本語😀".repeat(300000));
         String backup = "複製😀".repeat(10000);
         byte[] binary = new byte[512 * 1024];
         Arrays.fill(binary, (byte) 0xa5);
@@ -152,9 +152,7 @@ class LoadDataPerformanceRegressionIT {
         for (int row = 0; row < bodies.size(); row++) {
             csv.append(row).append(',');
             String body = bodies.get(row);
-            if (body == null) {
-                csv.append("null");
-            } else {
+            if (body != null) {
                 String name = "body" + row + ".txt";
                 Files.writeString(directory.resolve("files").resolve(name), body);
                 csv.append("file:").append(name);
@@ -183,8 +181,9 @@ class LoadDataPerformanceRegressionIT {
                 loader.executeWithConnection(directory.toFile(), entry,
                         metadataCache.wrap(monitored));
                 for (String table : tables) {
-                    try (ResultSet rows = statement.executeQuery(
-                            "SELECT ID, BODY, BACKUP, PAYLOAD, NOTE FROM " + table + " ORDER BY ID")) {
+                    try (ResultSet rows =
+                            statement.executeQuery("SELECT ID, BODY, BACKUP, PAYLOAD, NOTE FROM "
+                                    + table + " ORDER BY ID")) {
                         for (int row = 0; row < bodies.size(); row++) {
                             assertTrue(rows.next());
                             assertEquals(row, rows.getInt(1));
@@ -196,8 +195,10 @@ class LoadDataPerformanceRegressionIT {
                         assertFalse(rows.next());
                     }
                 }
-                assertEquals(2, preparedSql.stream().filter(sql -> sql.startsWith("INSERT")).count());
-                assertEquals(0, preparedSql.stream().filter(sql -> sql.startsWith("UPDATE")).count());
+                assertEquals(2,
+                        preparedSql.stream().filter(sql -> sql.startsWith("INSERT")).count());
+                assertEquals(0,
+                        preparedSql.stream().filter(sql -> sql.startsWith("UPDATE")).count());
             } finally {
                 ErrorHandler.restoreExitForCurrentThread();
                 jdbc.rollback();

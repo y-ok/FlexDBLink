@@ -53,6 +53,8 @@ import org.dbunit.dataset.datatype.DataType;
 import org.dbunit.dataset.datatype.IDataTypeFactory;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class SqlServerDialectHandlerTest {
 
@@ -507,6 +509,18 @@ public class SqlServerDialectHandlerTest {
 
         assertThrows(DataSetException.class,
                 () -> handler.readLobFile("missing.bin", "T1", "BIN_COL", tempDir.toFile()));
+    }
+
+    @ParameterizedTest(name = "value=[{0}]")
+    @ValueSource(strings = {"", " A ", "A ", " A", "   ", "\tA\r\n", "\t\n", "日本語 😀", "null"})
+    public void convertCsvValueToDbType_正常ケース_空文字と空白を含む文字列を変換する_元の文字列が保持される結果であること(String value)
+            throws Exception {
+        SqlServerDialectHandler handler = createHandlerDefault(List.of("T1"),
+                Map.of("T1", new Column[] {colMock("C1", dataTypeMock(Types.VARCHAR, "varchar"))}),
+                Map.of("T1", List.of(new JdbcRow("C1", Types.VARCHAR, "varchar"))));
+
+        assertEquals(value, handler.convertCsvValueToDbType("T1", "C1", value),
+                "Whitespace in VARCHAR data must be preserved, including whitespace-only values.");
     }
 
     @Test
