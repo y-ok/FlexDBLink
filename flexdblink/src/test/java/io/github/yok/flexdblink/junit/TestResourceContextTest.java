@@ -3,26 +3,32 @@ package io.github.yok.flexdblink.junit;
 import static io.github.yok.flexdblink.junit.TestMocks.mockNonNull;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import com.google.common.base.Splitter;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
 import javax.sql.DataSource;
 import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Test;
@@ -345,59 +351,155 @@ class TestResourceContextTest {
     }
 
     @Test
-    void loadAllApplicationProperties_正常ケース_非application接頭辞を含むプロファイルURLを指定する_非application接頭辞が無視されること()
-            throws Exception {
-        Path cp = tempDir.resolve("cp_ignore_non_application_profile");
-        Files.createDirectories(cp);
-        Files.writeString(cp.resolve("application.properties"),
-                "spring.profiles.active=dev\nmerge.order=base\n", StandardCharsets.UTF_8);
-        Files.writeString(cp.resolve("application-dev.properties"), "merge.order=dev\n",
-                StandardCharsets.UTF_8);
-        Files.writeString(cp.resolve("notapplication-dev.properties"), "merge.order=invalid\n",
-                StandardCharsets.UTF_8);
-
-        try (URLClassLoader cl = new URLClassLoader(new URL[] {cp.toUri().toURL()}, null);
-                MockedStatic<TestResourceContext> mocked =
-                        mockStatic(TestResourceContext.class, CALLS_REAL_METHODS)) {
-            URL baseUrl = cp.resolve("application.properties").toUri().toURL();
-            URL nonApplicationUrl = cp.resolve("notapplication-dev.properties").toUri().toURL();
-            URL applicationUrl = cp.resolve("application-dev.properties").toUri().toURL();
-            mocked.when(() -> TestResourceContext.findAllBaseResources(cl))
-                    .thenReturn(new ArrayList<>(List.of(baseUrl)));
-            mocked.when(() -> TestResourceContext.findAllProfileResources(cl))
-                    .thenReturn(new ArrayList<>(List.of(nonApplicationUrl, applicationUrl)));
-
+    void loadAllApplicationProperties_正常ケース_対象外の設定名を配置する_対象設定だけが反映される結果であること() throws Exception {
+        Files.writeString(tempDir.resolve("application.properties"), "selected=base\n");
+        for (String name : List.of("applicationOther.properties", "application-dev.txt",
+                "application-dev.PROPERTIES", "notapplication-dev.properties")) {
+            Files.writeString(tempDir.resolve(name), "ignored=true\n");
+        }
+        try (URLClassLoader cl = new URLClassLoader(new URL[] {tempDir.toUri().toURL()}, null)) {
             Properties merged = TestResourceContext.loadAllApplicationProperties(cl);
-            assertEquals("dev", merged.getProperty("merge.order"));
+            assertEquals("base", merged.getProperty("selected"));
+            assertNull(merged.getProperty("ignored"));
         }
     }
 
     @Test
-    void findAllProfileResources_正常ケース_重複URLを含む結果を指定する_重複を除外したURL一覧が返ること() throws Exception {
-        URL duplicated = new URL("file:/tmp/application-dev.properties");
-        URL yml = new URL("file:/tmp/application-dev.yml");
-        Resource prop1 = mock(Resource.class);
-        Resource prop2 = mock(Resource.class);
-        Resource ymlResource = mock(Resource.class);
-        when(prop1.getURL()).thenReturn(duplicated);
-        when(prop2.getURL()).thenReturn(duplicated);
-        when(ymlResource.getURL()).thenReturn(yml);
-
-        try (MockedConstruction<PathMatchingResourcePatternResolver> mockedConstruction =
+    void loadAllApplicationProperties_正常ケース_重複URLを含む設定を探索する_探索と各URLの読込が一回であること() throws Exception {
+        URL url = mock(URL.class);
+        when(url.getPath()).thenReturn("/application.properties");
+        when(url.toString()).thenReturn("file:/application.properties");
+        when(url.openStream()).thenAnswer(invocation -> new ByteArrayInputStream(
+                "selected=base\n".getBytes(StandardCharsets.UTF_8)));
+        Resource resource = mock(Resource.class);
+        when(resource.getURL()).thenReturn(url);
+        try (MockedConstruction<PathMatchingResourcePatternResolver> resolvers =
                 mockConstruction(PathMatchingResourcePatternResolver.class, (resolver, context) -> {
-                    when(resolver.getResources("classpath*:**/application-*.properties"))
-                            .thenReturn(new Resource[] {prop1, prop2});
-                    when(resolver.getResources("classpath*:**/application-*.yml"))
-                            .thenReturn(new Resource[] {ymlResource});
-                    when(resolver.getResources("classpath*:**/application-*.yaml"))
-                            .thenReturn(new Resource[0]);
+                    when(resolver.getResources("classpath*:**/application*.*"))
+                            .thenReturn(new Resource[] {resource, resource});
                 })) {
-            List<URL> urls = TestResourceContext
-                    .findAllProfileResources(Thread.currentThread().getContextClassLoader());
-            assertEquals(2, urls.size());
-            assertEquals(duplicated, urls.get(0));
-            assertEquals(yml, urls.get(1));
-            assertEquals(1, mockedConstruction.constructed().size());
+            Properties merged =
+                    TestResourceContext.loadAllApplicationProperties(getClass().getClassLoader());
+            assertEquals("base", merged.getProperty("selected"));
+            assertEquals(1, resolvers.constructed().size());
+            verify(resolvers.constructed().get(0)).getResources("classpath*:**/application*.*");
+            verify(url).openStream();
+        }
+    }
+
+    @Test
+    void loadAllApplicationProperties_正常ケース_同じクラスローダーで設定を変更する_追加更新削除が反映される結果であること()
+            throws Exception {
+        Path base = tempDir.resolve("application.properties");
+        Path profile = tempDir.resolve("application-dev.properties");
+        Files.writeString(base, "spring.profiles.active=dev\nselected=initial\n");
+        try (URLClassLoader cl = new URLClassLoader(new URL[] {tempDir.toUri().toURL()}, null)) {
+            assertEquals("initial",
+                    TestResourceContext.loadAllApplicationProperties(cl).getProperty("selected"));
+            Files.writeString(profile, "selected=profile\n");
+            assertEquals("profile",
+                    TestResourceContext.loadAllApplicationProperties(cl).getProperty("selected"));
+            Files.writeString(profile, "selected=updated\n");
+            assertEquals("updated",
+                    TestResourceContext.loadAllApplicationProperties(cl).getProperty("selected"));
+            // Moving outside the search pattern removes the resource without deleting a file.
+            Files.move(profile, tempDir.resolve("removed-profile.properties"));
+            Files.writeString(base, "selected=latest\n");
+            assertEquals("latest",
+                    TestResourceContext.loadAllApplicationProperties(cl).getProperty("selected"));
+        }
+    }
+
+    @Test
+    void loadAllApplicationProperties_正常ケース_プロファイルと置換値を変更する_現在の値と優先順位が反映される結果であること()
+            throws Exception {
+        String activeKey = "spring.profiles.active";
+        String valueKey = "flexdblink.discovery.test.value";
+        String previousActive = System.getProperty(activeKey);
+        String previousValue = System.getProperty(valueKey);
+        Files.writeString(tempDir.resolve("application.properties"),
+                "selected=base\nexpanded=${" + valueKey + "}\n");
+        Files.writeString(tempDir.resolve("application-dev.properties"), "selected=dev\n");
+        Files.writeString(tempDir.resolve("application-qa.yml"), "selected: qa\n");
+        try (URLClassLoader cl = new URLClassLoader(new URL[] {tempDir.toUri().toURL()}, null)) {
+            System.setProperty(activeKey, "qa,dev");
+            System.setProperty(valueKey, "first");
+            Properties first = TestResourceContext.loadAllApplicationProperties(cl);
+            assertEquals("dev", first.getProperty("selected"));
+            assertEquals("first", first.getProperty("expanded"));
+            System.setProperty(activeKey, "dev,qa");
+            System.setProperty(valueKey, "second");
+            Properties second = TestResourceContext.loadAllApplicationProperties(cl);
+            assertEquals("qa", second.getProperty("selected"));
+            assertEquals("second", second.getProperty("expanded"));
+            assertEquals("first", first.getProperty("expanded"));
+        } finally {
+            restoreSystemProperty(activeKey, previousActive);
+            restoreSystemProperty(valueKey, previousValue);
+        }
+    }
+
+    @Test
+    void loadAllApplicationProperties_正常ケース_JARとネストした設定を読み込む_URL順とプロファイル優先の結果であること()
+            throws Exception {
+        Path jar = tempDir.resolve("configuration.jar");
+        Map<String, String> entries = new LinkedHashMap<>();
+        entries.put("application.properties", "selected=base\nbase.order=root\n");
+        entries.put("nested/application.yml", "base.order: nested\n");
+        entries.put("application-aa.properties", "selected=aa\n");
+        entries.put("nested/application-zz.yaml", "selected: zz\n");
+        try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(jar))) {
+            for (Map.Entry<String, String> entry : entries.entrySet()) {
+                output.putNextEntry(new JarEntry(entry.getKey()));
+                output.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                output.closeEntry();
+            }
+        }
+        try (URLClassLoader cl = new URLClassLoader(new URL[] {jar.toUri().toURL()}, null)) {
+            Properties merged = TestResourceContext.loadAllApplicationProperties(cl);
+            assertEquals("nested", merged.getProperty("base.order"));
+            assertEquals("zz", merged.getProperty("selected"));
+        }
+    }
+
+    @Test
+    void loadAllApplicationProperties_異常ケース_探索が失敗する_元の例外が再送出される結果であること() throws Exception {
+        IOException failure = new IOException("Discovery failed");
+        try (MockedConstruction<PathMatchingResourcePatternResolver> resolvers =
+                mockConstruction(PathMatchingResourcePatternResolver.class, (resolver, context) -> {
+                    when(resolver.getResources("classpath*:**/application*.*")).thenThrow(failure);
+                })) {
+            assertSame(failure, assertThrows(IOException.class, () -> TestResourceContext
+                    .loadAllApplicationProperties(getClass().getClassLoader())));
+            assertEquals(1, resolvers.constructed().size());
+        }
+    }
+
+    @Test
+    void loadAllApplicationProperties_異常ケース_設定の読込が失敗する_元の例外が再送出される結果であること() throws Exception {
+        IOException failure = new IOException("Read failed");
+        URL url = mock(URL.class);
+        when(url.getPath()).thenReturn("/application.properties");
+        when(url.toString()).thenReturn("file:/application.properties");
+        when(url.openStream()).thenThrow(failure);
+        Resource resource = mock(Resource.class);
+        when(resource.getURL()).thenReturn(url);
+        try (MockedConstruction<PathMatchingResourcePatternResolver> resolvers =
+                mockConstruction(PathMatchingResourcePatternResolver.class, (resolver, context) -> {
+                    when(resolver.getResources("classpath*:**/application*.*"))
+                            .thenReturn(new Resource[] {resource});
+                })) {
+            assertSame(failure, assertThrows(IOException.class, () -> TestResourceContext
+                    .loadAllApplicationProperties(getClass().getClassLoader())));
+            assertEquals(1, resolvers.constructed().size());
+        }
+    }
+
+    private static void restoreSystemProperty(String key, String value) {
+        if (value == null) {
+            System.clearProperty(key);
+        } else {
+            System.setProperty(key, value);
         }
     }
 

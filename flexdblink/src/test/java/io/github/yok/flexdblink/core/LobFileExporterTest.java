@@ -13,6 +13,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import io.github.yok.flexdblink.config.FilePatternConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
+import io.github.yok.flexdblink.parser.CsvDataParser;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -33,6 +34,9 @@ import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class LobFileExporterTest {
 
@@ -115,8 +119,13 @@ class LobFileExporterTest {
         assertEquals(1, result.getRowCount());
         assertEquals(0, result.getFileCount());
         verify(dialectHandler, never()).writeLobFile(any(), any(), any(), any());
+        org.dbunit.dataset.ITable table =
+                new CsvDataParser().parseFile(csvPath.toFile()).getTable("1TABLE");
+        assertEquals(null, table.getValue(0, "DATE_COL"));
+        assertEquals(null, table.getValue(0, "BLOB_COL"));
+        assertEquals(null, table.getValue(0, "BIN_COL"));
 
-        CSVFormat fmt = CSVFormat.DEFAULT.builder().setHeader("DATE_COL", "BLOB_COL", "BIN_COL")
+        CSVFormat fmt = CSVFormat.RFC4180.builder().setHeader("DATE_COL", "BLOB_COL", "BIN_COL")
                 .setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
@@ -127,8 +136,10 @@ class LobFileExporterTest {
         }
     }
 
-    @Test
-    void export_正常ケース_interval列を含む_日時整形値が設定されること() throws Exception {
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"1 00:00:00.0"})
+    void export_正常ケース_生の日時値とNULLを出力する_整形値またはNULLであること(String value) throws Exception {
         FilePatternConfig filePatternConfig = mock(FilePatternConfig.class);
         DbDialectHandler dialectHandler = createDialectHandlerMock();
         when(dialectHandler.quoteIdentifier(any()))
@@ -157,8 +168,8 @@ class LobFileExporterTest {
         when(md.getColumnType(1)).thenReturn(Types.VARCHAR);
         when(md.getColumnTypeName(1)).thenReturn("INTERVAL DAY TO SECOND");
         when(rs.next()).thenReturn(true, false);
-        when(rs.getObject(1)).thenReturn("1 00:00:00.0");
-        when(rs.getString(1)).thenReturn("1 00:00:00.0");
+        when(rs.getObject(1)).thenReturn(value);
+        when(rs.getString(1)).thenReturn(value);
 
         Path dbDirPath = Files.createDirectories(tempDir.resolve("db_interval"));
         Path filesDirPath = Files.createDirectories(dbDirPath.resolve("files"));
@@ -169,11 +180,12 @@ class LobFileExporterTest {
                 dbDirPath.toFile(), filesDirPath.toFile(), "APP", dialectHandler);
         assertEquals(1, result.getRowCount());
 
-        CSVFormat fmt = CSVFormat.DEFAULT.builder().setHeader("INTERVAL_DS_COL")
-                .setSkipHeaderRecord(true).get();
-        try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
-            List<CSVRecord> records = parser.getRecords();
-            assertEquals("1 00:00:00", records.get(0).get("INTERVAL_DS_COL"));
+        Object actual = new CsvDataParser().parseFile(csvPath.toFile()).getTable("TINTERVAL")
+                .getValue(0, "INTERVAL_DS_COL");
+        if (value == null) {
+            assertEquals(null, actual);
+        } else {
+            assertEquals("1 00:00:00", actual);
         }
     }
 
@@ -216,7 +228,7 @@ class LobFileExporterTest {
         assertEquals(1, result.getRowCount());
 
         CSVFormat fmt =
-                CSVFormat.DEFAULT.builder().setHeader("TS_TZ").setSkipHeaderRecord(true).get();
+                CSVFormat.RFC4180.builder().setHeader("TS_TZ").setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("2026-02-15 01:02:03+09:00", records.get(0).get("TS_TZ"));
@@ -265,7 +277,7 @@ class LobFileExporterTest {
         assertEquals(1, result.getRowCount());
 
         CSVFormat fmt =
-                CSVFormat.DEFAULT.builder().setHeader("TIME_COL").setSkipHeaderRecord(true).get();
+                CSVFormat.RFC4180.builder().setHeader("TIME_COL").setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("12:34:56", records.get(0).get("TIME_COL"));
@@ -319,7 +331,7 @@ class LobFileExporterTest {
         assertEquals(1, result.getRowCount());
         assertEquals(1, result.getFileCount());
 
-        CSVFormat fmt = CSVFormat.DEFAULT.builder().setHeader("ID", "NCLOB_COL")
+        CSVFormat fmt = CSVFormat.RFC4180.builder().setHeader("ID", "NCLOB_COL")
                 .setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
@@ -366,7 +378,7 @@ class LobFileExporterTest {
         assertEquals(2, result.getRowCount());
 
         CSVFormat fmt =
-                CSVFormat.DEFAULT.builder().setHeader("CODE").setSkipHeaderRecord(true).get();
+                CSVFormat.RFC4180.builder().setHeader("CODE").setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("A", records.get(0).get("CODE"));
@@ -438,7 +450,7 @@ class LobFileExporterTest {
         assertEquals(1, result.getRowCount());
         assertEquals(1, result.getFileCount());
 
-        CSVFormat fmt = CSVFormat.DEFAULT.builder()
+        CSVFormat fmt = CSVFormat.RFC4180.builder()
                 .setHeader("ID", "TZ_COL", "TZ_COL2", "CLOB_COL", "LBIN_COL", "STR_COL")
                 .setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
@@ -490,7 +502,7 @@ class LobFileExporterTest {
         assertEquals(1, result.getRowCount());
 
         CSVFormat fmt =
-                CSVFormat.DEFAULT.builder().setHeader("CHAR_COL").setSkipHeaderRecord(true).get();
+                CSVFormat.RFC4180.builder().setHeader("CHAR_COL").setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("abc", records.get(0).get("CHAR_COL"));
@@ -535,7 +547,7 @@ class LobFileExporterTest {
         assertEquals(1, result.getRowCount());
 
         CSVFormat fmt =
-                CSVFormat.DEFAULT.builder().setHeader("CHAR_COL").setSkipHeaderRecord(true).get();
+                CSVFormat.RFC4180.builder().setHeader("CHAR_COL").setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("abc\t", records.get(0).get("CHAR_COL"));
@@ -581,7 +593,7 @@ class LobFileExporterTest {
         assertEquals(1, result.getRowCount());
 
         CSVFormat fmt =
-                CSVFormat.DEFAULT.builder().setHeader("NCHAR_COL").setSkipHeaderRecord(true).get();
+                CSVFormat.RFC4180.builder().setHeader("NCHAR_COL").setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("abc", records.get(0).get("NCHAR_COL"));
@@ -677,7 +689,7 @@ class LobFileExporterTest {
         assertEquals(1, result.getFileCount());
         verify(dialectHandler).writeLobFile(eq("1TABLE"), eq("BLOB_COL"), eq(blobRaw), any());
 
-        CSVFormat fmt = CSVFormat.DEFAULT.builder().setHeader("ID", "BLOB_COL")
+        CSVFormat fmt = CSVFormat.RFC4180.builder().setHeader("ID", "BLOB_COL")
                 .setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
@@ -748,7 +760,7 @@ class LobFileExporterTest {
         assertEquals(1, result.getFileCount());
         verify(dialectHandler).writeLobFile(eq("1TABLE"), eq("NCLOB_COL"), eq(nclobRaw), any());
 
-        CSVFormat fmt = CSVFormat.DEFAULT.builder()
+        CSVFormat fmt = CSVFormat.RFC4180.builder()
                 .setHeader("ID", "TS_COL", "NCLOB_COL", "VBIN_COL").setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
@@ -888,7 +900,7 @@ class LobFileExporterTest {
         assertEquals(2, result.getRowCount());
 
         CSVFormat fmt =
-                CSVFormat.DEFAULT.builder().setHeader("ID", "NAME").setSkipHeaderRecord(true).get();
+                CSVFormat.RFC4180.builder().setHeader("ID", "NAME").setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals("2", records.get(0).get("ID"));
@@ -963,7 +975,7 @@ class LobFileExporterTest {
                 dbDirPath.toFile(), filesDirPath.toFile(), "APP", dialectHandler);
         assertEquals(1, result.getRowCount());
 
-        CSVFormat fmt = CSVFormat.DEFAULT.builder().setHeader("ID").setSkipHeaderRecord(true).get();
+        CSVFormat fmt = CSVFormat.RFC4180.builder().setHeader("ID").setSkipHeaderRecord(true).get();
         try (CSVParser parser = CSVParser.parse(csvPath.toFile(), StandardCharsets.UTF_8, fmt)) {
             List<CSVRecord> records = parser.getRecords();
             assertEquals(1, records.size());

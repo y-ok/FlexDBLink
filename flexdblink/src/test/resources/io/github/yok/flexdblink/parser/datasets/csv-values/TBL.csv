@@ -1,0 +1,7 @@
+ ID ,NAME,NOTE
+1,"a,b",
+2,"quoted""text",""
+3,"null",
+4," A ","日本語 😀"
+5,"Path\to\file","null"
+6,null,""

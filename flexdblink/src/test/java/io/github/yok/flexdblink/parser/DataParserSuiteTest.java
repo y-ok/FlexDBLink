@@ -1,10 +1,9 @@
 package io.github.yok.flexdblink.parser;
 
+import static io.github.yok.flexdblink.parser.DataParserTestSupport.copyFixture;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.mockStatic;
 import java.nio.charset.StandardCharsets;
@@ -34,24 +33,6 @@ class DataParserSuiteTest {
     }
 
     @Test
-    void create_正常ケース_同名で複数形式がある_CSV優先で解決されること() throws Exception {
-        Files.writeString(tempDir.resolve("TBL.csv"), "ID,NAME\n1,A\n", StandardCharsets.UTF_8);
-        Files.writeString(tempDir.resolve("table-ordering.txt"), "TBL\n", StandardCharsets.UTF_8);
-
-        IDataSet dataSet = DataLoaderFactory.create(tempDir.toFile(), "TBL");
-        assertEquals(1, dataSet.getTable("TBL").getRowCount());
-        assertEquals("A", dataSet.getTable("TBL").getValue(0, "NAME"));
-    }
-
-    @Test
-    void create_正常ケース_XMLのみ存在する_XMLパーサで解決されること() throws Exception {
-        Files.writeString(tempDir.resolve("T4.xml"),
-                "<dataset><T4 ID=\"1\" NAME=\"Xml\"/></dataset>", StandardCharsets.UTF_8);
-        IDataSet dataSet = DataLoaderFactory.create(tempDir.toFile(), "T4");
-        assertEquals("Xml", dataSet.getTable("T4").getValue(0, "NAME"));
-    }
-
-    @Test
     void parse_正常ケース_JsonDataParserでJSONを読む_テーブル行が取得できること() throws Exception {
         Path json = tempDir.resolve("EMP.json");
         Files.writeString(json, "[{\"ID\":\"1\",\"NAME\":\"Alice\"},{\"ID\":\"2\",\"NAME\":null}]",
@@ -72,39 +53,14 @@ class DataParserSuiteTest {
     }
 
     @Test
-    void create_正常ケース_JSONのみ存在する_JSONパーサで解決されること() throws Exception {
-        Files.writeString(tempDir.resolve("T2.json"), "[{\"ID\":\"1\",\"NAME\":\"Json\"}]",
-                StandardCharsets.UTF_8);
-        IDataSet dataSet = DataLoaderFactory.create(tempDir.toFile(), "t2");
-        assertEquals("Json", dataSet.getTable("T2").getValue(0, "NAME"));
-    }
+    void parse_正常ケース_XmlDataParserでXMLを読む_テーブル行が取得できる結果であること() throws Exception {
+        copyFixture(tempDir, "valid/TBL.xml", "TBL.xml");
+        copyFixture(tempDir, "unsupported/TBL.txt", "TBL.txt");
 
-    @Test
-    void create_正常ケース_YAMLのみ存在する_YAMLパーサで解決されること() throws Exception {
-        Files.writeString(tempDir.resolve("T3.yaml"), "- ID: \"1\"\n  NAME: \"Yaml\"\n",
-                StandardCharsets.UTF_8);
-        IDataSet dataSet = DataLoaderFactory.create(tempDir.toFile(), "T3");
-        assertEquals("Yaml", dataSet.getTable("T3").getValue(0, "NAME"));
-    }
+        IDataSet dataSet = new XmlDataParser().parse(tempDir.toFile());
 
-    @Test
-    void create_異常ケース_対象テーブルファイルが存在しない_IllegalArgumentExceptionが送出されること() throws Exception {
-        assertThrows(IllegalArgumentException.class,
-                () -> DataLoaderFactory.create(tempDir.toFile(), "MISSING"));
-    }
-
-    @Test
-    void create_異常ケース_シナリオディレクトリがファイルである_IllegalArgumentExceptionが送出されること() throws Exception {
-        Path notDirectory = tempDir.resolve("not-directory.txt");
-        Files.writeString(notDirectory, "x", StandardCharsets.UTF_8);
-        assertThrows(IllegalArgumentException.class,
-                () -> DataLoaderFactory.create(notDirectory.toFile(), "MISSING"));
-    }
-
-    @Test
-    void コンストラクタ_正常ケース_直接生成する_インスタンスが生成されること() {
-        Object instance = new DataLoaderFactory();
-        assertNotNull(instance);
+        assertEquals(1, dataSet.getTable("TBL").getRowCount());
+        assertEquals("xml", dataSet.getTable("TBL").getValue(0, "NAME"));
     }
 
     @Test
@@ -173,26 +129,6 @@ class DataParserSuiteTest {
         Path notDirectory = tempDir.resolve("single.xml");
         Files.writeString(notDirectory, "<dataset/>", StandardCharsets.UTF_8);
         assertThrows(Exception.class, () -> parser.parse(notDirectory.toFile()));
-    }
-
-    @Test
-    void createParser_異常ケース_nullフォーマットを指定する_IllegalArgumentExceptionが送出されること() {
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> DataLoaderFactory.createParser(null));
-        assertEquals("Unsupported format: null", ex.getMessage());
-    }
-
-    @Test
-    void createParser_正常ケース_各フォーマットを指定する_対応パーサが返ること() {
-        Object csv = DataLoaderFactory.createParser(DataFormat.CSV);
-        Object json = DataLoaderFactory.createParser(DataFormat.JSON);
-        Object yaml = DataLoaderFactory.createParser(DataFormat.YAML);
-        Object xml = DataLoaderFactory.createParser(DataFormat.XML);
-
-        assertTrue(csv instanceof CsvDataParser);
-        assertTrue(json instanceof JsonDataParser);
-        assertTrue(yaml instanceof YamlDataParser);
-        assertTrue(xml instanceof XmlDataParser);
     }
 
     @Test

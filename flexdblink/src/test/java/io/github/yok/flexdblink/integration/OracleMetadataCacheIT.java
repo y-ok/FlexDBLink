@@ -40,8 +40,7 @@ class OracleMetadataCacheIT {
     Path directory;
 
     @Test
-    void executeWithConnection_正常ケース_接続を変えて十テーブルを再ロードする_列とキーの再利用と独立したデータであること()
-            throws Exception {
+    void executeWithConnection_正常ケース_接続を変えて十テーブルを再ロードする_列とキーの再利用と独立したデータであること() throws Exception {
         String schema = ORACLE.getUsername().toUpperCase();
         Files.createDirectories(directory.resolve("files"));
         Files.writeString(directory.resolve("files/body.txt"), "日本語😀".repeat(100));
@@ -82,8 +81,8 @@ class OracleMetadataCacheIT {
             Files.writeString(directory.resolve("files/body.txt"), expected);
             try (Connection jdbc = open(); Statement statement = jdbc.createStatement()) {
                 jdbc.setAutoCommit(false);
-                DatabaseMetaData metadata = mock(DatabaseMetaData.class,
-                        delegatesTo(jdbc.getMetaData()));
+                DatabaseMetaData metadata =
+                        mock(DatabaseMetaData.class, delegatesTo(jdbc.getMetaData()));
                 Connection monitored = mock(Connection.class, delegatesTo(jdbc));
                 when(monitored.getMetaData()).thenReturn(metadata);
                 Connection wrapped = cache.wrap(monitored);
@@ -117,8 +116,8 @@ class OracleMetadataCacheIT {
         try (Connection jdbc = open(); Statement statement = jdbc.createStatement()) {
             statement.execute("ALTER TABLE MC_0 ADD EXTRA VARCHAR2(20)");
             cache.clear();
-            try (ResultSet columns = cache.wrap(jdbc).getMetaData()
-                    .getColumns(null, schema, "MC_0", "EXTRA")) {
+            try (ResultSet columns =
+                    cache.wrap(jdbc).getMetaData().getColumns(null, schema, "MC_0", "EXTRA")) {
                 assertTrue(columns.next());
                 assertEquals("EXTRA", columns.getString("COLUMN_NAME"));
             }

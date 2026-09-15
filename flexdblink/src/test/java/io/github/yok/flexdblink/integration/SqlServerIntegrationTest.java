@@ -20,6 +20,9 @@ import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ContextConfiguration;
@@ -101,6 +104,53 @@ public class SqlServerIntegrationTest {
     @BeforeEach
     public void setup_正常ケース_SQLServerコンテナにFlywayを実行する_マイグレーションが完了すること() {
         IntegrationTestSupport.prepareDatabase(sqlserver, MIGRATION);
+    }
+
+    @Test
+    public void execute_正常ケース_NULLと文字列をダンプして再ロードする_元の値が保持される結果であること() throws Exception {
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("text_round_trip_data"), false, DB_NAME, pathsConfig,
+                connectionConfig, dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection jdbc = IntegrationTestSupport.openConnection(sqlserver)) {
+            IntegrationTestSupport.assertCsvRoundTripPreservesText(runtime, jdbc);
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(IntegrationTestSupport.PrimaryKeyCase.class)
+    public void execute_正常ケース_主キー条件を変えて重複シナリオをロードする_重複行と追加行の保持であること(
+            IntegrationTestSupport.PrimaryKeyCase keyCase) throws Exception {
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("scenario_duplicate_data"), false, DB_NAME, pathsConfig,
+                connectionConfig, dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection jdbc = IntegrationTestSupport.openConnection(sqlserver)) {
+            IntegrationTestSupport.assertScenarioRetainsSharedRows(runtime, jdbc, keyCase);
+        }
+    }
+
+    @ParameterizedTest(name = "{0} / {1}")
+    @MethodSource("io.github.yok.flexdblink.integration.IntegrationTestSupport#malformedInputCases")
+    public void executeWithConnection_異常ケース_各ロード経路で不正ファイルを指定する_例外通知と既存行の保持であること(
+            IntegrationTestSupport.LoaderRoute route, IntegrationTestSupport.MalformedFormat format)
+            throws Exception {
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("invalid_dataset_data"), false, DB_NAME, pathsConfig,
+                connectionConfig, dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection jdbc = IntegrationTestSupport.openConnection(sqlserver)) {
+            IntegrationTestSupport.assertMalformedInputPreservesRows(runtime, jdbc, route, format);
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(IntegrationTestSupport.FailureOperation.class)
+    public void execute_異常ケース_通常設定で実処理を失敗させる_例外通知と既存行の保持であること(
+            IntegrationTestSupport.FailureOperation operation) throws Exception {
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("production_failure_data"), false, DB_NAME, pathsConfig,
+                connectionConfig, dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection jdbc = IntegrationTestSupport.openConnection(sqlserver)) {
+            IntegrationTestSupport.assertProductionFailureIsReported(runtime, jdbc, operation);
+        }
     }
 
     @Test
@@ -226,9 +276,9 @@ public class SqlServerIntegrationTest {
 
         Map<String, String> mainRow = IntegrationTestSupport
                 .readCsvRowById(dbDir.resolve("IT_TYPED_MAIN.csv"), "ID", "99");
-        assertEquals("", mainRow.get("VC_COL"));
+        assertEquals(null, mainRow.get("VC_COL"));
         assertEquals("file:main_empty_99.txt", mainRow.get("CLOB_COL"));
-        assertEquals("", mainRow.get("NCLOB_COL"));
+        assertEquals(null, mainRow.get("NCLOB_COL"));
         assertEquals("file:main_empty_99.bin", mainRow.get("BLOB_COL"));
 
         Path emptyClobFile = filesDir.resolve("main_empty_99.txt");
@@ -241,9 +291,9 @@ public class SqlServerIntegrationTest {
 
         Map<String, String> auxRow = IntegrationTestSupport
                 .readCsvRowById(dbDir.resolve("IT_TYPED_AUX.csv"), "ID", "99");
-        assertEquals("", auxRow.get("LABEL"));
+        assertEquals(null, auxRow.get("LABEL"));
         assertEquals("file:aux_empty_99.txt", auxRow.get("PAYLOAD_CLOB"));
-        assertEquals("", auxRow.get("PAYLOAD_BLOB"));
+        assertEquals(null, auxRow.get("PAYLOAD_BLOB"));
 
         Path emptyAuxClobFile = filesDir.resolve("aux_empty_99.txt");
         assertTrue(Files.exists(emptyAuxClobFile));

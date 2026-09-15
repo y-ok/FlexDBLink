@@ -2,7 +2,6 @@ package io.github.yok.flexdblink.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -18,7 +17,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import org.dbunit.dataset.Column;
 import org.dbunit.dataset.DataSetException;
 import org.dbunit.dataset.ITable;
@@ -310,79 +308,4 @@ class ScenarioDuplicateHandlerTest {
         verify(ps).executeBatch();
     }
 
-    @Test
-    void FilteredTable_正常ケース_除外行を指定する_行数と値が正しく返ること() throws Exception {
-        ITable delegate = mock(ITable.class);
-        ITableMetaData metaData = mock(ITableMetaData.class);
-        when(delegate.getTableMetaData()).thenReturn(metaData);
-        when(delegate.getRowCount()).thenReturn(4);
-        when(delegate.getValue(0, "ID")).thenReturn("0");
-        when(delegate.getValue(2, "ID")).thenReturn("2");
-
-        ScenarioDuplicateHandler.FilteredTable filtered =
-                new ScenarioDuplicateHandler.FilteredTable(delegate, Set.of(1, 3));
-
-        assertEquals(2, filtered.getRowCount());
-        assertSame(metaData, filtered.getTableMetaData());
-        assertEquals("0", filtered.getValue(0, "ID"));
-        assertEquals("2", filtered.getValue(1, "ID"));
-    }
-
-    @Test
-    void filteredTable_skipRowsなし_全行が正しく取得できること() throws Exception {
-        ITable delegate = mock(ITable.class);
-        when(delegate.getRowCount()).thenReturn(3);
-        ITableMetaData meta = mock(ITableMetaData.class);
-        when(delegate.getTableMetaData()).thenReturn(meta);
-        when(delegate.getValue(0, "ID")).thenReturn("A");
-        when(delegate.getValue(1, "ID")).thenReturn("B");
-        when(delegate.getValue(2, "ID")).thenReturn("C");
-
-        ScenarioDuplicateHandler.FilteredTable filtered =
-                new ScenarioDuplicateHandler.FilteredTable(delegate, Set.of());
-
-        assertEquals(3, filtered.getRowCount());
-        assertEquals("A", filtered.getValue(0, "ID"));
-        assertEquals("B", filtered.getValue(1, "ID"));
-        assertEquals("C", filtered.getValue(2, "ID"));
-    }
-
-    @Test
-    void filteredTable_複数行スキップ_論理インデックスが正しくシフトされること() throws Exception {
-        // 物理行 0,1,2,3,4 のうち行インデックス 1,3 をスキップ
-        // → 論理行 0,1,2 は物理行 0,2,4 にそれぞれ対応する
-        ITable delegate = mock(ITable.class);
-        when(delegate.getRowCount()).thenReturn(5);
-        ITableMetaData meta = mock(ITableMetaData.class);
-        when(delegate.getTableMetaData()).thenReturn(meta);
-        when(delegate.getValue(0, "ID")).thenReturn("row0");
-        when(delegate.getValue(2, "ID")).thenReturn("row2");
-        when(delegate.getValue(4, "ID")).thenReturn("row4");
-
-        ScenarioDuplicateHandler.FilteredTable filtered =
-                new ScenarioDuplicateHandler.FilteredTable(delegate, Set.of(1, 3));
-
-        assertEquals(3, filtered.getRowCount());
-        assertEquals("row0", filtered.getValue(0, "ID"));
-        assertEquals("row2", filtered.getValue(1, "ID"));
-        assertEquals("row4", filtered.getValue(2, "ID"));
-    }
-
-    @Test
-    void FilteredTable_IntPredicate_正常ケース_述語ベースで除外行を指定する_行数と値が正しく返ること() throws Exception {
-        ITable delegate = mock(ITable.class);
-        ITableMetaData metaData = mock(ITableMetaData.class);
-        when(delegate.getTableMetaData()).thenReturn(metaData);
-        when(delegate.getValue(0, "ID")).thenReturn("A");
-        when(delegate.getValue(2, "ID")).thenReturn("C");
-
-        // 物理行 0,1,2 のうち行インデックス 1 をスキップする述語
-        ScenarioDuplicateHandler.FilteredTable filtered =
-                new ScenarioDuplicateHandler.FilteredTable(delegate, i -> i == 1, 2);
-
-        assertEquals(2, filtered.getRowCount());
-        assertSame(metaData, filtered.getTableMetaData());
-        assertEquals("A", filtered.getValue(0, "ID"));
-        assertEquals("C", filtered.getValue(1, "ID"));
-    }
 }

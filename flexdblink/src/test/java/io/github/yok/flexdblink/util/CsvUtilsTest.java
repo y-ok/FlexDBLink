@@ -1,6 +1,6 @@
-
 package io.github.yok.flexdblink.util;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -15,11 +15,18 @@ import java.sql.DatabaseMetaData;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
 import java.sql.Types;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class CsvUtilsTest {
 
@@ -31,10 +38,12 @@ class CsvUtilsTest {
     void writeCsvUtf8_正常ケース_ヘッダと複数行が正しく書き込まれること(@TempDir File tmpDir) throws Exception {
         File csvFile = new File(tmpDir, "out.csv");
         String[] headers = {"id", "name", "note"};
-        List<List<String>> rows = Arrays.asList(Arrays.asList("1", "Alice", "Hello,World"), // カンマを含む
-                Arrays.asList("2", "Bob", "Path\\to\\file"), // バックスラッシュを含む
-                Arrays.asList("3", "Carol", " spaced ") // 前後にスペース
-        );
+        // カンマを含む
+        List<List<String>> rows = Arrays.asList(Arrays.asList("1", "Alice", "Hello,World"),
+                // バックスラッシュを含む
+                Arrays.asList("2", "Bob", "Path\\to\\file"),
+                // 前後にスペース
+                Arrays.asList("3", "Carol", " spaced "));
 
         // 実行
         CsvUtils.writeCsvUtf8(csvFile, headers, rows);
@@ -43,13 +52,25 @@ class CsvUtilsTest {
         String content = Files.readString(csvFile.toPath());
 
         // ヘッダが含まれる
-        assertTrue(content.contains("id,name,note"));
+        assertTrue(content.contains("\"id\",\"name\",\"note\""));
         // カンマを含むセルは引用符で囲まれる
         assertTrue(content.contains("\"Hello,World\""));
-        // バックスラッシュはエスケープされる
-        assertTrue(content.contains("Path\\\\to\\\\file"));
+        // Backslashes are literal CSV data.
+        assertTrue(content.contains("Path\\to\\file"));
         // スペース付きは引用符で囲まれる
         assertTrue(content.contains("\" spaced \""));
+    }
+
+    @Test
+    void writeCsvUtf8_正常ケース_NULLと空文字と引用符を書き込む_標準的なCSV表現であること(@TempDir File tmpDir)
+            throws Exception {
+        File csvFile = new File(tmpDir, "values.csv");
+        CsvUtils.writeCsvUtf8(csvFile, new String[] {"VALUE"}, List.of(Arrays.asList((String) null),
+                List.of(""), List.of("null"), List.of("a\"b"), List.of("C:\\temp\\new")));
+
+        String newline = System.lineSeparator();
+        assertEquals(String.join(newline, "\"VALUE\"", "", "\"\"", "\"null\"", "\"a\"\"b\"",
+                "\"C:\\temp\\new\"", ""), Files.readString(csvFile.toPath()));
     }
 
     @Test
@@ -118,6 +139,56 @@ class CsvUtilsTest {
         assertTrue(cmp.compare(b, a) < 0);
     }
 
+    @ParameterizedTest(name = "keys={0}, {1}, {2}")
+    @CsvSource({"2,10,1x", "2,10,2147483648"})
+    void rowComparator_正常ケース_数値と文字列の混在キーを並べ替える_全行対の順序が整合する結果であること(String first, String second,
+            String third) {
+        Comparator<List<String>> comparator = CsvUtils.rowComparator(List.of(0));
+        List<List<String>> rows =
+                new ArrayList<>(List.of(List.of(first), List.of(second), List.of(third)));
+
+        rows.sort(comparator);
+
+        // A valid ordering must also hold for nonadjacent rows, not only neighboring pairs.
+        assertAll(() -> assertTrue(comparator.compare(rows.get(0), rows.get(1)) <= 0),
+                () -> assertTrue(comparator.compare(rows.get(1), rows.get(2)) <= 0),
+                () -> assertTrue(comparator.compare(rows.get(0), rows.get(2)) <= 0,
+                        "The first row must not compare greater than the last row: " + rows));
+    }
+
+    @ParameterizedTest(name = "input={0}")
+    @MethodSource("mixedKeyPermutations")
+    void rowComparator_正常ケース_同じ行集合の入力順を変えて並べ替える_同一のソート結果であること(List<String> input) {
+        Comparator<List<String>> comparator = CsvUtils.rowComparator(List.of(0, 1));
+        List<List<String>> reference = new ArrayList<>(
+                List.of(List.of("group", "2"), List.of("group", "10"), List.of("group", "1x")));
+        reference.sort(comparator);
+        List<List<String>> actual = input.stream().map(key -> List.of("group", key))
+                .collect(Collectors.toCollection(ArrayList::new));
+
+        actual.sort(comparator);
+
+        assertEquals(reference, actual,
+                "Sorting the same distinct keys must produce the same order for every input permutation.");
+    }
+
+    static Stream<List<String>> mixedKeyPermutations() {
+        return Stream.of(List.of("2", "10", "1x"), List.of("2", "1x", "10"),
+                List.of("10", "2", "1x"), List.of("10", "1x", "2"), List.of("1x", "2", "10"),
+                List.of("1x", "10", "2"));
+    }
+
+    @Test
+    void rowComparator_正常ケース_NULLと空文字を並べ替える_NULLが空文字より前であること() {
+        List<List<String>> rows =
+                new ArrayList<>(List.of(List.of(""), Arrays.asList((String) null)));
+
+        rows.sort(CsvUtils.rowComparator(List.of(0)));
+
+        assertEquals(Arrays.asList((String) null), rows.get(0));
+        assertEquals(List.of(""), rows.get(1));
+    }
+
     @Test
     void rowComparator_正常ケース_文字列比較で正しく順序付けされること() {
         Comparator<List<String>> cmp = CsvUtils.rowComparator(List.of(0));
@@ -147,6 +218,22 @@ class CsvUtilsTest {
     void rowComparator_正常ケース_ソートキーなしを指定する_常に0が返ること() {
         Comparator<List<String>> cmp = CsvUtils.rowComparator(List.of());
         assertEquals(0, cmp.compare(List.of("a"), List.of("b")));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {Types.CHAR, Types.VARCHAR, Types.LONGVARCHAR, Types.NCHAR, Types.NVARCHAR,
+            Types.LONGNVARCHAR, Types.CLOB, Types.NCLOB})
+    void trimNonTextValue_正常ケース_文字列型の空白を変換する_元の値であること(int sqlType) {
+        assertEquals(" \tA\r\n ", CsvUtils.trimNonTextValue(" \tA\r\n ", sqlType));
+        assertEquals("   ", CsvUtils.trimNonTextValue("   ", sqlType));
+        assertEquals("", CsvUtils.trimNonTextValue("", sqlType));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {Types.INTEGER, Types.NUMERIC, Types.TIMESTAMP, Types.BINARY})
+    void trimNonTextValue_正常ケース_文字列以外の型の空白を変換する_前後空白が除去された値であること(int sqlType) {
+        assertEquals("1", CsvUtils.trimNonTextValue(" 1 ", sqlType));
+        assertEquals("", CsvUtils.trimNonTextValue("   ", sqlType));
     }
 
     @Test
@@ -401,7 +488,7 @@ class CsvUtilsTest {
     }
 
     @Test
-    void formatColumnValue_正常ケース_バイナリ型でbytesがnull_空文字が返ること() throws Exception {
+    void formatColumnValue_正常ケース_バイナリ型でbytesがnull_NULLが返される結果であること() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         ResultSetMetaData meta = mock(ResultSetMetaData.class);
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
@@ -416,7 +503,7 @@ class CsvUtilsTest {
 
         String result = CsvUtils.formatColumnValue(rs, "BIN_COL", dialectHandler, null);
 
-        assertEquals("", result);
+        assertEquals(null, result);
     }
 
     @Test
@@ -442,7 +529,7 @@ class CsvUtilsTest {
     }
 
     @Test
-    void formatColumnValue_正常ケース_日時型でtyped値がnull_空文字が返ること() throws Exception {
+    void formatColumnValue_正常ケース_日時型でtyped値がnull_NULLが返される結果であること() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         ResultSetMetaData meta = mock(ResultSetMetaData.class);
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
@@ -457,7 +544,7 @@ class CsvUtilsTest {
 
         String result = CsvUtils.formatColumnValue(rs, "TS_COL", dialectHandler, null);
 
-        assertEquals("", result);
+        assertEquals(null, result);
     }
 
     @Test
@@ -490,7 +577,7 @@ class CsvUtilsTest {
     }
 
     @Test
-    void formatColumnValue_正常ケース_通常型で値がnull_空文字が返ること() throws Exception {
+    void formatColumnValue_正常ケース_通常型で値がnull_NULLが返される結果であること() throws Exception {
         ResultSet rs = mock(ResultSet.class);
         ResultSetMetaData meta = mock(ResultSetMetaData.class);
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
@@ -503,6 +590,6 @@ class CsvUtilsTest {
 
         String result = CsvUtils.formatColumnValue(rs, "VAL_COL", dialectHandler, null);
 
-        assertEquals("", result);
+        assertEquals(null, result);
     }
 }

@@ -1,5 +1,6 @@
 package io.github.yok.flexdblink.db.oracle;
 
+import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -40,7 +41,8 @@ import org.dbunit.ext.oracle.OracleDataTypeFactory;
  * <b>Approach</b>
  * </p>
  * <ul>
- * <li><b>BLOB:</b> use {@link PreparedStatement#setBytes(int, byte[])} (no InputStream).</li>
+ * <li><b>BLOB:</b> use {@link PreparedStatement#setBytes(int, byte[])} for nonempty data and an
+ * empty LOB literal for zero-length data.</li>
  * <li><b>CLOB:</b> Nonempty values use Oracle's string binding API; empty values use an empty LOB
  * literal fetched once for this factory's connection.</li>
  * <li>Extend {@link OracleDataTypeFactory} and replace only BLOB/CLOB with safe implementations;
@@ -64,6 +66,7 @@ public class CustomOracleDataTypeFactory extends OracleDataTypeFactory {
      * Empty LOB literal shared by columns during this factory's load, outside metadata snapshots.
      */
     private Clob emptyClob;
+    private Blob emptyBlob;
 
     private static final int ORACLE_TIMESTAMPLTZ_SQL_TYPE = -102;
     private static final DataType ORACLE_TIMESTAMPTZ_DATA_TYPE =
@@ -131,12 +134,21 @@ public class CustomOracleDataTypeFactory extends OracleDataTypeFactory {
      * <ul>
      * <li>Do <b>not</b> use {@code InputStream}; closing streams can throw {@code IOException},
      * which is not part of the declared throws clause.</li>
-     * <li>JDBC drivers support {@link PreparedStatement#setBytes(int, byte[])} for BLOB columns, so
-     * we use that to insert values.</li>
+     * <li>Use {@link PreparedStatement#setBytes(int, byte[])} for nonempty BLOBs. Oracle turns an
+     * empty byte array into SQL NULL, so empty BLOBs use an empty LOB literal instead.</li>
      * </ul>
      */
-    private static final class SafeOracleBlobDataType extends BlobDataType {
+    private final class SafeOracleBlobDataType extends BlobDataType {
 
+        /**
+         * Binds binary content without converting an empty BLOB to SQL NULL.
+         *
+         * @param value binary content, null, or {@link ITable#NO_VALUE}
+         * @param column one-based prepared statement parameter index
+         * @param statement target statement
+         * @throws SQLException if binding or fetching the empty BLOB fails
+         * @throws TypeCastException if the value cannot be converted to bytes
+         */
         @Override
         public void setSqlValue(Object value, int column, PreparedStatement statement)
                 throws SQLException, TypeCastException {
@@ -149,8 +161,30 @@ public class CustomOracleDataTypeFactory extends OracleDataTypeFactory {
             // Convert via BlobDataType to get byte[] (throws TypeCastException on failure)
             byte[] bytes = (byte[]) typeCast(value);
 
-            // Use JDBC-standard setBytes (no IOException involved)
-            statement.setBytes(column, bytes);
+            if (bytes.length == 0) {
+                bindEmptyBlob(column, statement);
+            } else {
+                statement.setBytes(column, bytes);
+            }
+        }
+
+        /**
+         * Reuses an empty BLOB literal within this factory's connection.
+         *
+         * @param column one-based prepared statement parameter index
+         * @param statement target statement
+         * @throws SQLException if fetching or binding the literal fails
+         */
+        private void bindEmptyBlob(int column, PreparedStatement statement) throws SQLException {
+            // Oracle converts setBytes with an empty array to SQL NULL.
+            if (emptyBlob == null) {
+                try (Statement query = statement.getConnection().createStatement();
+                        ResultSet result = query.executeQuery("SELECT EMPTY_BLOB() FROM DUAL")) {
+                    result.next();
+                    emptyBlob = result.getBlob(1);
+                }
+            }
+            statement.setBlob(column, emptyBlob);
         }
     }
 

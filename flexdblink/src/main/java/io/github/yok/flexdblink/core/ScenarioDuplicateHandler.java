@@ -11,15 +11,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.function.IntPredicate;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.dbunit.dataset.Column;
 import org.dbunit.dataset.DataSetException;
 import org.dbunit.dataset.ITable;
-import org.dbunit.dataset.ITableMetaData;
 
 /**
  * Handles scenario-mode duplicate detection and deletion logic extracted from {@code DataLoader}.
@@ -36,75 +33,8 @@ import org.dbunit.dataset.ITableMetaData;
 class ScenarioDuplicateHandler {
 
     /**
-     * An {@link ITable} decorator that hides a set of row indices from its delegate.
-     *
-     * <p>
-     * Used to filter out duplicate rows before performing scenario INSERT.
-     * </p>
-     */
-    static class FilteredTable implements ITable {
-
-        private final ITable delegate;
-        private final IntPredicate shouldSkip;
-        private final int rowCount;
-
-        /**
-         * Constructs a FilteredTable that hides rows matching the given {@link IntPredicate}.
-         *
-         * @param delegate underlying table
-         * @param shouldSkip predicate returning {@code true} for physical row indices to hide
-         * @param rowCount number of logical rows (after filtering)
-         */
-        FilteredTable(ITable delegate, IntPredicate shouldSkip, int rowCount) {
-            this.delegate = delegate;
-            this.shouldSkip = shouldSkip;
-            this.rowCount = rowCount;
-        }
-
-        /**
-         * Constructs a FilteredTable that hides the specified set of physical row indices.
-         *
-         * @param delegate underlying table
-         * @param skipRows physical row indices to hide
-         */
-        FilteredTable(ITable delegate, Set<Integer> skipRows) {
-            this(delegate, skipRows::contains, delegate.getRowCount() - skipRows.size());
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public ITableMetaData getTableMetaData() {
-            return delegate.getTableMetaData();
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public int getRowCount() {
-            return rowCount;
-        }
-
-        /**
-         * {@inheritDoc}
-         */
-        @Override
-        public Object getValue(int row, String column) throws DataSetException {
-            int physical = row;
-            for (int i = 0; i <= physical; i++) {
-                if (shouldSkip.test(i)) {
-                    physical++;
-                }
-            }
-            return delegate.getValue(physical, column);
-        }
-    }
-
-    /**
-     * Detects which rows in {@code wrapped} are exact duplicates of rows already present in
-     * {@code originalDbTable}.
+     * Detects rows in {@code wrapped} that match existing primary keys, or full column values when
+     * no primary key exists, in {@code originalDbTable}.
      *
      * <p>
      * When primary key columns are provided, matching is done by PK values only using a HashMap for

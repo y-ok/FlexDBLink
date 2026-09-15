@@ -1,6 +1,5 @@
 package io.github.yok.flexdblink.core;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -170,6 +169,35 @@ class TransactionalDataLoaderTest {
     }
 
     @Test
+    void executeWithConnection_正常ケース_デバッグログを有効にしてロードする_行の登録とテーブル定義の出力であること()
+            throws Exception {
+        try (Connection jdbc = open(); Statement sql = jdbc.createStatement()) {
+            sql.execute("CREATE TABLE debug_input(id INT PRIMARY KEY)");
+            jdbc.setAutoCommit(false);
+            Files.writeString(directory.resolve("debug_input.csv"), "id\n1\n");
+            DbDialectHandler dialect = dialect(jdbc);
+            DbDialectHandlerFactory factory = mock(DbDialectHandlerFactory.class);
+            when(factory.create(any(), same(jdbc), anyList())).thenReturn(dialect);
+            Logger logger = (Logger) LoggerFactory.getLogger(TransactionalDataLoader.class);
+            Level previous = logger.getLevel();
+            logger.setLevel(Level.DEBUG);
+            try {
+                loader(factory, new DumpConfig()).executeWithConnection(directory.toFile(),
+                        entry(), jdbc);
+                verify(dialect).logTableDefinition(jdbc, "public", "debug_input", "test");
+                try (ResultSet rows = sql.executeQuery("SELECT id FROM debug_input")) {
+                    assertTrue(rows.next());
+                    assertEquals(1, rows.getInt(1));
+                    assertFalse(rows.next());
+                }
+            } finally {
+                logger.setLevel(previous);
+                jdbc.rollback();
+            }
+        }
+    }
+
+    @Test
     void executeWithConnection_異常ケース_初期化が失敗する_例外が通知される結果であること() throws Exception {
         Files.writeString(directory.resolve("A.csv"), "ID\n1\n");
         DbDialectHandlerFactory factory = mock(DbDialectHandlerFactory.class);
@@ -183,8 +211,9 @@ class TransactionalDataLoaderTest {
         } finally {
             ErrorHandler.restoreExitForCurrentThread();
         }
-        assertDoesNotThrow(() -> loader.executeWithConnection(directory.toFile(), entry(),
-                mock(Connection.class)));
+        RuntimeException failure = assertThrows(RuntimeException.class,
+                () -> loader.executeWithConnection(directory.toFile(), entry(), mock(Connection.class)));
+        assertTrue(failure.getCause() instanceof SQLException);
     }
 
     @Test
@@ -265,7 +294,7 @@ class TransactionalDataLoaderTest {
     }
 
     @Test
-    void executeWithConnection_異常ケース_FK取得失敗と不正ファイルを指定する_正常テーブルはロード済みであること() throws Exception {
+    void executeWithConnection_異常ケース_FK取得失敗と不正ファイルを指定する_例外通知とロールバックが可能であること() throws Exception {
         try (Connection jdbc = open(); Statement sql = jdbc.createStatement()) {
             sql.execute("CREATE TABLE bad_input(id INT PRIMARY KEY)");
             sql.execute("CREATE TABLE good_input(id INT PRIMARY KEY)");
@@ -283,15 +312,16 @@ class TransactionalDataLoaderTest {
             Logger logger = (Logger) LoggerFactory.getLogger(TransactionalDataLoader.class);
             Level previous = logger.getLevel();
             logger.setLevel(Level.DEBUG);
+            ErrorHandler.disableExitForCurrentThread();
             try {
-                loader(factory, new DumpConfig()).executeWithConnection(directory.toFile(), entry(),
-                        external);
-                verify(dialect).logTableDefinition(external, "public", "good_input", "test");
+                assertThrows(RuntimeException.class, () -> loader(factory, new DumpConfig())
+                        .executeWithConnection(directory.toFile(), entry(), external));
+                jdbc.rollback();
                 try (ResultSet rows = sql.executeQuery("SELECT id FROM good_input")) {
-                    assertTrue(rows.next());
-                    assertEquals(1, rows.getInt(1));
+                    assertFalse(rows.next());
                 }
             } finally {
+                ErrorHandler.restoreExitForCurrentThread();
                 logger.setLevel(previous);
                 jdbc.rollback();
             }

@@ -59,8 +59,8 @@ final class TransactionalDataLoader {
         DbDialectHandler dialect = factory.create(entry, jdbc, tables);
         String schema = dialect.resolveSchema(entry);
         try {
-            tables = TableDependencyResolver.resolveLoadOrder(
-                    jdbc, jdbc.getCatalog(), schema, tables);
+            tables = TableDependencyResolver.resolveLoadOrder(jdbc, jdbc.getCatalog(), schema,
+                    tables);
         } catch (SQLException e) {
             log.warn("[{}] FK dependency resolution failed; using alphabetical order. reason={}",
                     entry.getId(), e.getMessage());
@@ -78,22 +78,15 @@ final class TransactionalDataLoader {
             insert = DatabaseOperation.INSERT;
         }
         for (String table : tables) {
-            IDataSet parsed;
-            try {
-                parsed = files.parse(table);
-            } catch (Exception e) {
-                log.warn("[{}] Failed to resolve dataset for table={} — skipping: {}",
-                        entry.getId(), table, e.getMessage());
-                continue;
-            }
+            IDataSet parsed = files.parse(table);
             if (log.isDebugEnabled()) {
                 dialect.logTableDefinition(jdbc, schema, table, entry.getId());
             }
             ITable base = parsed.getTable(table);
             ITable wrapped = new LobResolvingTableWrapper(base, directory, dialect);
             insert.execute(db, new DefaultDataSet(wrapped));
-            log.info("[{}] Table[{}] loaded (target rows={}, loaded rows={})", entry.getId(),
-                    table, base.getRowCount(), base.getRowCount());
+            log.info("[{}] Table[{}] loaded (target rows={}, loaded rows={})", entry.getId(), table,
+                    base.getRowCount(), base.getRowCount());
         }
     }
 }

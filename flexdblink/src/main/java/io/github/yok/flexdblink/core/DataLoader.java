@@ -62,10 +62,10 @@ import org.dbunit.operation.DatabaseOperation;
  * </li>
  * <li><strong>scenario mode</strong>
  * <ul>
- * <li>Delete rows from DB that are exact duplicates of those already inserted in
- * <em>initial</em>.</li>
- * <li>Execute {@link DatabaseOperation#INSERT} only for rows that do not exist in initial
- * data.</li>
+ * <li>Delete existing rows whose primary keys match scenario rows, or whose full column values
+ * match when no primary key exists.</li>
+ * <li>Execute {@link DatabaseOperation#INSERT} for every scenario row, including the rows whose
+ * previous versions were deleted.</li>
  * </ul>
  * </li>
  * </ul>
@@ -489,8 +489,7 @@ public class DataLoader {
      *
      * <p>
      * In <em>initial</em> mode, performs CLEAN_INSERT + UPDATE.<br>
-     * In <em>scenario</em> mode, deletes rows that are duplicates of initial and INSERTs the
-     * remainder.
+     * In <em>scenario</em> mode, deletes matching existing rows and INSERTs every scenario row.
      * </p>
      *
      * @param dir directory where dataset files are located
@@ -585,7 +584,6 @@ public class DataLoader {
 
                         ITable wrapped = new LobResolvingTableWrapper(base, dir, dialectHandler);
                         DefaultDataSet ds = new DefaultDataSet(wrapped);
-                        int scenarioInsertedRows = 0;
 
                         if (initial) {
                             // --- Initial mode (CLEAN_INSERT + UPDATE) ---
@@ -610,7 +608,7 @@ public class DataLoader {
                             }
 
                         } else {
-                            // --- Scenario mode (delete duplicates + INSERT new) ---
+                            // --- Scenario mode (replace matching rows and insert additions) ---
                             ITable originalDbTable = dbConn.createDataSet().getTable(table);
                             List<String> pkCols =
                                     dialectHandler.getPrimaryKeyColumns(jdbc, schema, table);
@@ -625,11 +623,8 @@ public class DataLoader {
                                         identicalMap, dialectHandler, dbId);
                             }
 
-                            ScenarioDuplicateHandler.FilteredTable filtered =
-                                    new ScenarioDuplicateHandler.FilteredTable(wrapped,
-                                            identicalMap.keySet());
-                            operationExecutor.insert(dbConn, new DefaultDataSet(filtered));
-                            scenarioInsertedRows = filtered.getRowCount();
+                            // Deleted matches must be reinserted with the scenario values.
+                            operationExecutor.insert(dbConn, ds);
                         }
 
                         // Summary
@@ -643,12 +638,10 @@ public class DataLoader {
                             log.debug("[{}] Table{} rows in DB after initial load={}", dbId,
                                     formattedTableLabel, currentCount);
                         } else {
-                            int skippedRows = rowCount - scenarioInsertedRows;
                             log.info(
                                     "[{}] Table{} scenario applied "
-                                            + "(target rows={}, inserted rows={}, skipped rows={})",
-                                    dbId, formattedTableLabel, rowCount, scenarioInsertedRows,
-                                    skippedRows);
+                                            + "(target rows={}, inserted rows={})",
+                                    dbId, formattedTableLabel, rowCount, rowCount);
                             log.debug("[{}] Table{} rows in DB after scenario load={}", dbId,
                                     formattedTableLabel, currentCount);
                         }
@@ -746,10 +739,9 @@ public class DataLoader {
      *
      * <p>
      * Load strategy is always equivalent to an "initial load": selected tables are cleared and
-     * replaced. The built-in dialect factory inserts all columns, including LOBs, in one step.
-     * The function-based dialect factory retains the legacy non-LOB INSERT followed by LOB
-     * UPDATE for nullable LOB columns. Excluded tables are taken from
-     * {@link DumpConfig#excludeTables}.
+     * replaced. The built-in dialect factory inserts all columns, including LOBs, in one step. The
+     * function-based dialect factory retains the legacy non-LOB INSERT followed by LOB UPDATE for
+     * nullable LOB columns. Excluded tables are taken from {@link DumpConfig#excludeTables}.
      * </p>
      *
      * @param dir target directory that contains table files (one file per table)
@@ -791,7 +783,7 @@ public class DataLoader {
             try {
                 transactionalLoader.execute(dir, entry, connection);
             } catch (Exception e) {
-                ErrorHandler.errorAndExit("Data load failed (db=" + dbId + ")", e);
+                throw new IllegalStateException("Data load failed (db=" + dbId + ")", e);
             }
             log.info("=== DataLoader (external connection) END (db={}) ===", dbId);
             return;
@@ -897,15 +889,7 @@ public class DataLoader {
             // Load each table (always "initial load" strategy)
             for (String table : tables) {
                 // Resolve dataset for the table (CSV / JSON / YAML / XML)
-                IDataSet dataSet;
-                try {
-                    dataSet = DataLoaderFactory.create(dir, table);
-                } catch (Exception e) {
-                    // Skip only this table if resolution fails
-                    log.warn("[{}] Failed to resolve dataset for table={} — skipping: {}", dbId,
-                            table, e.getMessage());
-                    continue;
-                }
+                IDataSet dataSet = DataLoaderFactory.create(dir, table);
 
                 // Log table definition details via dialect handler (DDL, PKs, etc.)
                 dialectHandler.logTableDefinition(jdbc, schema, table, dbId);

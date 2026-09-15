@@ -19,9 +19,9 @@ import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
-import java.util.Map;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import org.dbunit.database.DatabaseConnection;
 import org.dbunit.dataset.Column;
 import org.dbunit.dataset.DefaultDataSet;
@@ -31,6 +31,9 @@ import org.dbunit.operation.DatabaseOperation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ContextConfiguration;
@@ -102,10 +105,56 @@ class OracleIntegrationTest {
     }
 
     @Test
-    void execute_正常ケース_空と数MBのCLOBとBLOBをバッチ投入する_全内容の一致とロールバックであること()
+    public void execute_正常ケース_NULLと文字列をダンプして再ロードする_元の値が保持される結果であること() throws Exception {
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("text_round_trip_data"), false, DB_NAME, pathsConfig,
+                connectionConfig, dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection jdbc = IntegrationTestSupport.openConnection(ORACLE)) {
+            IntegrationTestSupport.assertCsvRoundTripPreservesText(runtime, jdbc);
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(IntegrationTestSupport.PrimaryKeyCase.class)
+    void execute_正常ケース_主キー条件を変えて重複シナリオをロードする_重複行と追加行の保持であること(
+            IntegrationTestSupport.PrimaryKeyCase keyCase) throws Exception {
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("scenario_duplicate_data"), false, DB_NAME, pathsConfig,
+                connectionConfig, dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection jdbc = IntegrationTestSupport.openConnection(ORACLE)) {
+            IntegrationTestSupport.assertScenarioRetainsSharedRows(runtime, jdbc, keyCase);
+        }
+    }
+
+    @ParameterizedTest(name = "{0} / {1}")
+    @MethodSource("io.github.yok.flexdblink.integration.IntegrationTestSupport#malformedInputCases")
+    void executeWithConnection_異常ケース_各ロード経路で不正ファイルを指定する_例外通知と既存行の保持であること(
+            IntegrationTestSupport.LoaderRoute route, IntegrationTestSupport.MalformedFormat format)
             throws Exception {
-        List<String> values = Arrays.asList(null, "", "日本語😀", "a".repeat(32766),
-                "a".repeat(32767), "日本語".repeat(350000));
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("invalid_dataset_data"), false, DB_NAME, pathsConfig,
+                connectionConfig, dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection jdbc = IntegrationTestSupport.openConnection(ORACLE)) {
+            IntegrationTestSupport.assertMalformedInputPreservesRows(runtime, jdbc, route, format);
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(IntegrationTestSupport.FailureOperation.class)
+    void execute_異常ケース_通常設定で実処理を失敗させる_例外通知と既存行の保持であること(
+            IntegrationTestSupport.FailureOperation operation) throws Exception {
+        IntegrationTestSupport.Runtime runtime = IntegrationTestSupport.prepareRuntime(
+                tempDir.resolve("production_failure_data"), false, DB_NAME, pathsConfig,
+                connectionConfig, dbUnitConfig, dumpConfig, filePatternConfig, dialectFactory);
+        try (Connection jdbc = IntegrationTestSupport.openConnection(ORACLE)) {
+            IntegrationTestSupport.assertProductionFailureIsReported(runtime, jdbc, operation);
+        }
+    }
+
+    @Test
+    void execute_正常ケース_空と数MBのCLOBとBLOBをバッチ投入する_全内容の一致とロールバックであること() throws Exception {
+        List<String> values = Arrays.asList(null, "", "日本語😀", "a".repeat(32766), "a".repeat(32767),
+                "日本語".repeat(350000));
         byte[] binary = new byte[512 * 1024];
         Arrays.fill(binary, (byte) 0xa5);
         try (Connection jdbc = IntegrationTestSupport.openConnection(ORACLE);
@@ -113,17 +162,19 @@ class OracleIntegrationTest {
             statement.execute("CREATE TABLE IT_CLOB_BINDING "
                     + "(ID NUMBER PRIMARY KEY, BODY CLOB, PAYLOAD BLOB)");
             jdbc.setAutoCommit(false);
-            DatabaseConnection db = new DatabaseConnection(jdbc, ORACLE.getUsername().toUpperCase());
+            DatabaseConnection db =
+                    new DatabaseConnection(jdbc, ORACLE.getUsername().toUpperCase());
             new DbUnitConfigFactory().configure(db.getConfig(), new CustomOracleDataTypeFactory());
-            DefaultTable table = new DefaultTable("IT_CLOB_BINDING", new Column[] {
-                    new Column("ID", DataType.UNKNOWN), new Column("BODY", DataType.UNKNOWN),
-                    new Column("PAYLOAD", DataType.UNKNOWN)});
+            DefaultTable table = new DefaultTable("IT_CLOB_BINDING",
+                    new Column[] {new Column("ID", DataType.UNKNOWN),
+                            new Column("BODY", DataType.UNKNOWN),
+                            new Column("PAYLOAD", DataType.UNKNOWN)});
             for (int i = 0; i < values.size(); i++) {
                 table.addRow(new Object[] {i, values.get(i), binary});
             }
             DatabaseOperation.INSERT.execute(db, new DefaultDataSet(table));
-            try (ResultSet rows = statement.executeQuery(
-                    "SELECT ID, BODY, PAYLOAD FROM IT_CLOB_BINDING ORDER BY ID")) {
+            try (ResultSet rows = statement
+                    .executeQuery("SELECT ID, BODY, PAYLOAD FROM IT_CLOB_BINDING ORDER BY ID")) {
                 for (int i = 0; i < values.size(); i++) {
                     assertTrue(rows.next());
                     assertEquals(i, rows.getInt(1));
@@ -290,12 +341,12 @@ class OracleIntegrationTest {
 
         Map<String, String> mainRow = IntegrationTestSupport
                 .readCsvRowById(dbDir.resolve("IT_TYPED_MAIN.csv"), "ID", "99");
-        assertEquals("", mainRow.get("VC_COL"));
-        assertEquals("", mainRow.get("CHAR_COL"));
-        assertEquals("", mainRow.get("NVC_COL"));
-        assertEquals("", mainRow.get("NCHAR_COL"));
+        assertEquals(null, mainRow.get("VC_COL"));
+        assertEquals(null, mainRow.get("CHAR_COL"));
+        assertEquals(null, mainRow.get("NVC_COL"));
+        assertEquals(null, mainRow.get("NCHAR_COL"));
         assertEquals("file:main_empty_99.txt", mainRow.get("CLOB_COL"));
-        assertEquals("", mainRow.get("NCLOB_COL"));
+        assertEquals(null, mainRow.get("NCLOB_COL"));
         assertEquals("file:main_empty_99.bin", mainRow.get("BLOB_COL"));
 
         Path emptyClobFile = filesDir.resolve("main_empty_99.txt");
@@ -307,9 +358,9 @@ class OracleIntegrationTest {
 
         Map<String, String> auxRow = IntegrationTestSupport
                 .readCsvRowById(dbDir.resolve("IT_TYPED_AUX.csv"), "ID", "99");
-        assertEquals("", auxRow.get("LABEL"));
+        assertEquals(null, auxRow.get("LABEL"));
         assertEquals("file:aux_empty_99.txt", auxRow.get("PAYLOAD_CLOB"));
-        assertEquals("", auxRow.get("PAYLOAD_BLOB"));
+        assertEquals(null, auxRow.get("PAYLOAD_BLOB"));
         assertEquals("empty", auxRow.get("LOB_KIND"));
         Path emptyAuxClobFile = filesDir.resolve("aux_empty_99.txt");
         assertTrue(Files.exists(emptyAuxClobFile));

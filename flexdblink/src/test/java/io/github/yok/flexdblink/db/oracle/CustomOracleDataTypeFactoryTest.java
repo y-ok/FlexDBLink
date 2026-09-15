@@ -3,7 +3,6 @@ package io.github.yok.flexdblink.db.oracle;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -11,6 +10,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import java.sql.Blob;
 import java.sql.Clob;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -145,13 +145,13 @@ class CustomOracleDataTypeFactoryTest {
     }
 
     @Test
-    void safeBlobDataType_setSqlValue_正常ケース_文字列値を指定する_変換後bytesでsetBytesが呼ばれること() throws Exception {
+    void setSqlValue_正常ケース_Base64文字列をバインドする_復号したバイト列が設定される結果であること() throws Exception {
         CustomOracleDataTypeFactory factory = new CustomOracleDataTypeFactory();
         DataType blobType = factory.createDataType(Types.BLOB, "BLOB");
         PreparedStatement statement = mock(PreparedStatement.class);
 
-        blobType.setSqlValue("x", 1, statement);
-        verify(statement).setBytes(eq(1), any(byte[].class));
+        blobType.setSqlValue("eA==", 1, statement);
+        verify(statement).setBytes(1, new byte[] {'x'});
     }
 
     @Test
@@ -182,6 +182,48 @@ class CustomOracleDataTypeFactoryTest {
     private static Stream<String> clobValues() {
         return Stream.of("日本語😀", "あ".repeat(32766), "あ".repeat(32767),
                 "日本語😀".repeat(1048576));
+    }
+
+    @Test
+    void setSqlValue_正常ケース_複数列に空バイト配列を繰り返しバインドする_一度取得した空BLOBの再利用であること() throws Exception {
+        CustomOracleDataTypeFactory factory = new CustomOracleDataTypeFactory();
+        DataType first = factory.createDataType(Types.BLOB, "BLOB");
+        DataType second = factory.createDataType(Types.BLOB, "BLOB");
+        PreparedStatement statement = mock(PreparedStatement.class);
+        Connection connection = mock(Connection.class);
+        Statement query = mock(Statement.class);
+        ResultSet result = mock(ResultSet.class);
+        Blob empty = mock(Blob.class);
+        when(statement.getConnection()).thenReturn(connection);
+        when(connection.createStatement()).thenReturn(query);
+        when(query.executeQuery("SELECT EMPTY_BLOB() FROM DUAL")).thenReturn(result);
+        when(result.getBlob(1)).thenReturn(empty);
+        first.setSqlValue(new byte[0], 1, statement);
+        first.setSqlValue(new byte[0], 1, statement);
+        second.setSqlValue(new byte[0], 2, statement);
+        verify(query).executeQuery("SELECT EMPTY_BLOB() FROM DUAL");
+        verify(result).next();
+        verify(result).close();
+        verify(query).close();
+        verify(statement, times(2)).setBlob(1, empty);
+        verify(statement).setBlob(2, empty);
+        verify(statement, never()).setNull(1, Types.BLOB);
+        verify(statement, never()).setNull(2, Types.BLOB);
+    }
+
+    @Test
+    void setSqlValue_異常ケース_空BLOBの取得が失敗する_元のSQLExceptionとStatementの解放であること() throws Exception {
+        DataType type = new CustomOracleDataTypeFactory().createDataType(Types.BLOB, "BLOB");
+        PreparedStatement statement = mock(PreparedStatement.class);
+        Connection connection = mock(Connection.class);
+        Statement query = mock(Statement.class);
+        when(statement.getConnection()).thenReturn(connection);
+        when(connection.createStatement()).thenReturn(query);
+        SQLException failure = new SQLException("empty LOB query failed");
+        when(query.executeQuery("SELECT EMPTY_BLOB() FROM DUAL")).thenThrow(failure);
+        assertSame(failure,
+                assertThrows(SQLException.class, () -> type.setSqlValue(new byte[0], 1, statement)));
+        verify(query).close();
     }
 
     @Test

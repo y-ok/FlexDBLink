@@ -53,6 +53,8 @@ import org.dbunit.dataset.ITableMetaData;
 import org.dbunit.dataset.datatype.DataType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class MySqlDialectHandlerTest {
 
@@ -404,11 +406,24 @@ public class MySqlDialectHandlerTest {
                 handler.convertCsvValueToDbType("t1", "t1", "2026-02-15 01:02:03"));
     }
 
-    @Test
-    void convertCsvValueToDbType_正常ケース_空文字を指定する_nullが返ること() throws Exception {
+    @ParameterizedTest(name = "value=[{0}]")
+    @ValueSource(strings = {"", " A ", "A ", " A", "   ", "\tA\r\n", "\t\n", "日本語 😀", "null"})
+    void convertCsvValueToDbType_正常ケース_空文字と空白を含む文字列を変換する_元の文字列が保持される結果であること(String value)
+            throws Exception {
         MySqlDialectHandler handler =
                 createHandlerWithMeta("t1", new ColumnDef("c1", Types.VARCHAR, "varchar"));
-        assertNull(handler.convertCsvValueToDbType("t1", "c1", " "));
+        assertEquals(value, handler.convertCsvValueToDbType("t1", "c1", value),
+                "Whitespace in VARCHAR data must be preserved, including whitespace-only values.");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", " \t "})
+    void convertCsvValueToDbType_正常ケース_数値列に空の値を指定する_NULLが返される結果であること(String value)
+            throws Exception {
+        MySqlDialectHandler handler =
+                createHandlerWithMeta("t1", new ColumnDef("c1", Types.INTEGER, "int"));
+
+        assertNull(handler.convertCsvValueToDbType("t1", "c1", value));
     }
 
     @Test

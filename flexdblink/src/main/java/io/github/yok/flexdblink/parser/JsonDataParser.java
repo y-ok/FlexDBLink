@@ -5,7 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.File;
 import java.io.Reader;
 import java.nio.file.Files;
-import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import org.dbunit.dataset.Column;
 import org.dbunit.dataset.DataSetException;
 import org.dbunit.dataset.DefaultDataSet;
@@ -72,13 +73,11 @@ public class JsonDataParser implements DataParser {
                 continue;
             }
 
-            // extract column names
-            Iterator<String> colNames = root.get(0).fieldNames();
-            String[] cols = new String[root.get(0).size()];
-            int idx = 0;
-            while (colNames.hasNext()) {
-                cols[idx++] = colNames.next();
+            Set<String> columnNames = new LinkedHashSet<>();
+            for (JsonNode row : root) {
+                row.fieldNames().forEachRemaining(columnNames::add);
             }
+            String[] cols = columnNames.toArray(new String[0]);
 
             Column[] dbunitCols = new Column[cols.length];
             for (int i = 0; i < cols.length; i++) {

@@ -563,6 +563,28 @@ class FlexAssertTest {
     }
 
     @Test
+    void assertTable_異常ケース_空文字の期待値をNULLと比較する_不一致が検出される結果であること() throws Exception {
+        LoadDataExtension.CURRENT_TEST_CLASS.set(FlexAssertTest.class);
+        LoadDataExtension.CURRENT_SCENARIO.set("empty-versus-null");
+        writeExpectedCsv(FlexAssertTest.class, "empty-versus-null", DB_NAME, "FA_EMPTY_NULL",
+                "ID,VALUE\n1,\"\"\n");
+        DriverManagerDataSource dataSource = createDriverManagerDataSource();
+        DataSourceRegistry.register(DB_NAME, dataSource);
+        Connection connection = mockConnection("APP_USER",
+                tableSpec("FA_EMPTY_NULL", columns("ID", "VALUE"),
+                        sqlTypes(Types.INTEGER, Types.VARCHAR), typeNames("INTEGER", "VARCHAR"),
+                        row(1, null)));
+
+        try (MockedStatic<DataSourceUtils> dataSourceUtils =
+                Mockito.mockStatic(DataSourceUtils.class)) {
+            dataSourceUtils.when(() -> DataSourceUtils.getConnection(dataSource))
+                    .thenReturn(connection);
+            assertThrows(AssertionError.class,
+                    () -> createFlexAssert().assertTable(DB_NAME, "FA_EMPTY_NULL"));
+        }
+    }
+
+    @Test
     void assertTable_正常ケース_expectedのnull値とLOBのnull解決を比較する_一致すること() throws Exception {
         LoadDataExtension.CURRENT_TEST_CLASS.set(FlexAssertTest.class);
         LoadDataExtension.CURRENT_SCENARIO.set("null-and-lob-null");
@@ -574,7 +596,7 @@ class FlexAssertTest {
         Connection connection = mockConnection("APP_USER",
                 tableSpec("FA_NULL_CASE", columns("ID", "NULL_FROM_CSV", "LOB_NULL"),
                         sqlTypes(Types.INTEGER, Types.VARCHAR, Types.BLOB),
-                        typeNames("INTEGER", "VARCHAR", "BLOB"), row(1, "", "")));
+                        typeNames("INTEGER", "VARCHAR", "BLOB"), row(1, null, null)));
 
         DbDialectHandler dialectHandler = createDialectHandlerStub();
         Mockito.doReturn(null).when(dialectHandler).readLobFile(anyString(), anyString(),
@@ -800,6 +822,8 @@ class FlexAssertTest {
     private DbDialectHandler createDialectHandlerStub() throws Exception {
         DbDialectHandler dialectHandler = mock(DbDialectHandler.class);
         when(dialectHandler.resolveSchema(any())).thenReturn("APP_USER");
+        when(dialectHandler.convertCsvValueToDbType(anyString(), anyString(), anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(2));
         when(dialectHandler.isBinaryTypeForDump(anyInt(), anyString())).thenAnswer(invocation -> {
             int sqlType = invocation.getArgument(0);
             return sqlType == Types.BINARY || sqlType == Types.VARBINARY

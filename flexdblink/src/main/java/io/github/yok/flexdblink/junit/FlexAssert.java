@@ -8,6 +8,7 @@ import io.github.yok.flexdblink.config.PathsConfig;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
 import io.github.yok.flexdblink.db.DbUnitConfigFactory;
+import io.github.yok.flexdblink.parser.CsvDataParser;
 import io.github.yok.flexdblink.util.CsvUtils;
 import io.github.yok.flexdblink.util.DateTimeFormatUtil;
 import java.io.File;
@@ -41,7 +42,6 @@ import org.apache.commons.codec.binary.Hex;
 import org.dbunit.dataset.Column;
 import org.dbunit.dataset.IDataSet;
 import org.dbunit.dataset.ITable;
-import org.dbunit.dataset.csv.CsvDataSet;
 import org.springframework.jdbc.datasource.DataSourceUtils;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.lang.NonNull;
@@ -52,8 +52,8 @@ import org.springframework.lang.NonNull;
  * <p>
  * Designed to work with {@link LoadData}. The scenario is automatically resolved from the
  * {@code @LoadData} annotation on the calling test class/method. LOB columns ({@code file:xxx}
- * references in CSV) are resolved and compared using the appropriate {@link DbDialectHandler}
- * for each supported database (Oracle, PostgreSQL, MySQL, SQL Server).
+ * references in CSV) are resolved and compared using the appropriate {@link DbDialectHandler} for
+ * each supported database (Oracle, PostgreSQL, MySQL, SQL Server).
  * </p>
  *
  * <h2>Usage</h2>
@@ -151,7 +151,7 @@ public class FlexAssert {
                     "Expected directory not found: " + expectedDir.toAbsolutePath());
         }
 
-        log.info("Start assertion. scenario={}, db={}", ctx.scenario, dbName);
+        log.debug("Starting dataset assertion. scenario={}, db={}", ctx.scenario, dbName);
         logExcludeConfig();
 
         try {
@@ -159,7 +159,7 @@ public class FlexAssert {
             Connection conn = DataSourceUtils.getConnection(ds);
             try {
                 ConnectionConfig.Entry entry = buildConnectionEntry(ds, conn, dbName);
-                IDataSet expectedDataSet = new CsvDataSet(expectedDir.toFile());
+                IDataSet expectedDataSet = new CsvDataParser().parse(expectedDir.toFile());
                 String[] tableNames = expectedDataSet.getTableNames();
                 DbDialectHandler dialectHandler = dialectHandlerResolver.resolve(ctx.classRoot,
                         entry, conn, Arrays.asList(tableNames));
@@ -186,7 +186,8 @@ public class FlexAssert {
                             failCount + " of " + tableNames.length + " tables failed." + failures);
                 }
 
-                log.info("All tables passed. ({} tables)", passCount);
+                log.debug("Dataset assertion passed. scenario={}, db={}, tables={}", ctx.scenario,
+                        dbName, passCount);
             } finally {
                 DataSourceUtils.releaseConnection(conn, ds);
             }
@@ -220,7 +221,8 @@ public class FlexAssert {
                     "Expected directory not found: " + expectedDir.toAbsolutePath());
         }
 
-        log.info("Start assertion. scenario={}, db={}, table={}", ctx.scenario, dbName, tableName);
+        log.debug("Starting table assertion. scenario={}, db={}, table={}", ctx.scenario, dbName,
+                tableName);
         logExcludeConfig();
 
         try {
@@ -232,11 +234,9 @@ public class FlexAssert {
                         entry, conn, Collections.singletonList(tableName));
                 String schema = dialectHandler.resolveSchema(entry);
 
-                IDataSet expectedDataSet = new CsvDataSet(expectedDir.toFile());
+                IDataSet expectedDataSet = new CsvDataParser().parse(expectedDir.toFile());
                 assertSingleTable(conn, schema, expectedDataSet, tableName, expectedDir.toFile(),
                         dialectHandler);
-
-                log.info("{}: OK", tableName);
             } finally {
                 DataSourceUtils.releaseConnection(conn, ds);
             }
@@ -277,10 +277,10 @@ public class FlexAssert {
         expectedRows.sort(comparator);
         actual.rows.sort(comparator);
 
-        log.info("{}: comparing {} columns (excluded={})", tableName, columnNames.length,
-                excludes.isEmpty() ? "none" : excludes);
+        log.debug("Comparing table rows. table={}, columns={}, excludedColumns={}", tableName,
+                columnNames.length, excludes);
         assertNormalizedRowsEqual(tableName, columnNames, expectedRows, actual.rows);
-        log.info("{}: OK ({} rows)", tableName, actual.rows.size());
+        log.debug("Table assertion passed. table={}, rows={}", tableName, actual.rows.size());
     }
 
     /**
@@ -302,10 +302,11 @@ public class FlexAssert {
      * Log the current exclude column configuration.
      */
     private void logExcludeConfig() {
-        log.info("Global excludes: {}", globalExcludes.isEmpty() ? "none" : globalExcludes);
+        log.debug("Global excluded columns: {}", globalExcludes);
         if (!tableExcludes.isEmpty()) {
             for (Map.Entry<String, Set<String>> entry : tableExcludes.entrySet()) {
-                log.info("Table excludes: {}={}", entry.getKey(), entry.getValue());
+                log.debug("Table excluded columns: table={}, columns={}", entry.getKey(),
+                        entry.getValue());
             }
         }
     }
@@ -600,9 +601,14 @@ public class FlexAssert {
     private String normalizeExpectedValue(Object rawValue, String tableName, String columnName,
             ColumnMetadata columnMetadata, File expectedBaseDir, DbDialectHandler dialectHandler,
             Map<String, Entry<String, String>> lobValues) throws Exception {
+        if (rawValue == null) {
+            return null;
+        }
         String stringValue = rawValue.toString();
         if (stringValue.isEmpty()) {
-            return "";
+            return Objects.toString(
+                    dialectHandler.convertCsvValueToDbType(tableName, columnName, stringValue),
+                    null);
         }
         if (stringValue.startsWith("file:")) {
             Entry<String, String> cached = lobValues.get(columnName);
@@ -627,7 +633,7 @@ public class FlexAssert {
      */
     private String normalizeResolvedLobValue(Object resolved) {
         if (resolved == null) {
-            return "";
+            return null;
         }
         if (resolved instanceof byte[]) {
             return Hex.encodeHexString((byte[]) resolved).toUpperCase();
@@ -645,6 +651,9 @@ public class FlexAssert {
      */
     private String normalizeComparableValue(String value, String columnName,
             ColumnMetadata columnMetadata) {
+        if (value == null) {
+            return null;
+        }
         if (value.isEmpty()) {
             return value;
         }

@@ -125,6 +125,10 @@ Place CSV files under `data-path`. The filename corresponds to the table name.
         ORDERS.csv
 ```
 
+CSV uses an unquoted empty field for SQL NULL and `""` for an empty string.
+Both `null` and `"null"` are literal strings. Loading preserves leading and trailing whitespace
+in character columns. See [CSV Values and Quoting](#csv-values-and-quoting) for details.
+
 CSV files are UTF-8 with a header row:
 
 ```csv
@@ -192,6 +196,18 @@ java -jar flexdblink.jar -s                   # --setup
 ## Building from Source (for developers)
 
 **Requirements**: Java 11+, Maven 3.9+, Docker (for integration tests with Testcontainers)
+
+### Java Formatting in VS Code
+
+Open `FlexDBLink.code-workspace` and install Language Support for Java by Red Hat.
+Saving Java files uses the shared `GoogleStyle` profile in
+`config/formatter/eclipse-java-google-style.xml`, customized for four-space indentation
+and a 100-column line width. Continuation lines use two indentation levels (eight spaces).
+The core module's `.vscode/settings.json` also supports opening `flexdblink/` directly;
+its formatter path is relative to that folder, not to `.vscode/`.
+
+After changing formatter settings, run **Developer: Reload Window** and use
+**Format Document** on a Java file to apply the profile.
 
 ### Project Structure
 
@@ -262,6 +278,12 @@ java -jar flexdblink.jar [OPTIONS]
 | `--dump <scenario>` | `-d` | Dump mode. Scenario name is required |
 | `--setup` | `-s` | Setup mode. Scans the DB schema for LOB columns and auto-generates `file-patterns` in `application.yml` |
 | `--target <ID,...>` | `-t` | Comma-separated DB IDs to target. When omitted, all connections are processed |
+
+`--load --target DB2` loads only the configured initial dataset into `DB2`. A scenario replaces
+rows with matching primary keys and inserts its additional rows; without a primary key, matching
+uses all column values. Load and dump failures propagate to the caller, and a failed CLI command
+returns a nonzero exit code. Parsing failures stop a load so that the caller can roll back the
+transaction when using an external connection.
 
 > Overriding Spring properties from the command line is disabled. All configuration must be specified in `application.yml`.
 
@@ -704,9 +726,18 @@ the comparison tables. Connections are released through Spring after each assert
 transaction-bound connections available for the test. Repeated LOB file references reuse the last
 normalized value per column within a table comparison. Expected files are reread for each assertion.
 
+`FlexAssert` logs assertion progress, comparison settings, and successful results at `DEBUG` level.
+Enable `DEBUG` for `io.github.yok.flexdblink.junit.FlexAssert` when diagnosing comparisons.
+Assertion failures are reported through exceptions to the test runner.
+
 ### DataSource Mapping (`flexdblink.properties`)
 
 `@LoadData` resolves the target database by **DataSource bean name**.
+
+At test-class initialization, Spring application configuration files (`application.properties`,
+`application.yml`, `application.yaml`, and their `application-<profile>` variants) are discovered
+in one recursive classpath search. Each initialization discovers and reads the files again,
+so configuration file changes remain visible. Configuration precedence is unchanged.
 
 Config file path:
 
@@ -847,6 +878,33 @@ If no match is found, the following formats are attempted in order (applies to a
 All combinations of date and time formats are tried, with `dbunit.csv.format.dateTime` / `dateTimeWithMillis` applied first.
 
 > DB-specific extended types (e.g., Oracle `TIMESTAMP WITH TIME ZONE`, SQL Server `DATETIMEOFFSET`) have additional formats in each DB's implementation. See the type coverage tables for details.
+
+---
+
+## CSV Values and Quoting
+
+CSV has no universal NULL representation. FlexDBLink follows the
+[PostgreSQL COPY CSV convention](https://www.postgresql.org/docs/current/sql-copy.html#SQL-COPY-NOTES)
+to distinguish NULL from an empty string, and uses
+[RFC 4180 quoting](https://www.rfc-editor.org/rfc/rfc4180.html#section-2).
+
+| Database value | CSV field |
+| -------------- | --------- |
+| SQL NULL | Unquoted empty field (for example, `1,,3`) |
+| Empty character string | `""` |
+| Literal string `null` | `"null"` (unquoted `null` is also read as a string) |
+| Text containing a quote | `"a""b"` for `a"b` |
+| Text containing a backslash | `"C:\temp\file"` (backslashes are literal) |
+
+Dump quotes all non-NULL values. Load retains quoted empty strings for character columns in
+MySQL, PostgreSQL, and SQL Server. Oracle stores empty character strings as NULL; empty BLOB/CLOB files remain zero-length LOBs. Empty input
+for non-character types retains its existing conversion to NULL; use an unquoted empty field
+when specifying SQL NULL. One-column NULL rows are retained, including blank physical records.
+
+Existing CSV files that used unquoted `null` as a NULL marker must replace it with an empty field.
+Files that escaped quotes or backslashes with backslashes must use doubled quotes and literal
+backslashes instead. Previous dumps that collapsed NULL and empty strings cannot recover that
+distinction; regenerate them from the database.
 
 ---
 

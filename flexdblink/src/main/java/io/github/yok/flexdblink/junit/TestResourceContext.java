@@ -26,6 +26,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
+import java.util.regex.Pattern;
 import javax.sql.DataSource;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -85,6 +86,8 @@ class TestResourceContext {
 
     private static final PropertyPlaceholderHelper PLACEHOLDER_HELPER =
             new PropertyPlaceholderHelper("${", "}", ":", true);
+    private static final Pattern APPLICATION_CONFIG_NAME =
+            Pattern.compile("application(?:-.*)?\\.(?:properties|yml|yaml)");
 
     /**
      * Creates a context with the resolved class resource root and merged application properties.
@@ -381,15 +384,29 @@ class TestResourceContext {
     /**
      * Load and merge <em>all</em> {@code application*.properties} and
      * {@code application*.yml/.yaml} from the classpath using the documented order. Files are read
-     * as UTF-8; later loads overwrite earlier keys.
+     * as UTF-8; later loads overwrite earlier keys. Resource discovery uses one recursive search
+     * per initialization, so later initializations observe configuration file changes.
      *
      * @param cl class loader to use
      * @return merged {@link Properties}
      * @throws Exception if resource discovery or reading fails
      */
     static Properties loadAllApplicationProperties(ClassLoader cl) throws Exception {
-        // Load all application.properties / application.yml / application.yaml (sorted by URL)
-        List<URL> baseUrls = findAllBaseResources(cl);
+        List<URL> baseUrls = new ArrayList<>();
+        Map<String, List<URL>> profileToUrls = new LinkedHashMap<>();
+        // Keep discovery local so later classes observe added and removed configuration files.
+        for (URL url : findAllApplicationResources(cl)) {
+            String name = toSimpleName(url);
+            if (name.startsWith("application-")) {
+                String profile = extractProfile(name);
+                if (StringUtils.isNotBlank(profile)) {
+                    profileToUrls.computeIfAbsent(profile, k -> new ArrayList<>()).add(url);
+                }
+            } else {
+                baseUrls.add(url);
+            }
+        }
+
         baseUrls.sort(Comparator.comparing(url -> url.toString()));
         Properties result = new Properties();
         for (URL u : baseUrls) {
@@ -397,23 +414,6 @@ class TestResourceContext {
             log.info("Loaded properties: {}", u);
         }
         resolvePlaceholders(result);
-
-        // Discover all application-*.properties / application-*.yml/.yaml on the classpath
-        Map<String, List<URL>> profileToUrls = new LinkedHashMap<>();
-        List<URL> profileUrls = findAllProfileResources(cl);
-        for (URL u : profileUrls) {
-            String simple = toSimpleName(u);
-            if (!simple.startsWith("application-")) {
-                continue;
-            }
-
-            String profile = extractProfile(simple);
-            if (StringUtils.isBlank(profile)) {
-                continue;
-            } else {
-                profileToUrls.computeIfAbsent(profile, k -> new ArrayList<>()).add(u);
-            }
-        }
 
         // Determine active profiles
         List<String> actives = resolveActiveProfiles(result);
@@ -452,54 +452,21 @@ class TestResourceContext {
     }
 
     /**
-     * Finds all base Spring application configuration resources from the classpath.
+     * Finds supported base and profile configuration files in one recursive classpath search.
      *
      * @param cl class loader used for classpath resolution
-     * @return deduplicated URLs of matched resources
+     * @return deduplicated URLs of supported configuration files
      * @throws IOException if classpath scanning fails
      */
-    static List<URL> findAllBaseResources(ClassLoader cl) throws IOException {
-        String[] patterns = new String[] {"classpath*:**/application.properties",
-                "classpath*:**/application.yml", "classpath*:**/application.yaml"};
-        return findResourcesByPatterns(cl, patterns);
-    }
-
-    /**
-     * Finds all {@code application-*.properties} and {@code application-*.yml/.yaml} resources from
-     * the classpath.
-     *
-     * @param cl class loader used for classpath resolution
-     * @return deduplicated URLs of matched resources
-     * @throws IOException if classpath scanning fails
-     */
-    static List<URL> findAllProfileResources(ClassLoader cl) throws IOException {
-        String[] patterns = new String[] {"classpath*:**/application-*.properties",
-                "classpath*:**/application-*.yml", "classpath*:**/application-*.yaml"};
-        return findResourcesByPatterns(cl, patterns);
-    }
-
-    /**
-     * Finds and deduplicates resources matched by classpath search patterns.
-     *
-     * @param cl class loader used for classpath resolution
-     * @param patterns classpath search patterns
-     * @return deduplicated URLs in pattern iteration order
-     * @throws IOException if classpath scanning fails
-     */
-    private static List<URL> findResourcesByPatterns(ClassLoader cl, String[] patterns)
-            throws IOException {
+    private static List<URL> findAllApplicationResources(ClassLoader cl) throws IOException {
         PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver(cl);
         List<URL> urls = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
-        for (String pattern : patterns) {
-            Resource[] resources =
-                    resolver.getResources(Objects.requireNonNull(pattern, "Resource pattern"));
-            for (Resource resource : resources) {
-                URL url = resource.getURL();
-                String key = url.toString();
-                if (seen.add(key)) {
-                    urls.add(url);
-                }
+        for (Resource resource : resolver.getResources("classpath*:**/application*.*")) {
+            URL url = resource.getURL();
+            if (APPLICATION_CONFIG_NAME.matcher(toSimpleName(url)).matches()
+                    && seen.add(url.toString())) {
+                urls.add(url);
             }
         }
         return urls;

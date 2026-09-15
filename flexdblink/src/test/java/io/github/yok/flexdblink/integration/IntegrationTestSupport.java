@@ -1,10 +1,16 @@
 package io.github.yok.flexdblink.integration;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.AdditionalAnswers.delegatesTo;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.mock;
+import io.github.yok.flexdblink.Main;
 import io.github.yok.flexdblink.config.ConnectionConfig;
 import io.github.yok.flexdblink.config.DbUnitConfig;
 import io.github.yok.flexdblink.config.DumpConfig;
@@ -14,7 +20,10 @@ import io.github.yok.flexdblink.core.DataDumper;
 import io.github.yok.flexdblink.core.DataLoader;
 import io.github.yok.flexdblink.db.DbDialectHandler;
 import io.github.yok.flexdblink.db.DbDialectHandlerFactory;
+import io.github.yok.flexdblink.parser.DataLoaderFactory;
+import io.github.yok.flexdblink.parser.DatasetFiles;
 import io.github.yok.flexdblink.util.CsvUtils;
+import io.github.yok.flexdblink.util.ErrorHandler;
 import io.github.yok.flexdblink.util.TableOrderingFile;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -23,18 +32,25 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.stream.Stream;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.function.Executable;
+import org.junit.jupiter.params.provider.Arguments;
 import org.testcontainers.containers.ContainerLaunchException;
 import org.testcontainers.containers.JdbcDatabaseContainer;
 
@@ -59,6 +75,45 @@ import org.testcontainers.containers.JdbcDatabaseContainer;
 final class IntegrationTestSupport {
 
     private IntegrationTestSupport() {}
+
+    enum PrimaryKeyCase {
+        SINGLE, SINGLE_CHANGED, NONE, COMPOSITE
+    }
+
+    enum LoaderRoute {
+        TRANSACTIONAL, LEGACY;
+
+        DataLoader create(Runtime runtime) {
+            if (this == LEGACY) {
+                return runtime.newLoader();
+            }
+            return new DataLoader(runtime.pathsConfig, runtime.connectionConfig,
+                    runtime.dialectFactory, runtime.dbUnitConfig, runtime.dumpConfig);
+        }
+    }
+
+    enum MalformedFormat {
+        CSV("csv", "ID,NAME\n\"unterminated"), JSON("json", "invalid json"), YAML("yaml",
+                "- ID: [unterminated"), YML("yml",
+                        "- ID: [unterminated"), XML("xml", "<dataset><broken></dataset>");
+
+        private final String extension;
+        private final String input;
+
+        MalformedFormat(String extension, String input) {
+            this.extension = extension;
+            this.input = input;
+        }
+    }
+
+    enum FailureOperation {
+        LOAD, MAIN_LOAD, TRANSACTIONAL_LOAD, LEGACY_LOAD, DUMP, MAIN_DUMP
+    }
+
+    static Stream<Arguments> malformedInputCases() {
+        return Arrays.stream(LoaderRoute.values()).flatMap(route -> Arrays
+                .stream(MalformedFormat.values()).map(format -> Arguments.of(route, format)));
+    }
 
     /**
      * Starts the container and initializes the test schema with Flyway (all migrations).
@@ -130,6 +185,273 @@ final class IntegrationTestSupport {
         loader.execute(scenario, List.of("db1"));
     }
 
+    static void assertCsvRoundTripPreservesText(Runtime runtime, Connection jdbc) throws Exception {
+        String table = createNamedTable(jdbc, "csv_text", "id INTEGER PRIMARY KEY, name VARCHAR(100)");
+        List<String> expected = Arrays.asList(null, "", "null", " A ", "A ", " A", "   ", "\tA\r\n", "a\"b", "C:\\temp\\new");
+        try (PreparedStatement insert =
+                jdbc.prepareStatement("INSERT INTO " + table + " (id, name) VALUES (?, ?)")) {
+            for (int i = 0; i < expected.size(); i++) {
+                insert.setInt(1, i + 1);
+                insert.setString(2, expected.get(i));
+                insert.executeUpdate();
+            }
+        }
+        if ("Oracle".equals(jdbc.getMetaData().getDatabaseProductName())) {
+            expected.set(1, null);
+        }
+        Path dumped = executeDump(runtime, "text_round_trip");
+        Path initial = Files.createDirectories(runtime.dataPath.resolve("load/pre/db1"));
+        Files.copy(dumped.resolve(table + ".csv"), initial.resolve(table + ".csv"));
+
+        executeLoad(runtime, "pre");
+
+        List<String> actual = new ArrayList<>();
+        try (Statement sql = jdbc.createStatement();
+                ResultSet rows = sql.executeQuery("SELECT name FROM " + table + " ORDER BY id")) {
+            while (rows.next()) {
+                actual.add(rows.getString(1));
+            }
+        }
+        assertEquals(expected, actual);
+    }
+
+    /**
+     * Verifies that applying a scenario retains shared, initial-only, and scenario-only rows.
+     *
+     * @param runtime configured database runtime
+     * @param jdbc connection used to prepare and verify committed rows
+     * @param keyCase primary key shape used to exercise duplicate matching
+     * @throws Exception if setup or loading fails
+     */
+    static void assertScenarioRetainsSharedRows(Runtime runtime, Connection jdbc,
+            PrimaryKeyCase keyCase) throws Exception {
+        // Isolate data retention from the separately tested production error-handler defect.
+        ErrorHandler.disableExitForCurrentThread();
+        try {
+            String definition = "id VARCHAR(30) PRIMARY KEY, name VARCHAR(100)";
+            String header = "ID,NAME\n";
+            String initialRows = "duplicate,shared\npre-only,baseline\n";
+            String scenarioRows = "duplicate,shared\nscenario-only,added\n";
+            String[] columns = {"id", "name"};
+            List<String> expected =
+                    List.of("duplicate:shared", "pre-only:baseline", "scenario-only:added");
+            if (keyCase == PrimaryKeyCase.SINGLE_CHANGED) {
+                scenarioRows = "duplicate,scenario-value\nscenario-only,added\n";
+                expected = List.of("duplicate:scenario-value", "pre-only:baseline",
+                        "scenario-only:added");
+            } else if (keyCase == PrimaryKeyCase.NONE) {
+                definition = "id VARCHAR(30), name VARCHAR(100)";
+                initialRows += "duplicate,distinct\n";
+                expected = List.of("duplicate:distinct", "duplicate:shared", "pre-only:baseline",
+                        "scenario-only:added");
+            } else if (keyCase == PrimaryKeyCase.COMPOSITE) {
+                definition = "id VARCHAR(30), revision INTEGER, name VARCHAR(100), "
+                        + "PRIMARY KEY (id, revision)";
+                header = "ID,REVISION,NAME\n";
+                initialRows = "duplicate,1,shared\nduplicate,2,distinct\npre-only,1,baseline\n";
+                scenarioRows = "duplicate,1,shared\nscenario-only,1,added\n";
+                columns = new String[] {"id", "revision", "name"};
+                expected = List.of("duplicate:1:shared", "duplicate:2:distinct",
+                        "pre-only:1:baseline", "scenario-only:1:added");
+            }
+            String table = createNamedTable(jdbc, "scenario_duplicate", definition);
+            Path initial = Files.createDirectories(runtime.dataPath.resolve("load/pre/db1"));
+            Path scenario = Files.createDirectories(runtime.dataPath.resolve("load/scenario/db1"));
+            // Match unquoted PostgreSQL column names when exercising full-row comparison.
+            if (jdbc.getMetaData().storesLowerCaseIdentifiers()) {
+                header = header.toLowerCase(Locale.ROOT);
+            }
+            Files.writeString(initial.resolve(table + ".csv"), header + initialRows);
+            Files.writeString(scenario.resolve(table + ".csv"), header + scenarioRows);
+
+            executeLoad(runtime, "scenario");
+
+            assertEquals(expected, readNamedRows(jdbc, table, columns),
+                    "Applying a scenario must retain the row shared with the initial dataset.");
+        } finally {
+            ErrorHandler.restoreExitForCurrentThread();
+        }
+    }
+
+    /**
+     * Verifies that malformed input is reported so the caller can roll back all selected tables.
+     *
+     * @param runtime configured database runtime
+     * @param jdbc caller-owned connection used for loading and verification
+     * @param route external-connection loading implementation
+     * @param format malformed input format
+     * @throws Exception if setup or transaction completion fails
+     */
+    static void assertMalformedInputPreservesRows(Runtime runtime, Connection jdbc,
+            LoaderRoute route, MalformedFormat format) throws Exception {
+        DataLoader loader = route.create(runtime);
+        ErrorHandler.disableExitForCurrentThread();
+        try (Statement sql = jdbc.createStatement()) {
+            String malformedTable = createNamedTable(jdbc, "malformed_input");
+            String validTable = createNamedTable(jdbc, "valid_input");
+            sql.execute("INSERT INTO " + malformedTable + " VALUES ('original', 'bad-baseline')");
+            sql.execute("INSERT INTO " + validTable + " VALUES ('original', 'good-baseline')");
+            Files.writeString(runtime.dataPath.resolve(malformedTable + "." + format.extension),
+                    format.input);
+            Files.writeString(runtime.dataPath.resolve(validTable + ".csv"),
+                    "ID,NAME\nnew,replacement\n");
+            // Prove the fixture fails in the selected parser before checking loader behavior.
+            Exception parseFailure = assertThrows(Exception.class, () -> {
+                if (route == LoaderRoute.LEGACY) {
+                    TableOrderingFile.ensure(runtime.dataPath.toFile());
+                    DataLoaderFactory.create(runtime.dataPath.toFile(), malformedTable);
+                } else {
+                    new DatasetFiles(runtime.dataPath.toFile()).parse(malformedTable);
+                }
+            });
+            List<Throwable> causes = ExceptionUtils.getThrowableList(parseFailure);
+            Class<?> expectedCause = causes.get(causes.size() - 1).getClass();
+            jdbc.setAutoCommit(false);
+
+            Exception failure = loadAndCompleteTransaction(loader, runtime, jdbc);
+
+            assertAll(() -> {
+                assertNotNull(failure,
+                        "Malformed input must notify the caller instead of succeeding.");
+                assertTrue(
+                        ExceptionUtils.getThrowableList(failure).stream()
+                                .anyMatch(expectedCause::isInstance),
+                        "The reported failure must preserve the parser exception: " + failure);
+            }, () -> assertEquals(List.of("original:bad-baseline"),
+                    readNamedRows(jdbc, malformedTable),
+                    "A parse failure must not leave the malformed table empty."),
+                    () -> assertEquals(List.of("original:good-baseline"),
+                            readNamedRows(jdbc, validTable),
+                            "A failed load must allow the caller to roll back all selected tables."));
+        } finally {
+            ErrorHandler.restoreExitForCurrentThread();
+        }
+    }
+
+    private static String createNamedTable(Connection jdbc, String name) throws SQLException {
+        return createNamedTable(jdbc, name, "id VARCHAR(30) PRIMARY KEY, name VARCHAR(100)");
+    }
+
+    static String createNamedTable(Connection jdbc, String name, String definition)
+            throws SQLException {
+        String table = name;
+        // Keep CSV names consistent with Oracle's folding of unquoted identifiers.
+        if (jdbc.getMetaData().storesUpperCaseIdentifiers()) {
+            table = name.toUpperCase(Locale.ROOT);
+        }
+        try (Statement sql = jdbc.createStatement()) {
+            sql.execute("CREATE TABLE " + table + " (" + definition + ")");
+        }
+        return table;
+    }
+
+    private static Exception loadAndCompleteTransaction(DataLoader loader, Runtime runtime,
+            Connection jdbc) throws Exception {
+        // Model a caller that commits success and rolls back a reported load failure.
+        Exception failure = null;
+        // Model a transaction-bound connection whose lifecycle belongs to the caller.
+        Connection external = mock(Connection.class, delegatesTo(jdbc));
+        doNothing().when(external).close();
+        try {
+            loader.executeWithConnection(runtime.dataPath.toFile(),
+                    runtime.connectionConfig.getConnections().get(0), external);
+        } catch (Exception loadFailure) {
+            failure = loadFailure;
+        }
+        if (failure == null) {
+            jdbc.commit();
+        } else {
+            jdbc.rollback();
+        }
+        return failure;
+    }
+
+    private static List<String> readNamedRows(Connection jdbc, String table) throws SQLException {
+        return readNamedRows(jdbc, table, "id", "name");
+    }
+
+    static List<String> readNamedRows(Connection jdbc, String table, String... columns)
+            throws SQLException {
+        List<String> rows = new ArrayList<>();
+        String selected = String.join(", ", columns);
+        try (Statement sql = jdbc.createStatement();
+                ResultSet result = sql.executeQuery(
+                        "SELECT " + selected + " FROM " + table + " ORDER BY " + selected)) {
+            while (result.next()) {
+                List<String> values = new ArrayList<>();
+                for (String column : columns) {
+                    values.add(result.getString(column));
+                }
+                rows.add(String.join(":", values));
+            }
+        }
+        return rows;
+    }
+
+    static void assertProductionFailureIsReported(Runtime runtime, Connection jdbc,
+            FailureOperation operation) throws Exception {
+        ErrorHandler.restoreExitForCurrentThread();
+        try (Statement sql = jdbc.createStatement()) {
+            String table = createNamedTable(jdbc, "failed_operation");
+            sql.execute("INSERT INTO " + table + " VALUES ('original', 'baseline')");
+            Main main =
+                    new Main(runtime.pathsConfig, runtime.dbUnitConfig, runtime.connectionConfig,
+                            runtime.filePatternConfig, runtime.dumpConfig, runtime.dialectFactory);
+            if (operation == FailureOperation.DUMP || operation == FailureOperation.MAIN_DUMP) {
+                // A regular file prevents creation of the dump directory without OS permissions.
+                Files.writeString(runtime.dataPath.resolve("dump"), "blocked");
+                Executable dump = () -> runtime.newDumper().execute("failure", List.of("db1"));
+                if (operation == FailureOperation.MAIN_DUMP) {
+                    dump = () -> main.run("--dump", "failure", "--target", "db1");
+                }
+                Executable action = dump;
+                assertAll(() -> assertThrows(RuntimeException.class, action,
+                        "A real dump I/O failure must reach the caller in production mode."),
+                        () -> assertEquals(List.of("original:baseline"),
+                                readNamedRows(jdbc, table)));
+                return;
+            }
+
+            String invalidRows = "ID,NAME\nduplicate,first\nduplicate,second\n";
+            Exception failure;
+            if (operation == FailureOperation.TRANSACTIONAL_LOAD
+                    || operation == FailureOperation.LEGACY_LOAD) {
+                Files.writeString(runtime.dataPath.resolve(table + ".csv"), invalidRows);
+                jdbc.setAutoCommit(false);
+                LoaderRoute route = LoaderRoute.TRANSACTIONAL;
+                if (operation == FailureOperation.LEGACY_LOAD) {
+                    route = LoaderRoute.LEGACY;
+                }
+                failure = loadAndCompleteTransaction(route.create(runtime), runtime, jdbc);
+            } else {
+                Path initial = Files.createDirectories(runtime.dataPath.resolve("load/pre/db1"));
+                Files.writeString(initial.resolve(table + ".csv"), invalidRows);
+                failure = null;
+                try {
+                    if (operation == FailureOperation.MAIN_LOAD) {
+                        main.run("--load", "pre", "--target", "db1");
+                    } else {
+                        runtime.newLoader().execute("pre", List.of("db1"));
+                    }
+                } catch (Exception loadFailure) {
+                    failure = loadFailure;
+                }
+            }
+            Exception reported = failure;
+            assertAll(() -> {
+                assertNotNull(reported,
+                        "A real constraint violation must reach the caller in production mode.");
+                assertTrue(
+                        ExceptionUtils.getThrowableList(reported).stream()
+                                .anyMatch(SQLException.class::isInstance),
+                        "The reported failure must preserve the SQL exception: " + reported);
+            }, () -> assertEquals(List.of("original:baseline"), readNamedRows(jdbc, table),
+                    "A failed load must preserve the committed baseline."));
+        } finally {
+            ErrorHandler.restoreExitForCurrentThread();
+        }
+    }
+
     /**
      * Executes DataDumper for the specified scenario and returns the output directory.
      *
@@ -197,6 +519,10 @@ final class IntegrationTestSupport {
                     Path outFile = outputFilesDir.resolve(outVal.substring("file:".length()));
                     assertArrayEquals(Files.readAllBytes(inFile), Files.readAllBytes(outFile),
                             msg + " file content mismatch");
+                } else if ("".equals(inVal) && outVal != null && outVal.startsWith("file:")) {
+                    // Dump materializes an inline empty character LOB as a zero-byte file.
+                    Path outFile = outputFilesDir.resolve(outVal.substring("file:".length()));
+                    assertEquals(0L, Files.size(outFile), msg + " empty LOB content mismatch");
                 } else {
                     assertEquals(inVal, outVal, msg);
                 }
@@ -295,8 +621,7 @@ final class IntegrationTestSupport {
     static Map<String, Map<String, String>> readCsvById(Path csvPath, String idColumn)
             throws IOException {
         Map<String, Map<String, String>> rows = new LinkedHashMap<>();
-        CSVFormat format = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true)
-                .setIgnoreSurroundingSpaces(false).setTrim(false).get();
+        CSVFormat format = CsvUtils.FORMAT.builder().setHeader().setSkipHeaderRecord(true).get();
 
         try (CSVParser parser = CSVParser.parse(csvPath, StandardCharsets.UTF_8, format)) {
             for (CSVRecord record : parser) {
