@@ -962,6 +962,39 @@ A sample using an Oracle 19c Docker environment is available in the `script/` di
 
 ---
 
+## CI Test Execution
+
+Core tests run on Java 11, 17, 21, and 25. Each Java version uses two independent
+GitHub-hosted runners with separate working directories. The Maven plugin's Java 11
+job starts independently and builds its own core dependency.
+
+[The test-group manifest](.github/test-shards.json) assigns every core `*Test.java`
+and `*IT.java` class exactly once, based on measured class durations. Add new test
+classes to one group; CI rejects missing, duplicate, or stale assignments. The
+initial groups contain 35 classes each (825 and 793 cases). Parameterized cases,
+test fixtures, database resets, and per-class JVM isolation remain unchanged.
+
+Each group runs `mvn clean test -pl flexdblink -Pci-shard -Dtest=...`. This profile
+defers only the module-wide coverage check. After both groups pass, CI verifies
+their reports and identical production bytecode, merges their JaCoCo execution
+data separately for each Java version, and requires 100% instruction and branch
+coverage. Reporting uses the original compiled classes without rebuilding them.
+The regular `mvn clean test` command still runs all tests and checks full coverage.
+
+To reproduce one group in a separate checkout:
+
+```bash
+selected_tests="$(python3 .github/scripts/ci_tests.py select 1)"
+mvn -B clean test -pl flexdblink -Pci-shard "-Dtest=${selected_tests}"
+python3 .github/scripts/ci_tests.py verify 1 flexdblink/target/surefire-reports
+```
+
+Do not run both groups in the same checkout: some tests modify classpath resources.
+CI uses more runners to reduce elapsed time; the 7–9 minute target depends on
+runner availability and cold database-image startup and must be measured.
+
+---
+
 ## License
 
 This repository is provided under the **Apache License 2.0**. See [LICENSE](LICENSE.txt) for details.

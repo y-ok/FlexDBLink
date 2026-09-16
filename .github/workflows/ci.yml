@@ -15,13 +15,14 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  test-and-coverage:
+  core-test:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
         java: [ '11', '17', '21', '25' ]
+        shard: [ '1', '2' ]
 
     env:
       DOCKER_HOST: unix:///var/run/docker.sock
@@ -31,6 +32,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Verify CI validation helpers
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py'
 
       - name: Set up JDK ${{ matrix.java }}
         uses: actions/setup-java@v5
@@ -42,8 +46,63 @@ jobs:
       - name: Verify Docker
         run: docker info
 
-      - name: Run tests (including Testcontainers)
-        run: mvn -B clean test -pl flexdblink
+      - name: Run test group (including Testcontainers)
+        run: |
+          selected_tests="$(python3 .github/scripts/ci_tests.py select '${{ matrix.shard }}')"
+          mvn -B clean test -pl flexdblink -Pci-shard "-Dtest=${selected_tests}"
+          python3 .github/scripts/ci_tests.py verify '${{ matrix.shard }}' flexdblink/target/surefire-reports
+
+      - name: Upload test results and coverage inputs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: core-tests-java-${{ matrix.java }}-shard-${{ matrix.shard }}
+          path: |
+            flexdblink/target/jacoco.exec
+            flexdblink/target/classes/
+            flexdblink/target/surefire-reports/TEST-*.xml
+          if-no-files-found: error
+
+  test-and-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: core-test
+    if: always()
+    strategy:
+      fail-fast: false
+      matrix:
+        java: [ '11', '17', '21', '25' ]
+
+    steps:
+      - name: Require every test group to succeed
+        if: needs.core-test.result != 'success'
+        run: |
+          echo "::error::At least one core test group did not succeed."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK ${{ matrix.java }}
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+          cache: maven
+
+      - name: Download coverage inputs for this JDK
+        uses: actions/download-artifact@v8
+        with:
+          pattern: core-tests-java-${{ matrix.java }}-shard-*
+          path: flexdblink/target/ci-shards
+
+      - name: Validate both groups and restore original bytecode
+        run: python3 .github/scripts/ci_tests.py prepare '${{ matrix.java }}'
+
+      - name: Merge coverage and enforce C0 and C1 at 100 percent
+        run: |
+          mvn -B -pl flexdblink jacoco:merge@merge-shards jacoco:report jacoco:check@check
+          python3 .github/scripts/ci_tests.py coverage flexdblink/target/site/jacoco/jacoco.xml | tee -a "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload JaCoCo XML as artifact
         if: always() && matrix.java == '21'
@@ -54,7 +113,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload coverage to Codecov
-        if: always() && matrix.java == '21'
+        if: success() && matrix.java == '21'
         run: |
           set -euo pipefail
 
@@ -88,7 +147,6 @@ jobs:
   maven-plugin-test:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    needs: test-and-coverage
     env:
       DOCKER_HOST: unix:///var/run/docker.sock
       TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
@@ -109,3 +167,6 @@ jobs:
 
       - name: Run flexdblink-maven-plugin module verify (unit + integration)
         run: mvn -B clean verify -pl flexdblink-maven-plugin
+
+      - name: Require plugin C0 and C1 at 100 percent
+        run: python3 .github/scripts/ci_tests.py coverage flexdblink-maven-plugin/target/site/jacoco/jacoco.xml | tee -a "${GITHUB_STEP_SUMMARY}"
