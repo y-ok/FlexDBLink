@@ -968,25 +968,29 @@ Core tests run on Java 11, 17, 21, and 25. Each Java version uses two independen
 GitHub-hosted runners with separate working directories. The Maven plugin's Java 11
 job starts independently and builds its own core dependency.
 
-[The test-group manifest](.github/test-shards.json) assigns every core `*Test.java`
-and `*IT.java` class exactly once, based on measured class durations. Add new test
-classes to one group; CI rejects missing, duplicate, or stale assignments. The
-initial groups contain 35 classes each (825 and 793 cases). Parameterized cases,
-test fixtures, database resets, and per-class JVM isolation remain unchanged.
+[Group 1's class list](.github/core-test-group-1.txt) selects classes using Surefire's
+`test` option. Group 2 uses the same list as its `surefire.excludesFile`, running
+all remaining core `*Test.java` and `*IT.java` classes. New test classes therefore
+run in group 2 automatically; move them to the list when rebalancing measured
+durations. The initial groups contain 35 classes each (825 and 793 cases).
+Parameterized cases, fixtures, database resets, and per-class JVM isolation remain
+unchanged.
 
-Each group runs `mvn clean test -pl flexdblink -Pci-shard -Dtest=...`. This profile
-defers only the module-wide coverage check. After both groups pass, CI verifies
-their reports and identical production bytecode, merges their JaCoCo execution
-data separately for each Java version, and requires 100% instruction and branch
-coverage. Reporting uses the original compiled classes without rebuilding them.
+The `ci-shard` Maven profile defers only the module-wide coverage check. After
+both groups pass, JaCoCo merges their execution data separately for each Java
+version and checks for 100% instruction and branch coverage. Reporting uses the
+original compiled classes without rebuilding them. The plugin also uses JaCoCo's
+standard `check` goal during `verify`.
 The regular `mvn clean test` command still runs all tests and checks full coverage.
 
-To reproduce one group in a separate checkout:
+To reproduce either group, run its command in a separate checkout:
 
 ```bash
-selected_tests="$(python3 .github/scripts/ci_tests.py select 1)"
-mvn -B clean test -pl flexdblink -Pci-shard "-Dtest=${selected_tests}"
-python3 .github/scripts/ci_tests.py verify 1 flexdblink/target/surefire-reports
+# Group 1
+mvn -B clean test -pl flexdblink -Pci-shard "-Dtest=$(paste -sd, .github/core-test-group-1.txt)"
+
+# Group 2 (use another checkout when running concurrently)
+mvn -B clean test -pl flexdblink -Pci-shard "-Dsurefire.excludesFile=${PWD}/.github/core-test-group-1.txt"
 ```
 
 Do not run both groups in the same checkout: some tests modify classpath resources.
