@@ -29,6 +29,7 @@ import org.dbunit.dataset.DefaultTable;
 import org.dbunit.dataset.datatype.DataType;
 import org.dbunit.operation.DatabaseOperation;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -51,6 +52,7 @@ import org.testcontainers.oracle.OracleContainer;
  * types (INTERVAL YEAR TO MONTH, INTERVAL DAY TO SECOND, XMLType).
  * </p>
  */
+@Tag("oracle")
 @SpringBootTest(classes = IntegrationTestConfig.class)
 @ContextConfiguration(initializers = YamlPropertySourceFactory.class)
 @Testcontainers

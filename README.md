@@ -968,16 +968,21 @@ Core tests run on Java 11, 17, 21, and 25. Each Java version uses two independen
 GitHub-hosted runners with separate working directories. The Maven plugin's Java 11
 job starts independently and builds its own core dependency.
 
-[Group 1's class list](.github/core-test-group-1.txt) selects classes using Surefire's
-`test` option. Group 2 uses the same list as its `surefire.excludesFile`, running
-all remaining core `*Test.java` and `*IT.java` classes. New test classes therefore
-run in group 2 automatically; move them to the list when rebalancing measured
-durations. The initial groups contain 35 classes each (825 and 793 cases).
-Parameterized cases, fixtures, database resets, and per-class JVM isolation remain
-unchanged.
+The profiles in [the core POM](flexdblink/pom.xml) group tests by whether they
+start an Oracle container. Local execution and CI use the same profiles:
 
-The `ci-shard` Maven profile defers only the module-wide coverage check. After
-both groups pass, JaCoCo merges their execution data separately for each Java
+| Profile | Tests selected by Surefire |
+| --- | --- |
+| `test-oracle` | Classes annotated with JUnit's `@Tag("oracle")`: tests that start an Oracle container, including mixed multi-DB tests |
+| `test-without-oracle` | All remaining tests, including other database integration tests and unit tests |
+
+Add `@Tag("oracle")` to any new test class that starts an Oracle container. Unit
+tests for Oracle-specific code that do not start Oracle remain in
+`test-without-oracle`. Parameterized cases, fixtures, database resets, and
+per-class JVM isolation remain unchanged.
+
+Both profiles defer only the module-wide coverage check. After both groups pass,
+CI uses JaCoCo to merge their execution data separately for each Java
 version and checks for 100% instruction and branch coverage. Reporting uses the
 original compiled classes without rebuilding them. The plugin also uses JaCoCo's
 standard `check` goal during `verify`.
@@ -986,16 +991,18 @@ The regular `mvn clean test` command still runs all tests and checks full covera
 To reproduce either group, run its command in a separate checkout:
 
 ```bash
-# Group 1
-mvn -B clean test -pl flexdblink -Pci-shard "-Dtest=$(paste -sd, .github/core-test-group-1.txt)"
+# Tests that start Oracle
+mvn -B clean test -pl flexdblink -Ptest-oracle
 
-# Group 2 (use another checkout when running concurrently)
-mvn -B clean test -pl flexdblink -Pci-shard "-Dsurefire.excludesFile=${PWD}/.github/core-test-group-1.txt"
+# Tests that do not start Oracle (use another checkout when running concurrently)
+mvn -B clean test -pl flexdblink -Ptest-without-oracle
 ```
 
-Do not run both groups in the same checkout: some tests modify classpath resources.
-CI uses more runners to reduce elapsed time; the 7–9 minute target depends on
-runner availability and cold database-image startup and must be measured.
+Use separate checkouts when running both groups concurrently: some tests modify
+classpath resources.
+CI uses more runners to reduce elapsed time. The elapsed time for this grouping
+has not been measured; it depends on runner availability and cold database-image
+startup.
 
 ---
 

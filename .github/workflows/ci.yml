@@ -22,7 +22,7 @@ jobs:
       fail-fast: false
       matrix:
         java: [ '11', '17', '21', '25' ]
-        shard: [ '1', '2' ]
+        group: [ 'oracle', 'without-oracle' ]
 
     env:
       DOCKER_HOST: unix:///var/run/docker.sock
@@ -44,19 +44,13 @@ jobs:
         run: docker info
 
       - name: Run test group (including Testcontainers)
-        run: |
-          if [ '${{ matrix.shard }}' = '1' ]; then
-            test_selection="-Dtest=$(paste -sd, .github/core-test-group-1.txt)"
-          else
-            test_selection="-Dsurefire.excludesFile=${GITHUB_WORKSPACE}/.github/core-test-group-1.txt"
-          fi
-          mvn -B clean test -pl flexdblink -Pci-shard "${test_selection}"
+        run: mvn -B clean test -pl flexdblink -Ptest-${{ matrix.group }}
 
       - name: Upload test results and coverage inputs
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: core-tests-java-${{ matrix.java }}-shard-${{ matrix.shard }}
+          name: core-tests-java-${{ matrix.java }}-${{ matrix.group }}
           path: |
             flexdblink/target/jacoco.exec
             flexdblink/target/classes/
@@ -93,16 +87,16 @@ jobs:
       - name: Download coverage inputs for this JDK
         uses: actions/download-artifact@v8
         with:
-          pattern: core-tests-java-${{ matrix.java }}-shard-*
+          pattern: core-tests-java-${{ matrix.java }}-*
           path: flexdblink/target/ci-shards
 
       - name: Merge coverage and enforce C0 and C1 at 100 percent
         run: |
-          group_1="flexdblink/target/ci-shards/core-tests-java-${{ matrix.java }}-shard-1"
-          group_2="flexdblink/target/ci-shards/core-tests-java-${{ matrix.java }}-shard-2"
-          test -s "${group_1}/jacoco.exec"
-          test -s "${group_2}/jacoco.exec"
-          cp -R "${group_1}/classes" flexdblink/target/classes
+          oracle_tests="flexdblink/target/ci-shards/core-tests-java-${{ matrix.java }}-oracle"
+          other_tests="flexdblink/target/ci-shards/core-tests-java-${{ matrix.java }}-without-oracle"
+          test -s "${oracle_tests}/jacoco.exec"
+          test -s "${other_tests}/jacoco.exec"
+          cp -R "${oracle_tests}/classes" flexdblink/target/classes
           mvn -B -pl flexdblink jacoco:merge@merge-shards jacoco:report jacoco:check@check
 
       - name: Upload JaCoCo XML as artifact

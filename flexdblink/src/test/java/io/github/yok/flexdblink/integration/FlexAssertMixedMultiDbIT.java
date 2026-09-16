@@ -16,6 +16,7 @@ import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.datasource.DataSourceUtils;
@@ -35,6 +36,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 /**
  * FlexAssert integration tests for mixed multi-DB loading and assertion.
  */
+@Tag("oracle")
 @Testcontainers
 @SpringBootTest(classes = FlexAssertTestConfig.class)
 @ContextConfiguration(initializers = YamlPropertySourceFactory.class)

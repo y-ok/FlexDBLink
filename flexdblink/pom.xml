@@ -12,24 +12,24 @@
 	<packaging>jar</packaging>
 	<name>FlexDBLink</name>
 	<description>Manage DB test data as text (CSV/JSON/YAML/XML ↔ DB), with LOB files and JUnit 5 + Spring integration for Oracle/PostgreSQL/MySQL/SQL Server.</description>
+	<properties>
+		<jacoco.check.phase>test</jacoco.check.phase>
+	</properties>
 	<profiles>
 		<profile>
-			<id>ci-shard</id>
-			<build>
-				<plugins>
-					<plugin>
-						<groupId>org.jacoco</groupId>
-						<artifactId>jacoco-maven-plugin</artifactId>
-						<executions>
-							<execution>
-								<id>check</id>
-								<!-- Check complete coverage after both CI shards are merged. -->
-								<phase>none</phase>
-							</execution>
-						</executions>
-					</plugin>
-				</plugins>
-			</build>
+			<id>test-oracle</id>
+			<properties>
+				<groups>oracle</groups>
+				<!-- Check full coverage after the groups are merged. -->
+				<jacoco.check.phase>none</jacoco.check.phase>
+			</properties>
+		</profile>
+		<profile>
+			<id>test-without-oracle</id>
+			<properties>
+				<excludedGroups>oracle</excludedGroups>
+				<jacoco.check.phase>none</jacoco.check.phase>
+			</properties>
 		</profile>
 	</profiles>
 	<dependencies>
@@ -500,7 +500,7 @@
 					</execution>
 					<execution>
 						<id>check</id>
-						<phase>test</phase>
+						<phase>${jacoco.check.phase}</phase>
 						<goals>
 							<goal>check</goal>
 						</goals>

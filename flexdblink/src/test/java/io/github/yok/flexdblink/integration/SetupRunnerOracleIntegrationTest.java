@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,6 +29,7 @@ import org.testcontainers.oracle.OracleContainer;
  * the expected {@code file-patterns} entries in {@code application.yml}.
  * </p>
  */
+@Tag("oracle")
 @SpringBootTest(classes = IntegrationTestConfig.class)
 @ContextConfiguration(initializers = YamlPropertySourceFactory.class)
 @Testcontainers
