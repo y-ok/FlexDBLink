@@ -52,7 +52,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  */
 @SpringBootTest(classes = IntegrationTestConfig.class)
 @ContextConfiguration(initializers = YamlPropertySourceFactory.class)
-@Testcontainers
+@Testcontainers(parallel = true)
 class MainMultiDbIntegrationTest {
 
     private static final String ORACLE_ID = "ora";

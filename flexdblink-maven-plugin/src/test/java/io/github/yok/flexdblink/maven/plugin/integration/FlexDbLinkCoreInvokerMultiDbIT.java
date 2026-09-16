@@ -36,7 +36,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * Verifies that load and dump operations work correctly across PostgreSQL and MySQL simultaneously.
  * </p>
  */
-@Testcontainers
+@Testcontainers(parallel = true)
 class FlexDbLinkCoreInvokerMultiDbIT {
 
     private static final String PG_DB_ID = "PG1";
