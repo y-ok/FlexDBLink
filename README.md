@@ -962,6 +962,50 @@ A sample using an Oracle 19c Docker environment is available in the `script/` di
 
 ---
 
+## CI Test Execution
+
+Core tests run on Java 11, 17, 21, and 25. Each Java version uses two independent
+GitHub-hosted runners with separate working directories. The Maven plugin's Java 11
+job starts independently and builds its own core dependency.
+
+The profiles in [the core POM](flexdblink/pom.xml) group tests by whether they
+start an Oracle container. Local execution and CI use the same profiles:
+
+| Profile | Tests selected by Surefire |
+| --- | --- |
+| `test-oracle` | Classes annotated with JUnit's `@Tag("oracle")`: tests that start an Oracle container, including mixed multi-DB tests |
+| `test-without-oracle` | All remaining tests, including other database integration tests and unit tests |
+
+Add `@Tag("oracle")` to any new test class that starts an Oracle container. Unit
+tests for Oracle-specific code that do not start Oracle remain in
+`test-without-oracle`. Parameterized cases, fixtures, database resets, and
+per-class JVM isolation remain unchanged.
+
+Both profiles defer only the module-wide coverage check. After both groups pass,
+CI uses JaCoCo to merge their execution data separately for each Java
+version and checks for 100% instruction and branch coverage. Reporting uses the
+original compiled classes without rebuilding them. The plugin also uses JaCoCo's
+standard `check` goal during `verify`.
+The regular `mvn clean test` command still runs all tests and checks full coverage.
+
+To reproduce either group, run its command in a separate checkout:
+
+```bash
+# Tests that start Oracle
+mvn -B clean test -pl flexdblink -Ptest-oracle
+
+# Tests that do not start Oracle (use another checkout when running concurrently)
+mvn -B clean test -pl flexdblink -Ptest-without-oracle
+```
+
+Use separate checkouts when running both groups concurrently: some tests modify
+classpath resources.
+CI uses more runners to reduce elapsed time. The elapsed time for this grouping
+has not been measured; it depends on runner availability and cold database-image
+startup.
+
+---
+
 ## License
 
 This repository is provided under the **Apache License 2.0**. See [LICENSE](LICENSE.txt) for details.

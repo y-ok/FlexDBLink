@@ -44,6 +44,7 @@ import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -55,6 +56,7 @@ import org.testcontainers.oracle.OracleContainer;
 /**
  * Regression tests for resource retention and repeated work in the transactional load path.
  */
+@Tag("oracle")
 @Testcontainers
 class LoadDataPerformanceRegressionIT {
 

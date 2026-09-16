@@ -12,7 +12,25 @@
 	<packaging>jar</packaging>
 	<name>FlexDBLink</name>
 	<description>Manage DB test data as text (CSV/JSON/YAML/XML ↔ DB), with LOB files and JUnit 5 + Spring integration for Oracle/PostgreSQL/MySQL/SQL Server.</description>
+	<properties>
+		<jacoco.check.phase>test</jacoco.check.phase>
+	</properties>
 	<profiles>
+		<profile>
+			<id>test-oracle</id>
+			<properties>
+				<groups>oracle</groups>
+				<!-- Check full coverage after the groups are merged. -->
+				<jacoco.check.phase>none</jacoco.check.phase>
+			</properties>
+		</profile>
+		<profile>
+			<id>test-without-oracle</id>
+			<properties>
+				<excludedGroups>oracle</excludedGroups>
+				<jacoco.check.phase>none</jacoco.check.phase>
+			</properties>
+		</profile>
 	</profiles>
 	<dependencies>
 		<dependency>
@@ -457,6 +475,23 @@
 						</goals>
 					</execution>
 					<execution>
+						<id>merge-shards</id>
+						<phase>none</phase>
+						<goals>
+							<goal>merge</goal>
+						</goals>
+						<configuration>
+							<fileSets>
+								<fileSet>
+									<directory>${project.build.directory}/ci-shards</directory>
+									<includes>
+										<include>*/jacoco.exec</include>
+									</includes>
+								</fileSet>
+							</fileSets>
+						</configuration>
+					</execution>
+					<execution>
 						<id>report</id>
 						<phase>test</phase>
 						<goals>
@@ -465,7 +500,7 @@
 					</execution>
 					<execution>
 						<id>check</id>
-						<phase>test</phase>
+						<phase>${jacoco.check.phase}</phase>
 						<goals>
 							<goal>check</goal>
 						</goals>

@@ -16,6 +16,7 @@ import javax.sql.DataSource;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.datasource.DataSourceUtils;
@@ -26,6 +27,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.JdbcDatabaseContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.lifecycle.Startables;
 import org.testcontainers.mssqlserver.MSSQLServerContainer;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.oracle.OracleContainer;
@@ -34,6 +36,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 /**
  * FlexAssert integration tests for mixed multi-DB loading and assertion.
  */
+@Tag("oracle")
 @Testcontainers
 @SpringBootTest(classes = FlexAssertTestConfig.class)
 @ContextConfiguration(initializers = YamlPropertySourceFactory.class)
@@ -67,44 +70,27 @@ class FlexAssertMixedMultiDbIT {
     private static final MySQLContainer MYSQL = createMySql();
 
     @Container
-    private static final OracleContainer ORACLE = createOracle();
+    private static final OracleContainer ORACLE =
+            new OracleContainer("gvenzl/oracle-free:slim-faststart");
 
     @Container
     private static final MSSQLServerContainer SQLSERVER = createSqlServer();
 
+    static {
+        // Both Spring and @LoadData require these properties during configuration discovery.
+        Startables.deepStart(POSTGRES, MYSQL, ORACLE, SQLSERVER).join();
+        publishConnectionProperties();
+    }
+
     private static PostgreSQLContainer createPostgres() {
         PostgreSQLContainer container = new PostgreSQLContainer("postgres:16-alpine");
         container.withDatabaseName("testdb").withUsername("test").withPassword("test");
-        container.start();
-        System.setProperty("FLEXASSERT_DB_URL", container.getJdbcUrl());
-        System.setProperty("FLEXASSERT_DB_USER", container.getUsername());
-        System.setProperty("FLEXASSERT_DB_PASSWORD", container.getPassword());
-        System.setProperty("FLEXASSERT_DB_DRIVER", "org.postgresql.Driver");
-        System.setProperty(FLEXASSERT_MULTI_DB1_URL, container.getJdbcUrl());
-        System.setProperty(FLEXASSERT_MULTI_DB1_USER, container.getUsername());
-        System.setProperty(FLEXASSERT_MULTI_DB1_PASSWORD, container.getPassword());
-        System.setProperty(FLEXASSERT_MULTI_DB1_DRIVER, "org.postgresql.Driver");
         return container;
     }
 
     private static MySQLContainer createMySql() {
         MySQLContainer container = new MySQLContainer("mysql:8.4");
         container.withDatabaseName("testdb").withUsername("test").withPassword("test");
-        container.start();
-        System.setProperty(FLEXASSERT_MULTI_DB2_URL, container.getJdbcUrl());
-        System.setProperty(FLEXASSERT_MULTI_DB2_USER, container.getUsername());
-        System.setProperty(FLEXASSERT_MULTI_DB2_PASSWORD, container.getPassword());
-        System.setProperty(FLEXASSERT_MULTI_DB2_DRIVER, "com.mysql.cj.jdbc.Driver");
-        return container;
-    }
-
-    private static OracleContainer createOracle() {
-        OracleContainer container = new OracleContainer("gvenzl/oracle-free:slim-faststart");
-        container.start();
-        System.setProperty(FLEXASSERT_MULTI_DB3_URL, container.getJdbcUrl());
-        System.setProperty(FLEXASSERT_MULTI_DB3_USER, container.getUsername());
-        System.setProperty(FLEXASSERT_MULTI_DB3_PASSWORD, container.getPassword());
-        System.setProperty(FLEXASSERT_MULTI_DB3_DRIVER, "oracle.jdbc.OracleDriver");
         return container;
     }
 
@@ -112,13 +98,34 @@ class FlexAssertMixedMultiDbIT {
         MSSQLServerContainer container =
                 new MSSQLServerContainer("mcr.microsoft.com/mssql/server:2019-latest");
         container.acceptLicense();
-        container.start();
-        System.setProperty(FLEXASSERT_MULTI_DB4_URL, container.getJdbcUrl());
-        System.setProperty(FLEXASSERT_MULTI_DB4_USER, container.getUsername());
-        System.setProperty(FLEXASSERT_MULTI_DB4_PASSWORD, container.getPassword());
+        return container;
+    }
+
+    private static void publishConnectionProperties() {
+        System.setProperty("FLEXASSERT_DB_URL", POSTGRES.getJdbcUrl());
+        System.setProperty("FLEXASSERT_DB_USER", POSTGRES.getUsername());
+        System.setProperty("FLEXASSERT_DB_PASSWORD", POSTGRES.getPassword());
+        System.setProperty("FLEXASSERT_DB_DRIVER", "org.postgresql.Driver");
+        System.setProperty(FLEXASSERT_MULTI_DB1_URL, POSTGRES.getJdbcUrl());
+        System.setProperty(FLEXASSERT_MULTI_DB1_USER, POSTGRES.getUsername());
+        System.setProperty(FLEXASSERT_MULTI_DB1_PASSWORD, POSTGRES.getPassword());
+        System.setProperty(FLEXASSERT_MULTI_DB1_DRIVER, "org.postgresql.Driver");
+
+        System.setProperty(FLEXASSERT_MULTI_DB2_URL, MYSQL.getJdbcUrl());
+        System.setProperty(FLEXASSERT_MULTI_DB2_USER, MYSQL.getUsername());
+        System.setProperty(FLEXASSERT_MULTI_DB2_PASSWORD, MYSQL.getPassword());
+        System.setProperty(FLEXASSERT_MULTI_DB2_DRIVER, "com.mysql.cj.jdbc.Driver");
+
+        System.setProperty(FLEXASSERT_MULTI_DB3_URL, ORACLE.getJdbcUrl());
+        System.setProperty(FLEXASSERT_MULTI_DB3_USER, ORACLE.getUsername());
+        System.setProperty(FLEXASSERT_MULTI_DB3_PASSWORD, ORACLE.getPassword());
+        System.setProperty(FLEXASSERT_MULTI_DB3_DRIVER, "oracle.jdbc.OracleDriver");
+
+        System.setProperty(FLEXASSERT_MULTI_DB4_URL, SQLSERVER.getJdbcUrl());
+        System.setProperty(FLEXASSERT_MULTI_DB4_USER, SQLSERVER.getUsername());
+        System.setProperty(FLEXASSERT_MULTI_DB4_PASSWORD, SQLSERVER.getPassword());
         System.setProperty(FLEXASSERT_MULTI_DB4_DRIVER,
                 "com.microsoft.sqlserver.jdbc.SQLServerDriver");
-        return container;
     }
 
     @DynamicPropertySource
@@ -245,7 +252,7 @@ class FlexAssertMixedMultiDbIT {
     /**
      * Counts rows from the target table.
      *
-     * @param container target database container
+     * @param dbName logical database ID registered by @LoadData
      * @param tableName target table name
      * @return row count
      * @throws Exception when query execution fails

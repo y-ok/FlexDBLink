@@ -26,6 +26,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -50,9 +51,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * {@code connections[]} configuration and target filtering per DB ID.
  * </p>
  */
+@Tag("oracle")
 @SpringBootTest(classes = IntegrationTestConfig.class)
 @ContextConfiguration(initializers = YamlPropertySourceFactory.class)
-@Testcontainers
+@Testcontainers(parallel = true)
 class MainMultiDbIntegrationTest {
 
     private static final String ORACLE_ID = "ora";
